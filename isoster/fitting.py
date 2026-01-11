@@ -194,6 +194,9 @@ def sigma_clip(phi, intens, sclip=3.0, nclip=0, sclip_low=None, sclip_high=None)
 
 def compute_parameter_errors(phi, intens, x0, y0, sma, eps, pa, gradient, cov_matrix=None):
     """Compute parameter errors based on the covariance matrix of harmonic coefficients."""
+    # Guard against zero/None gradient to prevent division errors
+    if gradient is None or abs(gradient) < 1e-10:
+        return 0.0, 0.0, 0.0, 0.0
     try:
         if cov_matrix is None:
             # Fallback to leastsq if covariance not provided
@@ -512,7 +515,7 @@ def fit_isophote(image, mask, sma, start_geometry, config, going_inwards=False, 
         if gradient_error is not None:
             previous_gradient = gradient
         
-        gradient_relative_error = abs(gradient_error / gradient) if (gradient_error is not None and gradient < 0) else None
+        gradient_relative_error = abs(gradient_error / gradient) if (gradient_error is not None and gradient is not None and gradient < 0) else None
         if not going_inwards:
             if gradient_relative_error is None or gradient_relative_error > maxgerr or gradient >= 0:
                 if lexceed:
@@ -590,8 +593,9 @@ def fit_isophote(image, mask, sma, start_geometry, config, going_inwards=False, 
             x0 += aux * np.cos(pa)
             y0 += aux * np.sin(pa)
         elif max_idx == 2:
-            denom = ((1.0 - eps)**2 - 1.0)
-            if denom == 0: denom = 1e-6
+            # denom = 1 - (1-eps)^2 = eps*(2-eps), always >= 0
+            denom = 1.0 - (1.0 - eps)**2
+            if abs(denom) < 1e-10: denom = 1e-10  # Avoid division by zero for eps~0
             pa = (pa + (max_amp * 2.0 * (1.0 - eps) / sma / gradient / denom)) % np.pi
         elif max_idx == 3:
             eps = min(eps - (max_amp * 2.0 * (1.0 - eps) / sma / gradient), 0.95)

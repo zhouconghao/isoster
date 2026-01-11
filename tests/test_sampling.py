@@ -28,21 +28,22 @@ class TestSampling(unittest.TestCase):
     def test_extract_isophote_data(self):
         image = np.zeros((100, 100))
         image[45:55, 45:55] = 10.0
-        
+
         x0, y0 = 50.0, 50.0
         sma = 2.0
         eps = 0.0
         pa = 0.0
-        
-        phi, intens, radii = extract_isophote_data(image, None, x0, y0, sma, eps, pa)
-        
-        self.assertTrue(len(phi) > 0)
-        self.assertTrue(np.allclose(intens, 10.0))
-        self.assertTrue(np.all(radii == sma))
-        
+
+        # extract_isophote_data returns IsophoteData namedtuple with (angles, phi, intens, radii)
+        data = extract_isophote_data(image, None, x0, y0, sma, eps, pa)
+
+        self.assertTrue(len(data.angles) > 0)
+        self.assertTrue(np.allclose(data.intens, 10.0))
+        self.assertTrue(np.all(data.radii == sma))
+
         # Test out of bounds
-        phi, intens, radii = extract_isophote_data(image, None, -10, -10, sma, eps, pa)
-        self.assertEqual(len(phi), 0)
+        data = extract_isophote_data(image, None, -10, -10, sma, eps, pa)
+        self.assertEqual(len(data.angles), 0)
 
 if __name__ == '__main__':
     unittest.main()
