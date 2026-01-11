@@ -45,8 +45,7 @@ def test_model():
     assert np.abs(np.mean(residual)) <= 5.0
 
 
-@pytest.mark.parametrize('sma_interval', [0.05, 0.1])
-def test_model_simulated_data(sma_interval):
+def test_model_simulated_data():
     data = make_test_image(nx=200, ny=200, i0=10.0, sma=5.0, eps=0.5,
                            pa=np.pi / 3.0, noise=0.05, seed=0)
 
@@ -60,8 +59,7 @@ def test_model_simulated_data(sma_interval):
         isophote_list = ellipse.fit_image()
 
     model = build_ellipse_model(data.shape, isophote_list,
-                                fill=np.mean(data[0:50, 0:50]),
-                                sma_interval=sma_interval)
+                                fill=np.mean(data[0:50, 0:50]))
 
     assert data.shape == model.shape
 
