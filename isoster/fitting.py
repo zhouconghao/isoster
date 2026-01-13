@@ -94,7 +94,7 @@ def extract_forced_photometry(image, mask, x0, y0, sma, eps, pa, integrator='mea
             'a3': 0.0, 'b3': 0.0, 'a3_err': 0.0, 'b3_err': 0.0,
             'a4': 0.0, 'b4': 0.0, 'a4_err': 0.0, 'b4_err': 0.0,
             'tflux_e': np.nan, 'tflux_c': np.nan, 'npix_e': 0, 'npix_c': 0,
-            'stop_code': -1, 'niter': 0
+            'stop_code': -1, 'niter': 0  # STOP_CODE -1: No data / gradient error
         }
     
     # Sigma clipping
@@ -118,7 +118,7 @@ def extract_forced_photometry(image, mask, x0, y0, sma, eps, pa, integrator='mea
         'a3': 0.0, 'b3': 0.0, 'a3_err': 0.0, 'b3_err': 0.0,
         'a4': 0.0, 'b4': 0.0, 'a4_err': 0.0, 'b4_err': 0.0,
         'tflux_e': np.nan, 'tflux_c': np.nan, 'npix_e': 0, 'npix_c': 0,
-        'stop_code': 0, 'niter': 0
+        'stop_code': 0, 'niter': 0  # STOP_CODE 0: Success (forced photometry)
     }
 
 def fit_first_and_second_harmonics(phi, intensity):
@@ -494,12 +494,12 @@ def fit_isophote(image, mask, sma, start_geometry, config, going_inwards=False, 
         
         if actual_points < (total_points * fflag):
             if best_geometry is not None:
-                best_geometry['stop_code'], best_geometry['niter'] = 1, niter
+                best_geometry['stop_code'], best_geometry['niter'] = 1, niter  # STOP_CODE 1: Too many flagged pixels
                 return best_geometry
             else:
                 res = {'x0': x0, 'y0': y0, 'eps': eps, 'pa': pa, 'sma': sma,
                        'intens': np.nan, 'rms': np.nan, 'intens_err': np.nan,
-                       'stop_code': 1, 'niter': niter,
+                       'stop_code': 1, 'niter': niter,  # STOP_CODE 1: Too many flagged pixels
                        'tflux_e': np.nan, 'tflux_c': np.nan, 'npix_e': 0, 'npix_c': 0}
                 if debug:
                     res.update({'ndata': actual_points, 'nflag': total_points - actual_points,
@@ -507,7 +507,7 @@ def fit_isophote(image, mask, sma, start_geometry, config, going_inwards=False, 
                 return res
         
         if len(intens) < 6:
-            stop_code = 3
+            stop_code = 3  # STOP_CODE 3: Too few points (need ≥6 for 5-parameter harmonic fit)
             break
             
         # Determine effective integrator for this isophote
@@ -535,13 +535,13 @@ def fit_isophote(image, mask, sma, start_geometry, config, going_inwards=False, 
         if not going_inwards:
             if gradient_relative_error is None or gradient_relative_error > maxgerr or gradient >= 0:
                 if lexceed:
-                    stop_code = -1
+                    stop_code = -1  # STOP_CODE -1: Gradient error (high relative error exceeded twice)
                     break
                 else:
                     lexceed = True
-        
+
         if gradient == 0:
-            stop_code = -1
+            stop_code = -1  # STOP_CODE -1: Zero gradient (cannot compute corrections)
             break
             
         # Evaluate model in angle space used for fitting
@@ -582,7 +582,7 @@ def fit_isophote(image, mask, sma, start_geometry, config, going_inwards=False, 
                                       'grad_r_error': gradient_relative_error if gradient_relative_error is not None else np.nan})
             
         if abs(max_amp) < conver * rms and i >= minit:
-            stop_code = 0
+            stop_code = 0  # STOP_CODE 0: Converged successfully
             # Already updated best_geometry in min_amplitude check, but let's ensure deviations
             if compute_deviations_flag:
                 a3, b3, a3_err, b3_err = compute_deviations(phi, intens, sma, gradient, 3)

@@ -7,6 +7,16 @@ class IsosterConfig(BaseModel):
 
     This Pydantic model defines all tunable parameters for the isophote fitting algorithm,
     including geometry initialization, fitting control, quality control, and output options.
+
+    **Stop Codes:**
+    Fitting results include a 'stop_code' field indicating termination condition:
+    - 0: Success (converged)
+    - 1: Too many flagged pixels (>fflag threshold)
+    - 2: Minor issues
+    - 3: Too few points (<6)
+    - -1: Gradient error (invalid or unreliable)
+
+    See docs/STOP_CODES.md for detailed documentation.
     """
     # Geometry initialization
     x0: Optional[float] = Field(None, description="Initial center x coordinate. If None, uses image center.")
