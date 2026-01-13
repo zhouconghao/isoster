@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python -m pytest:*)",
+      "Bash(grep:*)",
+      "Bash(python3:*)",
+      "Bash(git checkout:*)",
+      "Bash(python benchmarks/benchmark_sersic_accuracy.py:*)",
+      "Bash(python:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)"
+    ]
+  }
+}

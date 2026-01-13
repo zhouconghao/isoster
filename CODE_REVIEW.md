@@ -8,7 +8,7 @@ This document presents a critical review of the ISOSTER codebase, identifying **
 
 ## Part 1: Critical Bugs
 
-### BUG-1: Incorrect PA Update Formula (CRITICAL)
+### BUG-1: Incorrect PA Update Formula (CRITICAL; Corrected)
 **File:** `isoster/fitting.py:593-595`
 ```python
 denom = ((1.0 - eps)**2 - 1.0)  # Always negative for eps ∈ [0,1)!
@@ -19,7 +19,7 @@ pa = (pa + (max_amp * 2.0 * (1.0 - eps) / sma / gradient / denom)) % np.pi
 **Impact:** Geometry fitting converges to wrong PA values.
 **Fix:** Use `denom = 1.0 - (1.0 - eps)**2` or `-eps * (2 - eps)`.
 
-### BUG-2: API Breaking Change - Return Type Mismatch (CRITICAL)
+### BUG-2: API Breaking Change - Return Type Mismatch (CRITICAL; Corrected)
 **File:** `isoster/sampling.py:172-185` vs `tests/test_sampling.py:37`
 ```python
 # Function returns 4-element IsophoteData namedtuple
@@ -30,7 +30,7 @@ phi, intens, radii = extract_isophote_data(...)  # ValueError!
 ```
 **Impact:** Test suite fails. Breaking change if external code uses tuple unpacking.
 
-### BUG-3: Missing None Check Causes TypeError (CRITICAL)
+### BUG-3: Missing None Check Causes TypeError (CRITICAL; Corrected)
 **File:** `isoster/fitting.py:515`
 ```python
 gradient_relative_error = abs(gradient_error / gradient) if (gradient_error is not None and gradient < 0) else None
@@ -38,7 +38,7 @@ gradient_relative_error = abs(gradient_error / gradient) if (gradient_error is n
 **Problem:** If `gradient` is `None`, comparison `gradient < 0` raises `TypeError`.
 **Fix:** Add `gradient is not None and` before `gradient < 0`.
 
-### BUG-4: Division by Zero in Parameter Errors (CRITICAL)
+### BUG-4: Division by Zero in Parameter Errors (CRITICAL; Corrected)
 **File:** `isoster/fitting.py:230-239`
 ```python
 ea = abs(errors[2] / gradient)  # No zero check
@@ -59,12 +59,7 @@ ea = abs(errors[2] / gradient)  # No zero check
 ```python
 from numba import njit  # Never used
 ```
-- Either use `@njit` on hot loops or remove import
-
-### ISSUE-3: Dead Code File
-**File:** `isoster/optimize_backup.py` (entire file)
-- Complete backup of old implementation
-- **Fix:** Remove or move to `reference/`
+- Should implement `@njit` on hot loops.
 
 ### ISSUE-4: Integer Truncation for Central Pixel
 **File:** `driver.py:20,23`
