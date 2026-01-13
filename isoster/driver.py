@@ -17,10 +17,11 @@ def fit_central_pixel(image, mask, x0, y0, debug=False):
         dict: A dictionary containing the fitting result for the central pixel.
     """
     # Simple estimation for center
-    val = image[int(y0), int(x0)]
+    # Use np.round() instead of int() to avoid truncation bias
+    val = image[int(np.round(y0)), int(np.round(x0))]
     valid = True
     if mask is not None:
-        if mask[int(y0), int(x0)]:
+        if mask[int(np.round(y0)), int(np.round(x0))]:
             valid = False
             
     return {
