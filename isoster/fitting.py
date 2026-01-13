@@ -244,7 +244,15 @@ def compute_parameter_errors(phi, intens, x0, y0, sma, eps, pa, gradient, cov_ma
             pa_err = 0.0
             
         return x0_err, y0_err, eps_err, pa_err
-    except Exception:
+    except (np.linalg.LinAlgError, ValueError) as e:
+        # Singular matrix or numerical instability
+        import warnings
+        warnings.warn(f"compute_parameter_errors failed: {e}. Returning zero errors.", RuntimeWarning)
+        return 0.0, 0.0, 0.0, 0.0
+    except Exception as e:
+        # Unexpected error - warn but don't crash
+        import warnings
+        warnings.warn(f"Unexpected error in compute_parameter_errors: {e}. Returning zero errors.", RuntimeWarning)
         return 0.0, 0.0, 0.0, 0.0
 
 def compute_deviations(phi, intens, sma, gradient, order):
@@ -281,7 +289,15 @@ def compute_deviations(phi, intens, sma, gradient, order):
         b_err = errors[2] / factor
         
         return a, b, a_err, b_err
-    except Exception:
+    except (np.linalg.LinAlgError, ValueError) as e:
+        # Singular matrix or numerical instability
+        import warnings
+        warnings.warn(f"compute_deviations (order={order}) failed: {e}. Returning zeros.", RuntimeWarning)
+        return 0.0, 0.0, 0.0, 0.0
+    except Exception as e:
+        # Unexpected error - warn but don't crash
+        import warnings
+        warnings.warn(f"Unexpected error in compute_deviations (order={order}): {e}. Returning zeros.", RuntimeWarning)
         return 0.0, 0.0, 0.0, 0.0
 
 def compute_gradient(image, mask, x0, y0, sma, eps, pa, step=0.1, linear_growth=False, previous_gradient=None, current_data=None, integrator='mean', use_eccentric_anomaly=False):
