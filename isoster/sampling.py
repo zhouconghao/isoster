@@ -1,6 +1,5 @@
 import numpy as np
 from scipy.ndimage import map_coordinates
-from numba import njit
 from collections import namedtuple
 
 # Named tuple for isophote data with clear ψ/φ separation
