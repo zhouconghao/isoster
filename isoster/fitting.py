@@ -59,17 +59,17 @@ def compute_central_regularization_penalty(current_geom, previous_geom, sma, con
     
     return penalty
 
-def extract_forced_photometry(image, mask, sma, x0, y0, eps, pa, integrator='mean', sclip=3.0, nclip=0, use_eccentric_anomaly=False):
+def extract_forced_photometry(image, mask, x0, y0, sma, eps, pa, integrator='mean', sclip=3.0, nclip=0, use_eccentric_anomaly=False):
     """
     Extract forced photometry at a single SMA without fitting.
-    
+
     This is used for pure forced mode where geometry is predetermined.
-    
+
     Args:
         image (np.ndarray): Input image.
         mask (np.ndarray): Bad pixel mask.
-        sma (float): Semi-major axis length.
         x0, y0 (float): Center coordinates.
+        sma (float): Semi-major axis length.
         eps (float): Ellipticity.
         pa (float): Position angle in radians.
         integrator (str): 'mean' or 'median'.

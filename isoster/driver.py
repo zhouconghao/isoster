@@ -68,9 +68,10 @@ def fit_image(image, mask=None, config=None):
         isophotes = []
         for sma in cfg.forced_sma:
             iso = extract_forced_photometry(
-                image, mask, sma,
+                image, mask,
                 cfg.x0 if cfg.x0 is not None else image.shape[1]/2,
                 cfg.y0 if cfg.y0 is not None else image.shape[0]/2,
+                sma,
                 cfg.eps, cfg.pa,
                 integrator=cfg.integrator,
                 sclip=cfg.sclip,
