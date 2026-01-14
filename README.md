@@ -44,6 +44,36 @@ model = isoster.build_ellipse_model(image.shape, results['isophotes'])
 fits.writeto("model.fits", model, overwrite=True)
 ```
 
+## Important Considerations
+
+### High-Ellipticity Fitting (ε > 0.6)
+
+For highly elliptical galaxies (ellipticity ε = 1 - b/a > 0.6), the default `maxgerr=0.5` parameter may be too strict, causing excessive isophote failures even when photometry is accurate. This occurs because gradient errors are amplified in high-ellipticity geometries.
+
+**Recommendation:** Use relaxed `maxgerr` values for high-ellipticity cases:
+
+```python
+from isoster.config import IsosterConfig
+
+# For high ellipticity (eps > 0.6)
+config = IsosterConfig(
+    eps=0.7,
+    pa=1.0,
+    maxgerr=1.0,  # Relaxed from default 0.5
+    use_eccentric_anomaly=True,  # Recommended for eps > 0.3
+)
+
+results = isoster.fit_image(image, mask, config)
+```
+
+**Guidelines:**
+- **ε < 0.6**: Use default `maxgerr=0.5`
+- **0.6 ≤ ε ≤ 0.7**: Use `maxgerr=1.0` (improves convergence from ~40% to ~85%)
+- **ε > 0.7**: Use `maxgerr=1.2` or higher
+- Always enable `use_eccentric_anomaly=True` for ε > 0.3
+
+See `docs/STOP_CODES.md` for detailed information on stop codes and convergence criteria.
+
 ## Repository Structure
 
 - `isoster/`:
