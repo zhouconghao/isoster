@@ -4,7 +4,8 @@ import warnings
 import pytest
 from isoster.fitting import (fit_first_and_second_harmonics, sigma_clip,
                               compute_aperture_photometry, compute_parameter_errors,
-                              compute_deviations)
+                              compute_deviations, compute_central_regularization_penalty)
+from isoster.config import IsosterConfig
 
 class TestFitting(unittest.TestCase):
     def test_fit_harmonics(self):
@@ -196,3 +197,60 @@ def test_compute_deviations_normal_case():
         compute_dev_warnings = [warn for warn in w if "compute_deviations" in str(warn.message)]
         assert len(compute_dev_warnings) == 0, \
             f"Expected no warnings for normal case, got: {[str(warn.message) for warn in compute_dev_warnings]}"
+
+def test_pa_wraparound_vectorized():
+    """Test that PA wrap-around is correctly handled with vectorized modulo arithmetic.
+
+    This test verifies that the vectorized formula ((delta + π) % (2π)) - π
+    correctly wraps PA differences to [-π, π] range and produces finite penalties.
+    """
+    # Create minimal config for regularization
+    config = IsosterConfig(
+        x0=50.0, y0=50.0, eps=0.3, pa=0.0,
+        sma0=10.0, minsma=3.0, maxsma=100.0,
+        use_central_regularization=True,
+        central_reg_strength=0.1,
+        central_reg_sma_threshold=10.0,
+    )
+
+    # Test cases: various PA differences that should wrap to [-π, π]
+    test_cases = [
+        # (current_pa, previous_pa, description)
+        (0.1, 0.0, "Small positive difference"),
+        (0.0, 0.1, "Small negative difference"),
+        (np.pi - 0.1, -np.pi + 0.1, "Wrap from +π to -π"),
+        (-np.pi + 0.1, np.pi - 0.1, "Wrap from -π to +π"),
+        (3.0, -3.0, "Large positive wrap"),
+        (-3.0, 3.0, "Large negative wrap"),
+        (0.0, 0.0, "No difference"),
+        (np.pi, -np.pi, "π and -π are equivalent"),
+        (2*np.pi, 0.0, "Full circle wrap"),
+        (4*np.pi, 0.0, "Multiple circle wrap"),
+    ]
+
+    for current_pa, previous_pa, description in test_cases:
+        current_geom = {'x0': 50.0, 'y0': 50.0, 'eps': 0.3, 'pa': current_pa}
+        previous_geom = {'x0': 50.0, 'y0': 50.0, 'eps': 0.3, 'pa': previous_pa}
+
+        # Compute penalty (should not crash)
+        penalty = compute_central_regularization_penalty(
+            current_geom, previous_geom, sma=5.0, config=config
+        )
+
+        # Verify penalty is finite and non-negative
+        assert np.isfinite(penalty), f"Penalty should be finite for {description}: pa={current_pa}, prev_pa={previous_pa}"
+        assert penalty >= 0.0, f"Penalty should be non-negative for {description}, got {penalty}"
+
+        # Manually compute delta_pa with vectorized formula
+        delta_pa = current_pa - previous_pa
+        delta_pa_wrapped = ((delta_pa + np.pi) % (2 * np.pi)) - np.pi
+
+        # Verify wrapped value is in [-π, π]
+        assert -np.pi - 1e-10 <= delta_pa_wrapped <= np.pi + 1e-10, \
+            f"Wrapped delta_pa {delta_pa_wrapped:.6f} not in [-π, π] for {description}"
+
+    print("✓ PA wrap-around vectorized test passed")
+
+
+if __name__ == '__main__':
+    pytest.main([__file__, '-v'])

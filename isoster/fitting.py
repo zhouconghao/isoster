@@ -42,10 +42,7 @@ def compute_central_regularization_penalty(current_geom, previous_geom, sma, con
     delta_pa = current_geom['pa'] - previous_geom['pa']
     
     # Handle PA wrap-around (force to [-π, π])
-    while delta_pa > np.pi:
-        delta_pa -= 2 * np.pi
-    while delta_pa < -np.pi:
-        delta_pa += 2 * np.pi
+    delta_pa = ((delta_pa + np.pi) % (2 * np.pi)) - np.pi
     
     delta_x0 = current_geom['x0'] - previous_geom['x0']
     delta_y0 = current_geom['y0'] - previous_geom['y0']
