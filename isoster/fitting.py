@@ -94,7 +94,7 @@ def extract_forced_photometry(image, mask, x0, y0, sma, eps, pa, integrator='mea
             'a3': 0.0, 'b3': 0.0, 'a3_err': 0.0, 'b3_err': 0.0,
             'a4': 0.0, 'b4': 0.0, 'a4_err': 0.0, 'b4_err': 0.0,
             'tflux_e': np.nan, 'tflux_c': np.nan, 'npix_e': 0, 'npix_c': 0,
-            'stop_code': -1, 'niter': 0  # STOP_CODE -1: No data / gradient error
+            'stop_code': 3, 'niter': 0  # STOP_CODE 3: Too few points (no usable samples)
         }
     
     # Sigma clipping
@@ -245,15 +245,15 @@ def compute_parameter_errors(phi, intens, x0, y0, sma, eps, pa, gradient, cov_ma
             
         return x0_err, y0_err, eps_err, pa_err
     except (np.linalg.LinAlgError, ValueError) as e:
-        # Singular matrix or numerical instability
+        # Singular matrix or numerical instability - return zero errors
         import warnings
-        warnings.warn(f"compute_parameter_errors failed: {e}. Returning zero errors.", RuntimeWarning)
+        warnings.warn(
+            f"compute_parameter_errors failed (singular matrix or numerical issue): {e}. "
+            f"Returning zero errors.",
+            RuntimeWarning
+        )
         return 0.0, 0.0, 0.0, 0.0
-    except Exception as e:
-        # Unexpected error - warn but don't crash
-        import warnings
-        warnings.warn(f"Unexpected error in compute_parameter_errors: {e}. Returning zero errors.", RuntimeWarning)
-        return 0.0, 0.0, 0.0, 0.0
+    # Note: Removed broad 'except Exception' - unexpected errors should be raised for debugging
 
 def compute_deviations(phi, intens, sma, gradient, order):
     """Compute deviations from perfect ellipticity (higher order harmonics)."""
@@ -289,19 +289,41 @@ def compute_deviations(phi, intens, sma, gradient, order):
         b_err = errors[2] / factor
         
         return a, b, a_err, b_err
-    except (np.linalg.LinAlgError, ValueError) as e:
-        # Singular matrix or numerical instability
+    except (np.linalg.LinAlgError, ValueError, TypeError) as e:
+        # Singular matrix, numerical instability, or degenerate input - return zeros
+        # TypeError can occur from scipy.optimize.leastsq when N_params > N_data
         import warnings
-        warnings.warn(f"compute_deviations (order={order}) failed: {e}. Returning zeros.", RuntimeWarning)
+        warnings.warn(
+            f"compute_deviations (order={order}) failed (singular matrix, numerical issue, or degenerate input): {e}. "
+            f"Returning zeros.",
+            RuntimeWarning
+        )
         return 0.0, 0.0, 0.0, 0.0
-    except Exception as e:
-        # Unexpected error - warn but don't crash
-        import warnings
-        warnings.warn(f"Unexpected error in compute_deviations (order={order}): {e}. Returning zeros.", RuntimeWarning)
-        return 0.0, 0.0, 0.0, 0.0
+    # Note: Removed broad 'except Exception' - unexpected errors should be raised for debugging
 
-def compute_gradient(image, mask, x0, y0, sma, eps, pa, step=0.1, linear_growth=False, previous_gradient=None, current_data=None, integrator='mean', use_eccentric_anomaly=False):
-    """Compute the radial intensity gradient."""
+def compute_gradient(image, mask, geometry, config, previous_gradient=None, current_data=None):
+    """Compute the radial intensity gradient.
+
+    Args:
+        image: 2D image array
+        mask: 2D boolean mask array (True = masked)
+        geometry: dict with keys {x0, y0, sma, eps, pa}
+        config: dict-like config with attributes {astep, linear_growth, integrator, use_eccentric_anomaly}
+        previous_gradient: Previous gradient value for comparison (optional)
+        current_data: Cached (phi, intens) tuple to avoid re-extraction (optional)
+
+    Returns:
+        (gradient, gradient_error): Tuple of gradient value and its error estimate
+    """
+    # Unpack geometry
+    x0, y0, sma, eps, pa = geometry['x0'], geometry['y0'], geometry['sma'], geometry['eps'], geometry['pa']
+
+    # Unpack config
+    step = config.astep if hasattr(config, 'astep') else config['astep']
+    linear_growth = config.linear_growth if hasattr(config, 'linear_growth') else config['linear_growth']
+    integrator = config.integrator if hasattr(config, 'integrator') else config['integrator']
+    use_eccentric_anomaly = config.use_eccentric_anomaly if hasattr(config, 'use_eccentric_anomaly') else config['use_eccentric_anomaly']
+
     if current_data is not None:
         phi_c, intens_c = current_data
     else:
@@ -525,9 +547,18 @@ def fit_isophote(image, mask, sma, start_geometry, config, going_inwards=False, 
         y0_fit, A1, B1, A2, B2 = coeffs
         
         # GRADIENT computed using φ and current geometry
-        gradient, gradient_error = compute_gradient(image, mask, x0, y0, sma, eps, pa, astep, linear_growth, 
-                                                   previous_gradient, current_data=(phi, intens), integrator=eff_integrator,
-                                                   use_eccentric_anomaly=use_eccentric_anomaly)
+        geometry = {'x0': x0, 'y0': y0, 'sma': sma, 'eps': eps, 'pa': pa}
+        gradient_config = {
+            'astep': astep,
+            'linear_growth': linear_growth,
+            'integrator': eff_integrator,
+            'use_eccentric_anomaly': use_eccentric_anomaly
+        }
+        gradient, gradient_error = compute_gradient(
+            image, mask, geometry, gradient_config,
+            previous_gradient=previous_gradient,
+            current_data=(phi, intens)
+        )
         if gradient_error is not None:
             previous_gradient = gradient
         
