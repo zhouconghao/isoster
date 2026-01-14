@@ -378,18 +378,27 @@ def compute_gradient(image, mask, geometry, config, previous_gradient=None, curr
     
     if previous_gradient is None:
         previous_gradient = gradient + gradient_error
-        
-    if gradient >= (previous_gradient / 3.0):
+
+    # EFF-1: Early termination if first gradient is reliable
+    # Compute relative error to decide if second gradient SMA is needed
+    relative_error = abs(gradient_error / gradient) if (gradient is not None and gradient != 0) else np.inf
+
+    # Skip second gradient if:
+    # 1. First gradient looks good (< previous_gradient / 3)
+    # 2. OR first gradient is reliable (relative_error < 0.3)
+    need_second_gradient = (gradient >= (previous_gradient / 3.0)) and (relative_error >= 0.3)
+
+    if need_second_gradient:
         if linear_growth:
             gradient_sma_2 = sma + 2 * step
         else:
             gradient_sma_2 = sma * (1.0 + 2 * step)
-            
+
         # Extract second gradient SMA
         data_g2 = extract_isophote_data(image, mask, x0, y0, gradient_sma_2, eps, pa, step, linear_growth, use_eccentric_anomaly)
         phi_g2 = data_g2.angles
         intens_g2 = data_g2.intens
-        
+
         if len(intens_g2) > 0:
             if integrator == 'median':
                 mean_g2 = np.median(intens_g2)
@@ -399,7 +408,7 @@ def compute_gradient(image, mask, geometry, config, previous_gradient=None, curr
             sigma_g2 = np.std(intens_g2)
             gradient_error = (np.sqrt(sigma_c**2 / len(intens_c) + sigma_g2**2 / len(intens_g2))
                             / sma / (2 * step))
-            
+
     if gradient >= (previous_gradient / 3.0):
         gradient = previous_gradient * 0.8
         gradient_error = None

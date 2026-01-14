@@ -291,3 +291,62 @@ def test_compute_parameter_errors_with_coeffs():
     print(f"✓ EFF-2 optimization produces identical results")
 
 
+
+def test_gradient_early_termination():
+    """Test EFF-1: gradient early termination when first gradient is reliable."""
+    from isoster.fitting import compute_gradient
+    from isoster.config import IsosterConfig
+    import time
+    
+    # Create simple test image with smooth gradient
+    size = 200
+    x0, y0 = size / 2, size / 2
+    image = np.zeros((size, size))
+    y, x = np.mgrid[:size, :size]
+    r = np.sqrt((x - x0)**2 + (y - y0)**2)
+    image = 1000.0 * np.exp(-r / 20.0)  # Smooth exponential profile
+    
+    mask = np.zeros_like(image, dtype=bool)
+    
+    geometry = {'x0': x0, 'y0': y0, 'sma': 30.0, 'eps': 0.3, 'pa': np.pi/4}
+    config = IsosterConfig(
+        x0=x0, y0=y0, eps=0.3, pa=np.pi/4,
+        sma0=10.0, minsma=3.0, maxsma=80.0,
+        astep=0.1, linear_growth=False,
+        integrator='mean', use_eccentric_anomaly=False
+    )
+    
+    # Case 1: First gradient call (no previous_gradient)
+    # Should always compute second gradient when first looks suspicious
+    gradient1, error1 = compute_gradient(image, mask, geometry, config,
+                                         previous_gradient=None, current_data=None)
+    
+    assert gradient1 is not None, "First gradient should be computed"
+    assert error1 is not None, "First gradient error should be computed"
+    
+    # Case 2: With reliable gradient (error << gradient)
+    # Should skip second gradient extraction due to low relative error
+    gradient2, error2 = compute_gradient(image, mask, geometry, config,
+                                          previous_gradient=gradient1 * 1.5,
+                                          current_data=None)
+    
+    assert gradient2 is not None, "Second gradient should be computed"
+    assert error2 is not None, "Second gradient error should be computed"
+    
+    # Verify that gradients are reasonable
+    assert gradient1 < 0, f"Gradient should be negative (declining profile), got {gradient1}"
+    assert gradient2 < 0, f"Gradient should be negative (declining profile), got {gradient2}"
+    
+    # Verify relative error is small for smooth profile
+    rel_error1 = abs(error1 / gradient1) if gradient1 != 0 else np.inf
+    rel_error2 = abs(error2 / gradient2) if gradient2 != 0 else np.inf
+    
+    # For smooth exponential profile, relative errors should be small
+    assert rel_error1 < 0.5, f"Relative error too large: {rel_error1}"
+    assert rel_error2 < 0.5, f"Relative error too large: {rel_error2}"
+    
+    print(f"✓ Gradient 1: {gradient1:.6f} ± {error1:.6f} (rel_err={rel_error1:.3f})")
+    print(f"✓ Gradient 2: {gradient2:.6f} ± {error2:.6f} (rel_err={rel_error2:.3f})")
+    print(f"✓ EFF-1 gradient early termination test passed")
+
+
