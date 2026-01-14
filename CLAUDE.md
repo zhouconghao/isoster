@@ -6,6 +6,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ISOSTER (ISOphote on STERoid) is an accelerated Python library for elliptical isophote fitting in galaxy images. It provides 10-15x faster performance compared to `photutils.isophote` using vectorized path-based sampling via scipy's `map_coordinates`.
 
+## Non-negotiable Rules for developing
+- Always create a new branch for new features and new development. Do not merge back into the main branch unless I approve it.
+- It is essential to provide informative and concise docstrings and inline comments.
+
 ## Build and Test Commands
 
 ```bash
@@ -79,22 +83,23 @@ table = isoster.isophote_results_to_astropy_tables(results)
 isoster.plot_qa_summary(...)  # QA visualization
 ```
 
-## QA Figure 
+## QA Figure Rules
 
 When making QA figures to compare the `isoster` result with the truth or the `photutils.isophote` results, following the guidelines below: 
-- Show the original image with a few selective isophotes on top is always a good idea. 
+- Show the original image with a few selective isophotes on top. 
 - If possible, reconstruct the 2-D model and subtract it from the image to highlight the residual pattern is informative. 
-- When showing 1-D profiles, using `SMA ** 0.25` as the X-axis as it compress the outer profile that typically has a shallow slope while not zooming in to the center too much. 
-- When comparing with truth or different methods, relative 1-D residual or difference in the form of `(intensity_isoster - intensity_reference) / intensity_reference` is always useful. 
-- All the 1-D profiles, surface brightness, residual/difference, position angle, axis ratio, and centroid should share the same X-axis to save space. 
+- When showing 1-D profiles, using `SMA ** 0.25` as the X-axis as it compress the outer profile that typically has a shallow slope while not zooming in to the center too much
+- When comparing with truth or different methods, use the relative 1-D residual or difference in the form of `(intensity_isoster - intensity_reference) / intensity_reference`. 
+- Arrange all the sub-plots for 1-D information, including the surface brightness, residual/difference, position angle, axis ratio, and centroid vertically, sharing the same X-axis to save space. Among them, 1-D surface brightness profile should occupy larger area than the rest.
 - Using scatter plot with errorbar to show these 1-D profiles (`plt.scatter()`), not lines (`plt.plot`). Using dash line for the true model profiles. 
 - Intensity, position angle, axis ratio, and centroid results in the outskirt can have huge errorbars. When setting the Y-axis ranges, do not include the error bars.
-- When arranging these subplots for 1-D information, the surface brightness profile should occupy a larger fraction of footprint.
-- Normalize the position angle: sudden jump larger than 90 degrees often mean normalization issue. 
+- Normalize the position angle: sudden jump larger than 90 degrees often mean normalization issue.
 - For `isoster` or `photutils.isophote` results, should visually separate the valid and problematic 1-D datapoints using the stop code.
 
 ## Benchmark Tests using mock Sersic model
 
+- The mock galaxy model shall be centered with the image array.
+- The half-size of the mock image shall be at least 10 times of the effective radius of the mock model; if the mock model's effective radius is not very large, 15x would be even better.
 - Pay attention to the oversampling ratio, high-Sersic index and high ellipticity often require higher oversampling in the central region.
 - When comparing results between the truth or the reference profile: 
    - Ignore the region smaller than 3 pixels when there is no PSF convolution because sampling the central region often has numerical issues; ignore the region `<= 2 * psf_fwhm` due to PSF convolution.
