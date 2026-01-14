@@ -254,3 +254,40 @@ def test_pa_wraparound_vectorized():
 
 if __name__ == '__main__':
     pytest.main([__file__, '-v'])
+
+def test_compute_parameter_errors_with_coeffs():
+    """Test that passing coefficients avoids re-fitting (EFF-2 optimization)."""
+    from isoster.fitting import compute_parameter_errors, fit_first_and_second_harmonics, harmonic_function
+    
+    # Create synthetic data
+    phi = np.linspace(0, 2*np.pi, 100, endpoint=False)
+    y0, A1, B1, A2, B2 = 100.0, 10.0, 5.0, 2.0, 1.0
+    intens = y0 + A1*np.sin(phi) + B1*np.cos(phi) + A2*np.sin(2*phi) + B2*np.cos(2*phi)
+    intens += np.random.RandomState(42).normal(0, 0.5, len(phi))
+    
+    # Geometry and gradient
+    x0, y0_geom, sma, eps, pa = 50.0, 50.0, 10.0, 0.3, np.pi/4
+    gradient = -2.0
+    
+    # Fit harmonics once
+    coeffs, cov_matrix = fit_first_and_second_harmonics(phi, intens)
+    
+    # Compute errors WITH coefficients (optimized path)
+    err_with_coeffs = compute_parameter_errors(
+        phi, intens, x0, y0_geom, sma, eps, pa, gradient, cov_matrix, coeffs
+    )
+    
+    # Compute errors WITHOUT coefficients (legacy path, re-fits)
+    err_without_coeffs = compute_parameter_errors(
+        phi, intens, x0, y0_geom, sma, eps, pa, gradient, cov_matrix, coeffs=None
+    )
+    
+    # Results should be identical
+    for i, (with_c, without_c) in enumerate(zip(err_with_coeffs, err_without_coeffs)):
+        assert np.abs(with_c - without_c) < 1e-10, \
+            f"Error {i}: with_coeffs={with_c}, without_coeffs={without_c}, diff={abs(with_c - without_c)}"
+    
+    print(f"✓ Parameter errors with/without coeffs: {err_with_coeffs}")
+    print(f"✓ EFF-2 optimization produces identical results")
+
+

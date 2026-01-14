@@ -189,8 +189,20 @@ def sigma_clip(phi, intens, sclip=3.0, nclip=0, sclip_low=None, sclip_high=None)
         
     return phi_c, intens_c, total_clipped
 
-def compute_parameter_errors(phi, intens, x0, y0, sma, eps, pa, gradient, cov_matrix=None):
-    """Compute parameter errors based on the covariance matrix of harmonic coefficients."""
+def compute_parameter_errors(phi, intens, x0, y0, sma, eps, pa, gradient, cov_matrix=None, coeffs=None):
+    """Compute parameter errors based on the covariance matrix of harmonic coefficients.
+
+    Args:
+        phi: Angles array
+        intens: Intensity array
+        x0, y0, sma, eps, pa: Geometry parameters
+        gradient: Intensity gradient
+        cov_matrix: Covariance matrix from harmonic fit (optional)
+        coeffs: Harmonic coefficients [y0, A1, B1, A2, B2] (optional, avoids re-fitting)
+
+    Returns:
+        Tuple of (x0_err, y0_err, eps_err, pa_err)
+    """
     # Guard against zero/None gradient to prevent division errors
     if gradient is None or abs(gradient) < 1e-10:
         return 0.0, 0.0, 0.0, 0.0
@@ -200,27 +212,30 @@ def compute_parameter_errors(phi, intens, x0, y0, sma, eps, pa, gradient, cov_ma
             s1, c1 = np.sin(phi), np.cos(phi)
             s2, c2 = np.sin(2*phi), np.cos(2*phi)
             params_init = [np.mean(intens), 0.0, 0.0, 0.0, 0.0]
-            
+
             def residual(params):
-                model = (params[0] + params[1]*s1 + params[2]*c1 + 
+                model = (params[0] + params[1]*s1 + params[2]*c1 +
                         params[3]*s2 + params[4]*c2)
                 return intens - model
-            
+
             solution = leastsq(residual, params_init, full_output=True)
             coeffs = solution[0]
             cov_matrix = solution[1]
-            
+
             if cov_matrix is None:
                 return 0.0, 0.0, 0.0, 0.0
-                
-            model = (coeffs[0] + coeffs[1]*s1 + coeffs[2]*c1 + 
+
+            model = (coeffs[0] + coeffs[1]*s1 + coeffs[2]*c1 +
                     coeffs[3]*s2 + coeffs[4]*c2)
             var_residual = np.std(intens - model, ddof=len(coeffs))**2
             covariance = cov_matrix * var_residual
             errors = np.sqrt(np.diagonal(covariance))
         else:
-            # Re-fit just to get model (fast linear)
-            coeffs, _ = fit_first_and_second_harmonics(phi, intens)
+            # Use provided coeffs if available (EFF-2: avoid redundant re-fitting)
+            if coeffs is None:
+                # Fallback: re-fit to get coeffs (backward compatibility)
+                coeffs, _ = fit_first_and_second_harmonics(phi, intens)
+
             model = harmonic_function(phi, coeffs)
             var_residual = np.var(intens - model, ddof=5)
             covariance = cov_matrix * var_residual
@@ -594,7 +609,7 @@ def fit_isophote(image, mask, sma, start_geometry, config, going_inwards=False, 
         if effective_amp < min_amplitude:
             min_amplitude = effective_amp
             intens_err = rms / np.sqrt(len(intens))
-            x0_err, y0_err, eps_err, pa_err = compute_parameter_errors(phi, intens, x0, y0, sma, eps, pa, gradient, cov_matrix) if compute_errors else (0.0, 0.0, 0.0, 0.0)
+            x0_err, y0_err, eps_err, pa_err = compute_parameter_errors(phi, intens, x0, y0, sma, eps, pa, gradient, cov_matrix, coeffs) if compute_errors else (0.0, 0.0, 0.0, 0.0)
             if eff_integrator == 'median':
                 reported_intens = np.median(intens)
             else:
