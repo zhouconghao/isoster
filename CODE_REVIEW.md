@@ -121,36 +121,63 @@ ea = abs(errors[2] / gradient)  # No zero check
 
 ## Part 3: Computational Efficiency Issues
 
-### EFF-1: Redundant Gradient Extractions
-**File:** `fitting.py:284-354`
-- Extracts isophote data at up to 3 SMAs per call
-- Early termination could skip unnecessary extractions
-- **Impact:** ~3x overhead in gradient computation
+### ✅ EFF-1: Redundant Gradient Extractions (RESOLVED)
+**File:** `fitting.py:316-416`
+**Status:** FIXED in commit 2aa5da2 (perf/efficiency-optimizations branch)
+- **Original problem:** Extracted isophote data at up to 3 SMAs per gradient call, even when first gradient was reliable
+- **Fix applied:**
+  - Added early termination when `relative_error < 0.3`
+  - Skip second gradient SMA extraction if first gradient is reliable
+  - Maintains gradient extraction when suspicious (gradient >= previous/3 AND error high)
+- **Performance impact:** ~2% additional speedup on smooth profiles (expected 15-20% on noisy data)
+- **Test added:** `test_gradient_early_termination()` verifying correct behavior
+- **Quality validation:** All photutils comparison tests pass (<1% intensity diff)
 
-### EFF-2: Repeated Harmonic Fits
-**File:** `fitting.py:195-245`
-- `compute_parameter_errors()` refits harmonics even when coefficients available
-- **Fix:** Pass `coeffs` as parameter
+### ✅ EFF-2: Repeated Harmonic Fits (RESOLVED)
+**File:** `fitting.py:192-253`
+**Status:** FIXED in commit 5307761 (perf/efficiency-optimizations branch)
+- **Original problem:** `compute_parameter_errors()` re-fitted harmonics even when coefficients already available
+- **Fix applied:**
+  - Added `coeffs=None` parameter to `compute_parameter_errors()`
+  - Reuse provided coeffs instead of re-fitting (fallback to re-fit if None for backward compat)
+  - Updated call site in `fit_isophote()` line 612 to pass coeffs
+- **Performance impact:** **7.7% speedup** (1.289s → 1.190s total)
+- **Test added:** `test_compute_parameter_errors_with_coeffs()` verifying identical results
+- **Quality validation:** Bit-for-bit identical results confirmed
 
-### EFF-3: Unused Coordinate Grid Allocation
+### ✅ EFF-3: Unused Coordinate Grid Allocation (RESOLVED)
 **File:** `model.py:29`
-```python
-yy, xx = np.mgrid[:h, :w]  # Never used!
-```
-- Wastes ~32MB for 4096x4096 image
+**Status:** FIXED in model.py rewrite (commit 9b06e77, refactor/build-isoster-model branch)
+- **Original problem:** Allocated `yy, xx = np.mgrid[:h, :w]` (~32MB for 4096x4096) never used
+- **Fix applied:** Complete model rewrite eliminated unused allocations
+- **Additional benefit:** 20x accuracy improvement in model building (25% → 1.3% residuals)
 
-### EFF-4: Repeated Trig Computations
+### ⏸️ EFF-4: Repeated Trig Computations (DEFERRED)
 **File:** `sampling.py:152-153`
-- `np.cos(pa)`, `np.sin(pa)` recomputed for each SMA
-- Cache at driver level for 100+ isophotes
+**Status:** DEFERRED (negligible impact)
+- `np.cos(pa)`, `np.sin(pa)` recomputed for each SMA (~100 times)
+- **Decision:** Profiling shows <0.1% total time impact
+- **Rationale:** Adds state management complexity for minimal gain
+- **Future work:** Consider if implementing cache infrastructure for other optimizations
 
-### EFF-5: PA Wrap-Around Using While Loops
+### ✅ EFF-5: PA Wrap-Around Using While Loops (RESOLVED)
 **File:** `fitting.py:44-48`
-```python
-while delta_pa > np.pi:
-    delta_pa -= 2 * np.pi
-```
-- **Fix:** Use `((delta_pa + np.pi) % (2*np.pi)) - np.pi`
+**Status:** FIXED in commit f669c0a (perf/efficiency-optimizations branch)
+- **Original problem:** Used while loops for PA wrap-around
+- **Fix applied:** Replaced with vectorized modulo arithmetic: `((delta_pa + π) % (2π)) - π`
+- **Performance impact:** <0.1% (trivial, validates testing framework)
+- **Test added:** `test_pa_wraparound_vectorized()` with 10 edge cases
+- **Quality validation:** All tests pass, identical results
+
+### 📊 Overall Efficiency Improvement Summary
+**Branch:** `perf/efficiency-optimizations` (commits 961f24e - 3272211)
+- **Total speedup:** **9.8%** (1.294s → 1.167s on 9-test benchmark)
+- **Quality validation:** Zero degradation
+  - Convergence rate: 95.5% maintained
+  - Photutils comparison: <1% intensity diff, <0.01 eps diff, <5° PA diff
+  - All 58 tests pass (48 original + 10 new)
+- **Documentation:** Comprehensive results in `EFFICIENCY_RESULTS.md`
+- **Note:** Speedup lower than expected 20-30% due to smooth test profiles; real noisy data expected to show 15-20% additional gains
 
 ---
 
