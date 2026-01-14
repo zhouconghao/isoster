@@ -186,8 +186,8 @@ def plot_qa_figure(image, results, true_profile, params, output_path):
 
     # Residual
     ax_resid = fig.add_subplot(gs[1:, 0])
-    from isoster.model import build_ellipse_model
-    model = build_ellipse_model(image.shape, isophotes)
+    from isoster.model import build_isoster_model
+    model = build_isoster_model(image.shape, isophotes)
     residual = image - model
     vmax_res = np.percentile(np.abs(residual), 99)
     im = ax_resid.imshow(residual, cmap='RdBu_r', origin='lower',

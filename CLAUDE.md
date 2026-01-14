@@ -52,7 +52,7 @@ isoster image.fits --output isophotes.fits --config config.yaml
 
 4. **config.py** (`IsosterConfig`) - Pydantic configuration model with all parameters
 
-5. **model.py** (`build_ellipse_model`) - Reconstructs 2D image from isophote profiles
+5. **model.py** (`build_isoster_model`) - Reconstructs 2D image from isophote profiles using radial interpolation
 
 ### Key Concepts
 
@@ -77,7 +77,7 @@ isoster image.fits --output isophotes.fits --config config.yaml
 import isoster
 
 results = isoster.fit_image(image, mask, config)
-model = isoster.build_ellipse_model(image.shape, results['isophotes'])
+model = isoster.build_isoster_model(image.shape, results['isophotes'])
 isoster.isophote_results_to_fits(results, "output.fits")
 table = isoster.isophote_results_to_astropy_tables(results)
 isoster.plot_qa_summary(...)  # QA visualization
@@ -96,7 +96,9 @@ When making QA figures to compare the `isoster` result with the truth or the `ph
 - Normalize the position angle: sudden jump larger than 90 degrees often mean normalization issue.
 - For `isoster` or `photutils.isophote` results, should visually separate the valid and problematic 1-D datapoints using the stop code.
 
-## Benchmark Tests using mock Sersic model
+## Benchmark Tests Rules
+
+### Mock Single-Sersic Model Tests
 
 - The mock galaxy model shall be centered with the image array.
 - The half-size of the mock image shall be at least 10 times of the effective radius of the mock model; if the mock model's effective radius is not very large, 15x would be even better.
@@ -108,3 +110,18 @@ When making QA figures to compare the `isoster` result with the truth or the `ph
    - Median or maximum difference of a property between `0.5 * r_effective` (or 3 pixels, whichever is larger) to `8 * r_effective` is good for noiseless mocks; and to `5 * r_effective` is good for mocks with noise.
    - Using median or maximum absolute different is a more strict standard. 
    - `isoster` can provide the curve of growth measurement, the relative difference of the curve of growth values at a few typical radius could be useful metrics.
+
+### Build Ellipse Model Tests
+
+- Key residual statistics:
+  - Fractional residual level: `100.0 * (model - data) / data`; 
+  - Fractional absolute residual level: `100.0 * |model - data| / data`
+  - Chi-Square statistics: `(model - data) ** 2.0 / (sigma ** 2)`
+- Key metrics to evaluate the 2-D ellipse model:
+  - 1. Statistics of the fractional residual level, e.g., median or maximum values, within different radial range. This works the best for noiseless mock.
+  - 2. Statistics of the integrated values of the fractional absolute residual level within different radial range. This works the best for noiseless mock.
+  - 3. Integrated Chi-square statistics within different radial range. This works the best for noisy-added mocks or real images.
+- Radial ranges:
+  - < 0.5 Re (effective radius)
+  - 0.5-4 Re 
+  - 4-8 Re

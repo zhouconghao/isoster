@@ -40,7 +40,7 @@ results = isoster.fit_image(image, None, config)
 isoster.isophote_results_to_fits(results, "isophotes.fits")
 
 # Build 2D model
-model = isoster.build_ellipse_model(image.shape, results['isophotes'])
+model = isoster.build_isoster_model(image.shape, results['isophotes'])
 fits.writeto("model.fits", model, overwrite=True)
 ```
 
