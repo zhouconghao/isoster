@@ -3,6 +3,13 @@ from scipy.optimize import leastsq
 from .sampling import extract_isophote_data
 from .config import IsosterConfig
 
+# Import numba-accelerated kernels (with numpy fallback)
+from .numba_kernels import (
+    harmonic_model,
+    build_harmonic_matrix,
+    NUMBA_AVAILABLE
+)
+
 def compute_central_regularization_penalty(current_geom, previous_geom, sma, config):
     """
     Compute regularization penalty for geometry changes in central region.
@@ -121,7 +128,7 @@ def extract_forced_photometry(image, mask, x0, y0, sma, eps, pa, integrator='mea
 def fit_first_and_second_harmonics(phi, intensity):
     """
     Fit the 1st and 2nd harmonics to the intensity profile.
-    
+
     The model is:
     y = y0 + A1*sin(E) + B1*cos(E) + A2*sin(2E) + B2*cos(2E)
 
@@ -134,16 +141,12 @@ def fit_first_and_second_harmonics(phi, intensity):
             coeffs: array of [y0, A1, B1, A2, B2]
             ata_inv: inverse covariance matrix (A^T A)^-1
     """
-    s1 = np.sin(phi)
-    c1 = np.cos(phi)
-    s2 = np.sin(2 * phi)
-    c2 = np.cos(2 * phi)
-    
-    A = np.column_stack([np.ones_like(phi), s1, c1, s2, c2])
-    
+    # Use numba-accelerated design matrix construction
+    A = build_harmonic_matrix(phi)
+
     try:
         coeffs, residuals, rank, s = np.linalg.lstsq(A, intensity, rcond=None)
-        
+
         # Compute covariance matrix (A^T * A)^-1
         # This is used for parameter error estimation later
         ata_inv = np.linalg.inv(np.dot(A.T, A))
@@ -152,9 +155,12 @@ def fit_first_and_second_harmonics(phi, intensity):
         return np.array([np.mean(intensity), 0.0, 0.0, 0.0, 0.0]), None
 
 def harmonic_function(phi, coeffs):
-    """Evaluate harmonic model."""
-    return (coeffs[0] + coeffs[1]*np.sin(phi) + coeffs[2]*np.cos(phi) + 
-            coeffs[3]*np.sin(2*phi) + coeffs[4]*np.cos(2*phi))
+    """
+    Evaluate harmonic model at given angles.
+
+    Uses numba-accelerated implementation when available for better performance.
+    """
+    return harmonic_model(phi, coeffs)
 
 def sigma_clip(phi, intens, sclip=3.0, nclip=0, sclip_low=None, sclip_high=None):
     """Perform iterative sigma clipping on intensity data."""

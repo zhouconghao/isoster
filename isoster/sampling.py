@@ -2,6 +2,13 @@ import numpy as np
 from scipy.ndimage import map_coordinates
 from collections import namedtuple
 
+# Import numba-accelerated kernels (with numpy fallback)
+from .numba_kernels import (
+    ea_to_pa,
+    compute_ellipse_coords,
+    NUMBA_AVAILABLE
+)
+
 # Named tuple for isophote data with clear ψ/φ separation
 IsophoteData = namedtuple('IsophoteData', [
     'angles',      # ψ (EA mode) or φ (regular mode) - for harmonic fitting
@@ -9,6 +16,8 @@ IsophoteData = namedtuple('IsophoteData', [
     'intens',      # Intensity values
     'radii'        # Semi-major axis values
 ])
+
+
 def eccentric_anomaly_to_position_angle(eccentric_anomaly, ellipticity):
     """
     Convert eccentric anomaly to position angle for ellipse sampling.
@@ -121,38 +130,14 @@ def extract_isophote_data(image, mask, x0, y0, sma, eps, pa, astep=0.1, linear_g
         - radii: Semi-major axis values (constant = sma)
     """
     h, w = image.shape
-    
+
     # SAMPLING DENSITY
     n_samples = max(64, int(2 * np.pi * sma))
-    
-    # ANGLE SAMPLING
-    if use_eccentric_anomaly:
-        # Sample uniformly in ψ (eccentric anomaly) for uniform arc-length coverage
-        psi = np.linspace(0, 2 * np.pi, n_samples, endpoint=False)
-        # Convert ψ → φ for coordinate calculation
-        phi = eccentric_anomaly_to_position_angle(psi, eps)
-    else:
-        # Traditional: sample uniformly in φ (position angle)
-        phi = np.linspace(0, 2 * np.pi, n_samples, endpoint=False)
-        psi = phi  # In regular mode, ψ = φ
-    
-    # ELLIPSE EQUATION IN POLAR COORDINATES
-    cos_phi = np.cos(phi)
-    sin_phi = np.sin(phi)
-    
-    denom = np.sqrt(((1.0 - eps) * cos_phi)**2 + sin_phi**2)
-    r = sma * (1.0 - eps) / denom
-    
-    # Convert to Cartesian in rotated frame
-    x_rot = r * cos_phi
-    y_rot = r * sin_phi
-    
-    # ROTATION TO IMAGE FRAME
-    cos_pa = np.cos(pa)
-    sin_pa = np.sin(pa)
-    
-    x = x0 + x_rot * cos_pa - y_rot * sin_pa
-    y = y0 + x_rot * sin_pa + y_rot * cos_pa
+
+    # NUMBA-ACCELERATED COORDINATE COMPUTATION
+    # Computes ellipse sampling coordinates and angle arrays
+    # Returns: (x, y, angles, phi) where angles=ψ (EA mode) or φ (regular mode)
+    x, y, psi, phi = compute_ellipse_coords(n_samples, sma, eps, pa, x0, y0, use_eccentric_anomaly)
     
     # VECTORIZED SAMPLING
     coords = np.vstack([y, x])
