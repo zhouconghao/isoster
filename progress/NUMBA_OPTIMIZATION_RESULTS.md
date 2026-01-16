@@ -2,39 +2,44 @@
 
 ## Executive Summary
 
-Successfully implemented Numba JIT compilation for ISOSTER's isophote fitting routines, achieving a **26x speedup** while maintaining **identical numerical results**.
+Successfully implemented Numba JIT compilation for ISOSTER's isophote fitting routines, achieving a **~1.4x speedup** over optimized numpy code while maintaining **identical numerical results**.
 
-**Date:** 2026-01-15
+**Date:** 2026-01-15 (Updated: 2026-01-16)
 **Branch:** `perf/numba-optimization`
 
 ---
 
 ## Performance Results
 
-### Overall Speedup
+### Overall Speedup (Numba JIT vs NumPy Vectorized)
 
 | Metric | Value |
 |--------|-------|
-| **Mean speedup** | 24.25x |
-| **Min speedup** | 13.80x |
-| **Max speedup** | 30.91x |
-| **Total speedup** | 26.07x |
-| **Total time (numba)** | 0.884s |
-| **Total time (no-numba)** | 23.04s |
+| **Mean speedup** | 1.39x |
+| **Min speedup** | 1.23x |
+| **Max speedup** | 1.49x |
+| **Total speedup** | 1.41x |
+| **Total time (numba)** | 0.905s |
+| **Total time (numpy)** | 1.277s |
 
 ### Per-Test-Case Results
 
-| Test Case | Numba (s) | No-Numba (s) | Speedup | Validation |
-|-----------|-----------|--------------|---------|------------|
-| n1_small_circular | 0.073 | 1.011 | 13.80x | ✓ |
-| n4_small_circular | 0.055 | 0.786 | 14.17x | ✓ |
-| n1_medium_eps04 | 0.073 | 2.073 | 28.58x | ✓ |
-| n4_medium_eps04 | 0.049 | 1.180 | 23.86x | ✓ |
-| n1_medium_eps07 | 0.139 | 3.343 | 24.05x | ✓ |
-| n4_medium_eps06 | 0.054 | 1.180 | 21.97x | ✓ |
-| n1_large_circular | 0.144 | 4.360 | 30.20x | ✓ |
-| n4_large_eps04 | 0.076 | 2.334 | 30.91x | ✓ |
-| n1_large_eps06 | 0.220 | 6.772 | 30.73x | ✓ |
+| Test Case | Numba (s) | NumPy (s) | Speedup | Validation |
+|-----------|-----------|-----------|---------|------------|
+| n1_small_circular | 0.077 | 0.094 | 1.23x | ✓ |
+| n4_small_circular | 0.059 | 0.080 | 1.35x | ✓ |
+| n1_medium_eps04 | 0.070 | 0.094 | 1.34x | ✓ |
+| n4_medium_eps04 | 0.052 | 0.075 | 1.45x | ✓ |
+| n1_medium_eps07 | 0.158 | 0.220 | 1.40x | ✓ |
+| n4_medium_eps06 | 0.056 | 0.081 | 1.46x | ✓ |
+| n1_large_circular | 0.138 | 0.203 | 1.47x | ✓ |
+| n4_large_eps04 | 0.078 | 0.106 | 1.36x | ✓ |
+| n1_large_eps06 | 0.218 | 0.324 | 1.49x | ✓ |
+
+> **Note:** Previous results showed 26x speedup, which was comparing numba JIT against
+> interpreted Python loops (when `NUMBA_DISABLE_JIT=1` was set but the code didn't properly
+> fall back to numpy). After fixing the fallback logic, the benchmark now correctly compares
+> numba JIT against numpy vectorized code, giving a more realistic ~1.4x speedup.
 
 ---
 
@@ -105,26 +110,20 @@ This ensures the code works on all systems, just slower without numba.
 
 ---
 
-## Why Speedup Exceeds Expectations
+## Performance Analysis
 
-The original plan expected 2-5x speedup. We achieved 26x because:
+The ~1.4x speedup is consistent with expectations for numba JIT vs numpy vectorized code:
 
-1. **Numba vs Interpreted Python**: When `NUMBA_DISABLE_JIT=1`, Python's interpreter runs loops very slowly. The comparison shows numba JIT vs interpreted Python, not numba vs numpy.
+| Comparison | Speedup |
+|------------|---------|
+| Numba JIT vs NumPy vectorized | 1.2-1.5x (observed) |
 
-2. **Hot Path Optimization**: The coordinate computation functions are called thousands of times per image. JIT compilation eliminates Python's interpreter overhead.
+The speedup comes from:
+1. **Reduced Python overhead**: JIT compilation eliminates function call overhead in hot loops
+2. **Better memory access patterns**: Numba generates code with better cache locality
+3. **Loop fusion**: Multiple operations combined into single passes
 
-3. **Memory Access Patterns**: Numba generates code with better cache locality for the loop-based implementations.
-
-### More Representative Comparison
-
-A fairer comparison would be numba JIT vs numpy vectorized code. Based on profiling:
-
-| Comparison | Expected Speedup |
-|------------|------------------|
-| Numba JIT vs Interpreted Python loops | 20-30x (observed) |
-| Numba JIT vs NumPy vectorized | 2-5x (estimated) |
-
-The original numpy-based code already used vectorization, but we replaced it with numba loops. The comparison benchmark uses `NUMBA_DISABLE_JIT=1` which forces the numba loops to run as interpreted Python, hence the dramatic speedup.
+Note: The coordinate computation functions are called thousands of times per image, so even a 1.4x speedup accumulates to meaningful time savings for large datasets.
 
 ---
 
@@ -179,24 +178,40 @@ The same functions now run with JIT-compiled code, eliminating ~28% of the origi
 From NUMBA_OPTIMIZATION_PLAN.md:
 
 ### Performance
-- ✅ **>20% speedup**: Achieved **2607%** (26x) speedup
-- ✅ **>2x speedup on hot paths**: Achieved **13-31x** per test case
+- ✅ **>20% speedup**: Achieved **~40%** (1.4x) speedup vs numpy vectorized code
 
 ### Correctness
 - ✅ **Identical intensity profiles**: Within 0.1% relative tolerance
 - ✅ **Identical geometry profiles**: Within 0.01 absolute tolerance
 - ✅ **Identical stop codes**: 100% match
-- ✅ **All 59 tests pass**: No regressions
+- ✅ **All 83 tests pass**: Including 16 new edge case tests
 
 ### Quality
-- ✅ **Graceful fallback**: Works without numba
-- ✅ **Clear docstrings**: All functions documented
+- ✅ **Graceful fallback**: Works without numba (uses numpy fallback)
+- ✅ **Clear docstrings**: All functions documented with type hints
 - ✅ **No public API changes**: Drop-in improvement
+- ✅ **Input validation**: All wrapper functions validate inputs
+- ✅ **NUMBA_DISABLE_JIT support**: Environment variable properly switches to numpy fallback
+
+---
+
+## Code Review Fixes Applied (2026-01-16)
+
+Based on the code review in `NUMBA_CODE_REVIEW.md`, the following issues were fixed:
+
+### Critical Issues Fixed
+1. **NUMBA_DISABLE_JIT environment variable check**: Now properly falls back to numpy when `NUMBA_DISABLE_JIT=1` is set
+2. **Input validation**: Added validation for `n_samples > 0`, `0 <= eps < 1`, `len(coeffs) >= 5`, and non-empty `phi`
+
+### Quality Improvements
+3. **Removed unused `prange` import**
+4. **Added type hints**: All wrapper functions now have proper type annotations
+5. **Added 16 edge case tests**: Comprehensive validation testing
 
 ---
 
 ## Conclusion
 
-The Numba optimization is a significant improvement to ISOSTER's performance. The 26x speedup makes isophote fitting practical for large datasets and batch processing. The implementation is backward-compatible, well-tested, and maintains identical numerical results.
+The Numba optimization provides a meaningful ~1.4x speedup over numpy vectorized code while maintaining identical numerical results. The implementation is backward-compatible, well-tested, and properly validates inputs to prevent edge case failures.
 
 **Ready for merge** after user approval.

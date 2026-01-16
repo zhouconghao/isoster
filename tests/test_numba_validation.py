@@ -19,6 +19,7 @@ from isoster.numba_kernels import (
     _ea_to_pa_numba, _ea_to_pa_numpy,
     _compute_ellipse_coords_numba, _compute_ellipse_coords_numpy,
     _build_harmonic_matrix_numba, _build_harmonic_matrix_numpy,
+    harmonic_model, ea_to_pa, compute_ellipse_coords, build_harmonic_matrix,
 )
 
 
@@ -138,6 +139,118 @@ class TestNumbaKernels:
 
         assert np.allclose(x1, x2, rtol=1e-14, atol=1e-14)
         assert np.allclose(y1, y2, rtol=1e-14, atol=1e-14)
+
+
+class TestNumbaEdgeCases:
+    """Test edge cases and input validation for numba kernels."""
+
+    # === compute_ellipse_coords validation ===
+
+    def test_n_samples_zero_raises(self):
+        """n_samples = 0 should raise ValueError."""
+        with pytest.raises(ValueError, match="n_samples must be > 0"):
+            compute_ellipse_coords(0, 50.0, 0.3, 0.5, 200.0, 200.0, False)
+
+    def test_n_samples_negative_raises(self):
+        """Negative n_samples should raise ValueError."""
+        with pytest.raises(ValueError, match="n_samples must be > 0"):
+            compute_ellipse_coords(-10, 50.0, 0.3, 0.5, 200.0, 200.0, False)
+
+    def test_n_samples_one(self):
+        """n_samples = 1 (minimum case) should work."""
+        x, y, angles, phi = compute_ellipse_coords(1, 50.0, 0.3, 0.5, 200.0, 200.0, False)
+        assert len(x) == 1
+        assert len(y) == 1
+        assert len(angles) == 1
+        assert len(phi) == 1
+
+    def test_n_samples_two(self):
+        """n_samples = 2 should work."""
+        x, y, angles, phi = compute_ellipse_coords(2, 50.0, 0.3, 0.5, 200.0, 200.0, False)
+        assert len(x) == 2
+        # Angles should be [0, π]
+        assert np.isclose(angles[0], 0.0)
+        assert np.isclose(angles[1], np.pi)
+
+    def test_eps_equals_one_raises(self):
+        """eps = 1.0 (degenerate ellipse) should raise ValueError."""
+        with pytest.raises(ValueError, match="eps must be in"):
+            compute_ellipse_coords(100, 50.0, 1.0, 0.5, 200.0, 200.0, False)
+
+    def test_eps_negative_raises(self):
+        """Negative eps should raise ValueError."""
+        with pytest.raises(ValueError, match="eps must be in"):
+            compute_ellipse_coords(100, 50.0, -0.1, 0.5, 200.0, 200.0, False)
+
+    def test_eps_greater_than_one_raises(self):
+        """eps > 1 should raise ValueError."""
+        with pytest.raises(ValueError, match="eps must be in"):
+            compute_ellipse_coords(100, 50.0, 1.5, 0.5, 200.0, 200.0, False)
+
+    def test_very_high_ellipticity(self):
+        """eps = 0.99 (very high ellipticity) should work."""
+        x, y, angles, phi = compute_ellipse_coords(100, 50.0, 0.99, 0.5, 200.0, 200.0, True)
+        assert len(x) == 100
+        # Values should be finite
+        assert np.all(np.isfinite(x))
+        assert np.all(np.isfinite(y))
+
+    # === ea_to_pa validation ===
+
+    def test_ea_to_pa_eps_equals_one_raises(self):
+        """eps = 1.0 should raise ValueError for ea_to_pa."""
+        psi = np.linspace(0, 2*np.pi, 100)
+        with pytest.raises(ValueError, match="eps must be in"):
+            ea_to_pa(psi, 1.0)
+
+    def test_ea_to_pa_eps_negative_raises(self):
+        """Negative eps should raise ValueError for ea_to_pa."""
+        psi = np.linspace(0, 2*np.pi, 100)
+        with pytest.raises(ValueError, match="eps must be in"):
+            ea_to_pa(psi, -0.1)
+
+    # === harmonic_model validation ===
+
+    def test_coeffs_too_short_raises(self):
+        """coeffs with fewer than 5 elements should raise ValueError."""
+        phi = np.linspace(0, 2*np.pi, 100)
+        with pytest.raises(ValueError, match="coeffs must have at least 5 elements"):
+            harmonic_model(phi, np.array([1.0, 2.0, 3.0]))
+
+    def test_coeffs_empty_raises(self):
+        """Empty coeffs should raise ValueError."""
+        phi = np.linspace(0, 2*np.pi, 100)
+        with pytest.raises(ValueError, match="coeffs must have at least 5 elements"):
+            harmonic_model(phi, np.array([]))
+
+    def test_coeffs_exactly_five(self):
+        """coeffs with exactly 5 elements should work."""
+        phi = np.linspace(0, 2*np.pi, 100)
+        coeffs = np.array([100.0, 1.0, 2.0, 0.5, 0.3])
+        result = harmonic_model(phi, coeffs)
+        assert len(result) == len(phi)
+        assert np.all(np.isfinite(result))
+
+    def test_coeffs_more_than_five(self):
+        """coeffs with more than 5 elements should work (extra elements ignored)."""
+        phi = np.linspace(0, 2*np.pi, 100)
+        coeffs = np.array([100.0, 1.0, 2.0, 0.5, 0.3, 999.0])
+        result = harmonic_model(phi, coeffs)
+        assert len(result) == len(phi)
+
+    # === build_harmonic_matrix validation ===
+
+    def test_empty_phi_raises(self):
+        """Empty phi array should raise ValueError."""
+        with pytest.raises(ValueError, match="phi array cannot be empty"):
+            build_harmonic_matrix(np.array([]))
+
+    def test_single_phi(self):
+        """Single phi value should work."""
+        phi = np.array([0.5])
+        A = build_harmonic_matrix(phi)
+        assert A.shape == (1, 5)
+        assert np.all(np.isfinite(A))
 
 
 def test_numba_full_fit_accuracy():

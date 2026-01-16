@@ -17,22 +17,30 @@ Usage:
     from isoster.numba_kernels import harmonic_model_numpy
 """
 
+import os
+from typing import Tuple
+
 import numpy as np
+from numpy.typing import NDArray
 
 # Try to import numba, set flag for availability
+# Also check NUMBA_DISABLE_JIT environment variable
 try:
-    from numba import njit, prange
-    NUMBA_AVAILABLE = True
+    from numba import njit
+    # Check if JIT is disabled via environment variable
+    # When disabled, use numpy fallbacks for better performance than interpreted numba loops
+    NUMBA_AVAILABLE = os.environ.get('NUMBA_DISABLE_JIT', '0') != '1'
 except ImportError:
     NUMBA_AVAILABLE = False
-    # Create dummy decorator for systems without numba
+
+if not NUMBA_AVAILABLE:
+    # Create dummy decorator for systems without numba or when JIT is disabled
     def njit(*args, **kwargs):
         def decorator(func):
             return func
         if len(args) == 1 and callable(args[0]):
             return args[0]
         return decorator
-    prange = range
 
 
 # =============================================================================
@@ -79,7 +87,31 @@ def _harmonic_model_numpy(phi, coeffs):
 
 
 # Select implementation based on numba availability
-harmonic_model = _harmonic_model_numba if NUMBA_AVAILABLE else _harmonic_model_numpy
+_harmonic_model_impl = _harmonic_model_numba if NUMBA_AVAILABLE else _harmonic_model_numpy
+
+
+def harmonic_model(
+    phi: NDArray[np.floating],
+    coeffs: NDArray[np.floating]
+) -> NDArray[np.floating]:
+    """
+    Evaluate harmonic model at given angles.
+
+    Model: I(φ) = c0 + c1*sin(φ) + c2*cos(φ) + c3*sin(2φ) + c4*cos(2φ)
+
+    Args:
+        phi: Array of angles (radians)
+        coeffs: Array of 5 coefficients [c0, c1, c2, c3, c4]
+
+    Returns:
+        Array of model intensities at each angle
+
+    Raises:
+        ValueError: If coeffs has fewer than 5 elements
+    """
+    if len(coeffs) < 5:
+        raise ValueError(f"coeffs must have at least 5 elements, got {len(coeffs)}")
+    return _harmonic_model_impl(phi, coeffs)
 
 
 # =============================================================================
@@ -126,7 +158,32 @@ def _ea_to_pa_numpy(psi, eps):
 
 
 # Select implementation
-ea_to_pa = _ea_to_pa_numba if NUMBA_AVAILABLE else _ea_to_pa_numpy
+_ea_to_pa_impl = _ea_to_pa_numba if NUMBA_AVAILABLE else _ea_to_pa_numpy
+
+
+def ea_to_pa(
+    psi: NDArray[np.floating],
+    eps: float
+) -> NDArray[np.floating]:
+    """
+    Convert eccentric anomaly to position angle.
+
+    Standard definition: tan(φ) = (1 - ε) * tan(ψ)
+    Using atan2 for proper quadrant handling.
+
+    Args:
+        psi: Array of eccentric anomaly values (radians)
+        eps: Ellipticity (1 - b/a), must be in [0, 1)
+
+    Returns:
+        Array of position angles (radians), in [0, 2π)
+
+    Raises:
+        ValueError: If eps is not in [0, 1)
+    """
+    if not (0 <= eps < 1):
+        raise ValueError(f"eps must be in [0, 1), got {eps}")
+    return _ea_to_pa_impl(psi, eps)
 
 
 # =============================================================================
@@ -242,7 +299,46 @@ def _compute_ellipse_coords_numpy(n_samples, sma, eps, pa, x0, y0, use_ea):
 
 
 # Select implementation
-compute_ellipse_coords = _compute_ellipse_coords_numba if NUMBA_AVAILABLE else _compute_ellipse_coords_numpy
+_compute_ellipse_coords_impl = _compute_ellipse_coords_numba if NUMBA_AVAILABLE else _compute_ellipse_coords_numpy
+
+
+def compute_ellipse_coords(
+    n_samples: int,
+    sma: float,
+    eps: float,
+    pa: float,
+    x0: float,
+    y0: float,
+    use_ea: bool
+) -> Tuple[NDArray[np.floating], NDArray[np.floating], NDArray[np.floating], NDArray[np.floating]]:
+    """
+    Compute ellipse sampling coordinates.
+
+    This computes the (x, y) image coordinates for sampling points along
+    an ellipse, along with the corresponding angles.
+
+    Args:
+        n_samples: Number of sampling points (must be > 0)
+        sma: Semi-major axis length (pixels)
+        eps: Ellipticity (1 - b/a), must be in [0, 1)
+        pa: Position angle (radians, counter-clockwise from x-axis)
+        x0, y0: Ellipse center coordinates
+        use_ea: If True, sample uniformly in eccentric anomaly
+
+    Returns:
+        Tuple of (x_coords, y_coords, angles, phi) where:
+        - x_coords, y_coords: Image coordinates for sampling
+        - angles: ψ (if use_ea) or φ (if not) - for harmonic fitting
+        - phi: φ (position angles) - for geometry updates
+
+    Raises:
+        ValueError: If n_samples <= 0 or eps not in [0, 1)
+    """
+    if n_samples <= 0:
+        raise ValueError(f"n_samples must be > 0, got {n_samples}")
+    if not (0 <= eps < 1):
+        raise ValueError(f"eps must be in [0, 1), got {eps}")
+    return _compute_ellipse_coords_impl(n_samples, sma, eps, pa, x0, y0, use_ea)
 
 
 # =============================================================================
@@ -292,7 +388,30 @@ def _build_harmonic_matrix_numpy(phi):
 
 
 # Select implementation
-build_harmonic_matrix = _build_harmonic_matrix_numba if NUMBA_AVAILABLE else _build_harmonic_matrix_numpy
+_build_harmonic_matrix_impl = _build_harmonic_matrix_numba if NUMBA_AVAILABLE else _build_harmonic_matrix_numpy
+
+
+def build_harmonic_matrix(phi: NDArray[np.floating]) -> NDArray[np.floating]:
+    """
+    Build the design matrix for harmonic fitting.
+
+    Constructs the matrix A for least squares fitting:
+    A @ coeffs = intensity
+
+    where A[i, :] = [1, sin(φᵢ), cos(φᵢ), sin(2φᵢ), cos(2φᵢ)]
+
+    Args:
+        phi: Array of angles (radians)
+
+    Returns:
+        Design matrix of shape (n_samples, 5)
+
+    Raises:
+        ValueError: If phi is empty
+    """
+    if len(phi) == 0:
+        raise ValueError("phi array cannot be empty")
+    return _build_harmonic_matrix_impl(phi)
 
 
 # =============================================================================
