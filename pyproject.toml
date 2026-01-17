@@ -22,3 +22,14 @@ isoster = "isoster.cli:main"
 [tool.setuptools.packages.find]
 include = ["isoster*"]
 exclude = ["reference*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+    "real_data: tests that use real astronomical data (skipped in CI)",
+    "slow: tests that take longer than usual",
+    "benchmark: performance benchmark tests",
+]
+filterwarnings = [
+    "ignore::DeprecationWarning",
+]

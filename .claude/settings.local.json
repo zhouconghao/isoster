@@ -8,7 +8,12 @@
       "Bash(python benchmarks/benchmark_sersic_accuracy.py:*)",
       "Bash(python:*)",
       "Bash(git add:*)",
-      "Bash(git commit:*)"
+      "Bash(git commit:*)",
+      "Bash(pytest:*)",
+      "Bash(NUMBA_DISABLE_JIT=1 python:*)",
+      "Bash(git merge:*)",
+      "Bash(ls:*)",
+      "Bash(git mv:*)"
     ]
   }
 }
