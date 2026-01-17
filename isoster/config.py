@@ -66,9 +66,23 @@ class IsosterConfig(BaseModel):
     
     # Eccentric Anomaly Sampling
     use_eccentric_anomaly: bool = Field(
-        False, 
+        False,
         description="Use eccentric anomaly for uniform ellipse sampling (recommended for ε > 0.3). "
                     "Provides better sampling for high-ellipticity cases. ε = 1 - b/a."
+    )
+
+    # Higher-Order Harmonics Fitting
+    simultaneous_harmonics: bool = Field(
+        False,
+        description="Use simultaneous fitting for higher-order harmonics (n >= 3). "
+                    "ISOFIT-style approach from Ciambur 2015 that accounts for cross-correlations "
+                    "between harmonics and provides better error estimates."
+    )
+
+    harmonic_orders: List[int] = Field(
+        default_factory=lambda: [3, 4],
+        description="List of harmonic orders to fit for isophote deviations. "
+                    "Default [3, 4] fits 3rd and 4th order. Can extend to [3, 4, 5, 6] etc."
     )
     
     # Central Region Geometry Regularization

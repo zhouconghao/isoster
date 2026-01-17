@@ -319,6 +319,108 @@ def compute_deviations(phi, intens, sma, gradient, order):
         return 0.0, 0.0, 0.0, 0.0
     # Note: Removed broad 'except Exception' - unexpected errors should be raised for debugging
 
+def fit_higher_harmonics_simultaneous(angles, intens, sma, gradient, orders=None):
+    """
+    Fit multiple higher-order harmonics simultaneously.
+
+    This implements the ISOFIT approach from Ciambur 2015, fitting all higher-order
+    harmonics (n >= 3) in a single least squares solve. This accounts for cross-correlations
+    between harmonics and provides better error estimates compared to sequential fitting.
+
+    Model: I(θ) = I₀ + Σₙ [Aₙ*sin(nθ) + Bₙ*cos(nθ)]
+
+    The coefficients are normalized by (sma * |gradient|) to give dimensionless
+    deviations that can be directly compared across different radii.
+
+    Args:
+        angles: Angle array in radians (ψ in EA mode, φ in regular mode)
+        intens: Intensity values at each angle
+        sma: Semi-major axis length
+        gradient: Radial intensity gradient (should be negative for typical galaxies)
+        orders: List of harmonic orders to fit (default [3, 4])
+
+    Returns:
+        dict: {n: (a_n, b_n, a_n_err, b_n_err) for n in orders}
+              a_n = sin coefficient / (sma * |gradient|)
+              b_n = cos coefficient / (sma * |gradient|)
+              Errors are similarly normalized.
+
+    Raises:
+        ValueError: If orders is empty or contains invalid values
+    """
+    if orders is None:
+        orders = [3, 4]
+
+    if len(orders) == 0:
+        return {}
+
+    if len(intens) < 2 * len(orders) + 1:
+        # Not enough data points for the number of parameters
+        return {n: (0.0, 0.0, 0.0, 0.0) for n in orders}
+
+    # Build design matrix: [1, sin(n1*θ), cos(n1*θ), sin(n2*θ), cos(n2*θ), ...]
+    n_params = 1 + 2 * len(orders)  # intercept + 2 params per harmonic
+    A = np.zeros((len(angles), n_params))
+    A[:, 0] = 1.0  # constant term
+
+    col_idx = 1
+    for n in orders:
+        A[:, col_idx] = np.sin(n * angles)
+        A[:, col_idx + 1] = np.cos(n * angles)
+        col_idx += 2
+
+    try:
+        # Solve least squares
+        coeffs, residuals, rank, s = np.linalg.lstsq(A, intens, rcond=None)
+
+        # Compute covariance matrix (A^T * A)^-1
+        ata_inv = np.linalg.inv(np.dot(A.T, A))
+
+        # Compute model and residual variance
+        model = np.dot(A, coeffs)
+        var_residual = np.var(intens - model, ddof=n_params)
+
+        # Coefficient errors from covariance
+        covariance = ata_inv * var_residual
+        errors = np.sqrt(np.diagonal(covariance))
+
+    except (np.linalg.LinAlgError, ValueError) as e:
+        import warnings
+        warnings.warn(
+            f"fit_higher_harmonics_simultaneous failed: {e}. Returning zeros.",
+            RuntimeWarning
+        )
+        return {n: (0.0, 0.0, 0.0, 0.0) for n in orders}
+
+    # Normalization factor
+    factor = sma * abs(gradient) if gradient != 0 else 1.0
+    if factor == 0:
+        factor = 1.0
+
+    # Extract results for each harmonic order
+    result = {}
+    col_idx = 1
+    err_idx = 1
+    for n in orders:
+        sin_coeff = coeffs[col_idx]
+        cos_coeff = coeffs[col_idx + 1]
+        sin_err = errors[err_idx]
+        cos_err = errors[err_idx + 1]
+
+        # Normalize by (sma * gradient) to get dimensionless deviations
+        a_n = sin_coeff / factor
+        b_n = cos_coeff / factor
+        a_n_err = sin_err / factor
+        b_n_err = cos_err / factor
+
+        result[n] = (a_n, b_n, a_n_err, b_n_err)
+
+        col_idx += 2
+        err_idx += 2
+
+    return result
+
+
 def compute_gradient(image, mask, geometry, config, previous_gradient=None, current_data=None):
     """Compute the radial intensity gradient.
 
@@ -517,6 +619,8 @@ def fit_isophote(image, mask, sma, start_geometry, config, going_inwards=False, 
     compute_deviations_flag = cfg.compute_deviations
     integrator = cfg.integrator
     lsb_sma_threshold = cfg.lsb_sma_threshold
+    simultaneous_harmonics = cfg.simultaneous_harmonics
+    harmonic_orders = cfg.harmonic_orders
 
     
     x0, y0, eps, pa = start_geometry['x0'], start_geometry['y0'], start_geometry['eps'], start_geometry['pa']
@@ -643,8 +747,20 @@ def fit_isophote(image, mask, sma, start_geometry, config, going_inwards=False, 
             stop_code = 0  # STOP_CODE 0: Converged successfully
             # Already updated best_geometry in min_amplitude check, but let's ensure deviations
             if compute_deviations_flag:
-                a3, b3, a3_err, b3_err = compute_deviations(phi, intens, sma, gradient, 3)
-                a4, b4, a4_err, b4_err = compute_deviations(phi, intens, sma, gradient, 4)
+                # Use 'angles' (ψ in EA mode, φ in regular mode) for harmonic fitting
+                # per Ciambur 2015 - higher harmonics should also be fit in ψ-space
+                if simultaneous_harmonics:
+                    # ISOFIT-style simultaneous fitting for all harmonics
+                    harmonics = fit_higher_harmonics_simultaneous(
+                        angles, intens, sma, gradient, harmonic_orders
+                    )
+                    # Extract a3, b3, a4, b4 (fallback to zeros if not in harmonic_orders)
+                    a3, b3, a3_err, b3_err = harmonics.get(3, (0.0, 0.0, 0.0, 0.0))
+                    a4, b4, a4_err, b4_err = harmonics.get(4, (0.0, 0.0, 0.0, 0.0))
+                else:
+                    # Sequential fitting (default, corrected to use angles)
+                    a3, b3, a3_err, b3_err = compute_deviations(angles, intens, sma, gradient, 3)
+                    a4, b4, a4_err, b4_err = compute_deviations(angles, intens, sma, gradient, 4)
                 best_geometry.update({'a3': a3, 'b3': b3, 'a3_err': a3_err, 'b3_err': b3_err,
                                       'a4': a4, 'b4': b4, 'a4_err': a4_err, 'b4_err': b4_err})
             

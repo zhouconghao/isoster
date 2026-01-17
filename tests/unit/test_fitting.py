@@ -4,7 +4,8 @@ import warnings
 import pytest
 from isoster.fitting import (fit_first_and_second_harmonics, sigma_clip,
                               compute_aperture_photometry, compute_parameter_errors,
-                              compute_deviations, compute_central_regularization_penalty)
+                              compute_deviations, compute_central_regularization_penalty,
+                              fit_higher_harmonics_simultaneous)
 from isoster.config import IsosterConfig
 
 class TestFitting(unittest.TestCase):
@@ -348,5 +349,187 @@ def test_gradient_early_termination():
     print(f"✓ Gradient 1: {gradient1:.6f} ± {error1:.6f} (rel_err={rel_error1:.3f})")
     print(f"✓ Gradient 2: {gradient2:.6f} ± {error2:.6f} (rel_err={rel_error2:.3f})")
     print(f"✓ EFF-1 gradient early termination test passed")
+
+
+# ============================================================================
+# Tests for fit_higher_harmonics_simultaneous (EA-HARMONICS feature)
+# ============================================================================
+
+def test_fit_higher_harmonics_simultaneous_basic():
+    """Test basic functionality of simultaneous harmonics fitting."""
+    # Create synthetic data with known 3rd and 4th order harmonics
+    phi = np.linspace(0, 2*np.pi, 100, endpoint=False)
+    y0 = 100.0
+    A3, B3 = 5.0, 3.0
+    A4, B4 = 2.0, 1.5
+    intens = y0 + A3*np.sin(3*phi) + B3*np.cos(3*phi) + A4*np.sin(4*phi) + B4*np.cos(4*phi)
+
+    sma = 10.0
+    gradient = -2.0
+
+    # Fit harmonics
+    result = fit_higher_harmonics_simultaneous(phi, intens, sma, gradient, orders=[3, 4])
+
+    assert 3 in result, "Should have 3rd harmonic result"
+    assert 4 in result, "Should have 4th harmonic result"
+
+    # Check structure of results
+    a3, b3, a3_err, b3_err = result[3]
+    a4, b4, a4_err, b4_err = result[4]
+
+    # Verify coefficients are close to expected (normalized by sma*|gradient|)
+    factor = sma * abs(gradient)
+    expected_a3 = A3 / factor
+    expected_b3 = B3 / factor
+    expected_a4 = A4 / factor
+    expected_b4 = B4 / factor
+
+    assert np.allclose(a3, expected_a3, atol=1e-5), f"a3: expected {expected_a3}, got {a3}"
+    assert np.allclose(b3, expected_b3, atol=1e-5), f"b3: expected {expected_b3}, got {b3}"
+    assert np.allclose(a4, expected_a4, atol=1e-5), f"a4: expected {expected_a4}, got {a4}"
+    assert np.allclose(b4, expected_b4, atol=1e-5), f"b4: expected {expected_b4}, got {b4}"
+
+    print("✓ fit_higher_harmonics_simultaneous basic test passed")
+
+
+def test_fit_higher_harmonics_simultaneous_with_noise():
+    """Test simultaneous harmonics fitting with noisy data."""
+    np.random.seed(42)
+    phi = np.linspace(0, 2*np.pi, 100, endpoint=False)
+    y0 = 100.0
+    A3, B3 = 5.0, 3.0
+    A4, B4 = 2.0, 1.5
+    noise = np.random.normal(0, 0.5, len(phi))
+    intens = y0 + A3*np.sin(3*phi) + B3*np.cos(3*phi) + A4*np.sin(4*phi) + B4*np.cos(4*phi) + noise
+
+    sma = 10.0
+    gradient = -2.0
+
+    result = fit_higher_harmonics_simultaneous(phi, intens, sma, gradient, orders=[3, 4])
+
+    a3, b3, a3_err, b3_err = result[3]
+    a4, b4, a4_err, b4_err = result[4]
+
+    # Should have non-zero errors
+    assert a3_err > 0.0, "a3_err should be positive"
+    assert b3_err > 0.0, "b3_err should be positive"
+    assert a4_err > 0.0, "a4_err should be positive"
+    assert b4_err > 0.0, "b4_err should be positive"
+
+    # Recovered coefficients should be within 3-sigma of true values
+    factor = sma * abs(gradient)
+    expected_a3 = A3 / factor
+    expected_b3 = B3 / factor
+
+    assert abs(a3 - expected_a3) < 3 * a3_err, f"a3 outside 3-sigma: {a3} vs {expected_a3} ± {a3_err}"
+    assert abs(b3 - expected_b3) < 3 * b3_err, f"b3 outside 3-sigma: {b3} vs {expected_b3} ± {b3_err}"
+
+    print("✓ fit_higher_harmonics_simultaneous noisy data test passed")
+
+
+def test_fit_higher_harmonics_simultaneous_empty_orders():
+    """Test simultaneous harmonics fitting with empty orders list."""
+    phi = np.linspace(0, 2*np.pi, 100, endpoint=False)
+    intens = np.random.random(100) * 100.0
+
+    result = fit_higher_harmonics_simultaneous(phi, intens, sma=10.0, gradient=-2.0, orders=[])
+
+    assert result == {}, "Empty orders should return empty dict"
+
+    print("✓ fit_higher_harmonics_simultaneous empty orders test passed")
+
+
+def test_fit_higher_harmonics_simultaneous_extended_orders():
+    """Test simultaneous harmonics fitting with extended orders [3, 4, 5, 6]."""
+    phi = np.linspace(0, 2*np.pi, 200, endpoint=False)
+    y0 = 100.0
+    # Add harmonics for orders 3, 4, 5, 6
+    intens = y0 + 3.0*np.sin(3*phi) + 2.0*np.cos(3*phi)
+    intens += 2.0*np.sin(4*phi) + 1.0*np.cos(4*phi)
+    intens += 1.0*np.sin(5*phi) + 0.5*np.cos(5*phi)
+    intens += 0.5*np.sin(6*phi) + 0.3*np.cos(6*phi)
+
+    result = fit_higher_harmonics_simultaneous(phi, intens, sma=10.0, gradient=-2.0, orders=[3, 4, 5, 6])
+
+    assert 3 in result, "Should have 3rd harmonic"
+    assert 4 in result, "Should have 4th harmonic"
+    assert 5 in result, "Should have 5th harmonic"
+    assert 6 in result, "Should have 6th harmonic"
+
+    # Verify each result is a 4-tuple
+    for n in [3, 4, 5, 6]:
+        assert len(result[n]) == 4, f"Harmonic {n} should have 4 values (a, b, a_err, b_err)"
+
+    print("✓ fit_higher_harmonics_simultaneous extended orders test passed")
+
+
+def test_fit_higher_harmonics_simultaneous_insufficient_data():
+    """Test simultaneous harmonics fitting with insufficient data points."""
+    phi = np.linspace(0, 2*np.pi, 3, endpoint=False)  # Only 3 points
+    intens = np.array([100.0, 101.0, 99.0])
+
+    # Need 5 params (1 + 2*2) for orders=[3, 4], but only have 3 points
+    result = fit_higher_harmonics_simultaneous(phi, intens, sma=10.0, gradient=-2.0, orders=[3, 4])
+
+    # Should return zeros for all harmonics
+    assert 3 in result, "Should have 3rd harmonic (zeros)"
+    assert 4 in result, "Should have 4th harmonic (zeros)"
+    assert result[3] == (0.0, 0.0, 0.0, 0.0), "Should return zeros for insufficient data"
+    assert result[4] == (0.0, 0.0, 0.0, 0.0), "Should return zeros for insufficient data"
+
+    print("✓ fit_higher_harmonics_simultaneous insufficient data test passed")
+
+
+def test_fit_higher_harmonics_simultaneous_zero_gradient():
+    """Test simultaneous harmonics fitting with zero gradient."""
+    phi = np.linspace(0, 2*np.pi, 100, endpoint=False)
+    intens = 100.0 + 5.0*np.sin(3*phi) + 3.0*np.cos(3*phi)
+
+    result = fit_higher_harmonics_simultaneous(phi, intens, sma=10.0, gradient=0.0, orders=[3, 4])
+
+    # Should handle zero gradient gracefully (uses factor=1.0)
+    assert 3 in result, "Should have 3rd harmonic"
+    assert 4 in result, "Should have 4th harmonic"
+
+    # Should not crash with division by zero
+    a3, b3, a3_err, b3_err = result[3]
+    assert np.isfinite(a3), "a3 should be finite"
+    assert np.isfinite(b3), "b3 should be finite"
+
+    print("✓ fit_higher_harmonics_simultaneous zero gradient test passed")
+
+
+def test_fit_higher_harmonics_vs_sequential():
+    """Compare simultaneous fitting with sequential (compute_deviations) for consistency."""
+    np.random.seed(42)
+    phi = np.linspace(0, 2*np.pi, 100, endpoint=False)
+    y0 = 100.0
+    A3, B3 = 5.0, 3.0
+    A4, B4 = 2.0, 1.5
+    intens = y0 + A3*np.sin(3*phi) + B3*np.cos(3*phi) + A4*np.sin(4*phi) + B4*np.cos(4*phi)
+
+    sma = 10.0
+    gradient = -2.0
+
+    # Sequential fitting
+    a3_seq, b3_seq, a3_err_seq, b3_err_seq = compute_deviations(phi, intens, sma, gradient, 3)
+    a4_seq, b4_seq, a4_err_seq, b4_err_seq = compute_deviations(phi, intens, sma, gradient, 4)
+
+    # Simultaneous fitting
+    result = fit_higher_harmonics_simultaneous(phi, intens, sma, gradient, orders=[3, 4])
+    a3_sim, b3_sim, a3_err_sim, b3_err_sim = result[3]
+    a4_sim, b4_sim, a4_err_sim, b4_err_sim = result[4]
+
+    # For noiseless data with pure harmonics, both methods should give similar results
+    # (not identical due to different model assumptions: sequential fits each harmonic
+    # with its own constant term, simultaneous shares one constant term)
+    assert np.allclose(a3_seq, a3_sim, rtol=0.1), f"a3: sequential={a3_seq}, simultaneous={a3_sim}"
+    assert np.allclose(b3_seq, b3_sim, rtol=0.1), f"b3: sequential={b3_seq}, simultaneous={b3_sim}"
+    assert np.allclose(a4_seq, a4_sim, rtol=0.1), f"a4: sequential={a4_seq}, simultaneous={a4_sim}"
+    assert np.allclose(b4_seq, b4_sim, rtol=0.1), f"b4: sequential={b4_seq}, simultaneous={b4_sim}"
+
+    print("✓ Simultaneous vs sequential comparison test passed")
+    print(f"  3rd harmonic: sequential=({a3_seq:.4f}, {b3_seq:.4f}), simultaneous=({a3_sim:.4f}, {b3_sim:.4f})")
+    print(f"  4th harmonic: sequential=({a4_seq:.4f}, {b4_seq:.4f}), simultaneous=({a4_sim:.4f}, {b4_sim:.4f})")
 
 
