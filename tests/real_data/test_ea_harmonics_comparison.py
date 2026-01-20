@@ -563,7 +563,7 @@ class TestEAHarmonicsComparison:
         print(f"\nFigures saved to {OUTPUT_DIR}")
 
     def _plot_profile_comparison(self, galaxy_name, res, output_dir):
-        """Plot 1D profile comparison figure."""
+        """Plot 1D profile comparison figure with both valid and invalid points."""
         import matplotlib.pyplot as plt
 
         fig, axes = plt.subplots(6, 1, figsize=(10, 14), sharex=True)
@@ -571,7 +571,7 @@ class TestEAHarmonicsComparison:
 
         # Colors and markers for each method
         styles = {
-            'photutils': {'color': 'black', 'marker': 's', 'label': 'photutils (ref)'},
+            'photutils': {'color': 'black', 'marker': 's', 'label': 'photutils'},
             'isoster_pa': {'color': 'blue', 'marker': 'o', 'label': 'isoster PA'},
             'isoster_ea_34': {'color': 'green', 'marker': '^', 'label': 'isoster EA [3,4]'},
             'isoster_ea_310': {'color': 'red', 'marker': 'D', 'label': 'isoster EA [3..10]'},
@@ -582,40 +582,73 @@ class TestEAHarmonicsComparison:
                 continue
 
             style = styles[method]
-            conv = [iso for iso in isos if iso['stop_code'] == 0]
-            if len(conv) < 3:
+            if len(isos) < 3:
                 continue
 
-            sma = np.array([iso['sma'] for iso in conv])
-            sma_quarter = sma ** 0.25  # X-axis
+            # Extract ALL isophotes (both converged and failed)
+            sma_all = np.array([iso['sma'] for iso in isos])
+            stop_codes = np.array([iso['stop_code'] for iso in isos])
+            mask_conv = (stop_codes == 0)
+            n_conv = mask_conv.sum()
+            n_total = len(isos)
+
+            sma_quarter_all = sma_all ** 0.25
 
             # Panel 1: Intensity (log scale)
-            intens = np.array([iso['intens'] for iso in conv])
-            axes[0].scatter(sma_quarter, intens, c=style['color'], marker=style['marker'],
-                           s=15, alpha=0.7, label=style['label'])
+            intens_all = np.array([iso['intens'] for iso in isos])
+            # Plot failed points with open markers (faded)
+            if (~mask_conv).any():
+                axes[0].scatter(sma_quarter_all[~mask_conv], intens_all[~mask_conv],
+                               facecolors='none', edgecolors=style['color'],
+                               marker=style['marker'], s=15, alpha=0.3, linewidths=0.5)
+            # Plot converged points with filled markers (solid)
+            if mask_conv.any():
+                axes[0].scatter(sma_quarter_all[mask_conv], intens_all[mask_conv],
+                               c=style['color'], marker=style['marker'], s=15, alpha=0.7,
+                               label=f"{style['label']} ({n_conv}/{n_total})")
 
             # Panel 3: Ellipticity
-            eps = np.array([iso['eps'] for iso in conv])
-            axes[2].scatter(sma_quarter, eps, c=style['color'], marker=style['marker'],
-                           s=15, alpha=0.7)
+            eps_all = np.array([iso['eps'] for iso in isos])
+            if (~mask_conv).any():
+                axes[2].scatter(sma_quarter_all[~mask_conv], eps_all[~mask_conv],
+                               facecolors='none', edgecolors=style['color'],
+                               marker=style['marker'], s=15, alpha=0.3, linewidths=0.5)
+            if mask_conv.any():
+                axes[2].scatter(sma_quarter_all[mask_conv], eps_all[mask_conv],
+                               c=style['color'], marker=style['marker'], s=15, alpha=0.7)
 
             # Panel 4: Position Angle
-            pa = np.array([iso['pa'] for iso in conv])
-            pa_deg = np.degrees(pa) % 180
-            axes[3].scatter(sma_quarter, pa_deg, c=style['color'], marker=style['marker'],
-                           s=15, alpha=0.7)
+            pa_all = np.array([iso['pa'] for iso in isos])
+            pa_deg_all = np.degrees(pa_all) % 180
+            if (~mask_conv).any():
+                axes[3].scatter(sma_quarter_all[~mask_conv], pa_deg_all[~mask_conv],
+                               facecolors='none', edgecolors=style['color'],
+                               marker=style['marker'], s=15, alpha=0.3, linewidths=0.5)
+            if mask_conv.any():
+                axes[3].scatter(sma_quarter_all[mask_conv], pa_deg_all[mask_conv],
+                               c=style['color'], marker=style['marker'], s=15, alpha=0.7)
 
             # Panel 5: a4 (boxiness/diskiness)
-            a4 = np.array([iso.get('a4', 0.0) for iso in conv])
-            axes[4].scatter(sma_quarter, a4, c=style['color'], marker=style['marker'],
-                           s=15, alpha=0.7)
+            a4_all = np.array([iso.get('a4', 0.0) for iso in isos])
+            if (~mask_conv).any():
+                axes[4].scatter(sma_quarter_all[~mask_conv], a4_all[~mask_conv],
+                               facecolors='none', edgecolors=style['color'],
+                               marker=style['marker'], s=15, alpha=0.3, linewidths=0.5)
+            if mask_conv.any():
+                axes[4].scatter(sma_quarter_all[mask_conv], a4_all[mask_conv],
+                               c=style['color'], marker=style['marker'], s=15, alpha=0.7)
 
             # Panel 6: b4
-            b4 = np.array([iso.get('b4', 0.0) for iso in conv])
-            axes[5].scatter(sma_quarter, b4, c=style['color'], marker=style['marker'],
-                           s=15, alpha=0.7)
+            b4_all = np.array([iso.get('b4', 0.0) for iso in isos])
+            if (~mask_conv).any():
+                axes[5].scatter(sma_quarter_all[~mask_conv], b4_all[~mask_conv],
+                               facecolors='none', edgecolors=style['color'],
+                               marker=style['marker'], s=15, alpha=0.3, linewidths=0.5)
+            if mask_conv.any():
+                axes[5].scatter(sma_quarter_all[mask_conv], b4_all[mask_conv],
+                               c=style['color'], marker=style['marker'], s=15, alpha=0.7)
 
-        # Panel 2: Fractional residual vs photutils
+        # Panel 2: Fractional residual vs photutils (converged only for comparison)
         ref_isos = res['isophotes'].get('photutils', [])
         ref_conv = [iso for iso in ref_isos if iso['stop_code'] == 0]
         if len(ref_conv) > 3:
@@ -627,20 +660,26 @@ class TestEAHarmonicsComparison:
                     continue
 
                 isos = res['isophotes'][method]
-                conv = [iso for iso in isos if iso['stop_code'] == 0]
-                if len(conv) < 3:
-                    continue
+                # Use ALL isophotes for residual comparison
+                sma_all = np.array([iso['sma'] for iso in isos])
+                intens_all = np.array([iso['intens'] for iso in isos])
+                stop_codes = np.array([iso['stop_code'] for iso in isos])
+                mask_conv = (stop_codes == 0)
 
-                sma = np.array([iso['sma'] for iso in conv])
-                intens = np.array([iso['intens'] for iso in conv])
-                intens_ref_interp = np.interp(sma, sma_ref, intens_ref)
-
-                frac_diff = (intens - intens_ref_interp) / intens_ref_interp * 100
-                sma_quarter = sma ** 0.25
+                intens_ref_interp = np.interp(sma_all, sma_ref, intens_ref)
+                frac_diff = (intens_all - intens_ref_interp) / intens_ref_interp * 100
+                sma_quarter_all = sma_all ** 0.25
 
                 style = styles[method]
-                axes[1].scatter(sma_quarter, frac_diff, c=style['color'], marker=style['marker'],
-                               s=15, alpha=0.7)
+                # Plot failed points with open markers
+                if (~mask_conv).any():
+                    axes[1].scatter(sma_quarter_all[~mask_conv], frac_diff[~mask_conv],
+                                   facecolors='none', edgecolors=style['color'],
+                                   marker=style['marker'], s=15, alpha=0.3, linewidths=0.5)
+                # Plot converged points with filled markers
+                if mask_conv.any():
+                    axes[1].scatter(sma_quarter_all[mask_conv], frac_diff[mask_conv],
+                                   c=style['color'], marker=style['marker'], s=15, alpha=0.7)
 
         # Formatting
         axes[0].set_yscale('log')

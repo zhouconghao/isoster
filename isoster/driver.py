@@ -127,9 +127,10 @@ def fit_image(image, mask=None, config=None):
                 
             next_iso = fit_isophote(image, mask, next_sma, current_iso, cfg)
             outwards_results.append(next_iso)
-            
+
             # If good fit, update geometry for next step
-            if next_iso['stop_code'] in [0, 1, 2]:
+            # In permissive mode, always update to prevent cascading failures
+            if next_iso['stop_code'] in [0, 1, 2] or cfg.permissive_geometry:
                 current_iso = next_iso
                 
     # 4. Grow Inwards
@@ -154,8 +155,9 @@ def fit_image(image, mask=None, config=None):
             # Use going_inwards=True flag
             next_iso = fit_isophote(image, mask, next_sma, current_iso, cfg, going_inwards=True)
             inwards_results.append(next_iso)
-            
-            if next_iso['stop_code'] in [0, 1, 2]:
+
+            # In permissive mode, always update to prevent cascading failures
+            if next_iso['stop_code'] in [0, 1, 2] or cfg.permissive_geometry:
                 current_iso = next_iso
 
     # Combine results

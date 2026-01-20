@@ -112,6 +112,16 @@ class IsosterConfig(BaseModel):
                     "Dict with keys: 'eps', 'pa', 'center'."
     )
 
+    # Permissive Geometry Mode (photutils-style)
+    permissive_geometry: bool = Field(
+        False,
+        description="Enable permissive geometry updates (photutils-style). "
+                    "When True, geometry is always updated even from failed fits to prevent "
+                    "cascading failures, and None gradient errors are treated as acceptable. "
+                    "This matches photutils's 'best effort' approach vs isoster's stricter "
+                    "'convergence-required' default behavior."
+    )
+
     @model_validator(mode='after')
     def check_sma_consistency(self):
         if self.maxsma is not None and self.maxsma < self.minsma:

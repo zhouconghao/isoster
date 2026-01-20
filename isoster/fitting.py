@@ -621,6 +621,7 @@ def fit_isophote(image, mask, sma, start_geometry, config, going_inwards=False, 
     lsb_sma_threshold = cfg.lsb_sma_threshold
     simultaneous_harmonics = cfg.simultaneous_harmonics
     harmonic_orders = cfg.harmonic_orders
+    permissive_geometry = cfg.permissive_geometry
 
     
     x0, y0, eps, pa = start_geometry['x0'], start_geometry['y0'], start_geometry['eps'], start_geometry['pa']
@@ -695,7 +696,11 @@ def fit_isophote(image, mask, sma, start_geometry, config, going_inwards=False, 
         
         gradient_relative_error = abs(gradient_error / gradient) if (gradient_error is not None and gradient is not None and gradient < 0) else None
         if not going_inwards:
-            if gradient_relative_error is None or gradient_relative_error > maxgerr or gradient >= 0:
+            # In permissive mode, skip the check if gradient_relative_error is None
+            # This matches photutils's behavior which continues when gradient error can't be computed
+            if permissive_geometry and gradient_relative_error is None:
+                pass  # Accept fit, continue
+            elif gradient_relative_error is None or gradient_relative_error > maxgerr or gradient >= 0:
                 if lexceed:
                     stop_code = -1  # STOP_CODE -1: Gradient error (high relative error exceeded twice)
                     break
@@ -736,8 +741,13 @@ def fit_isophote(image, mask, sma, start_geometry, config, going_inwards=False, 
                 
             best_geometry = {'x0': x0, 'y0': y0, 'eps': eps, 'pa': pa, 'sma': sma, 'intens': reported_intens, 'rms': rms, 'intens_err': intens_err,
                              'x0_err': x0_err, 'y0_err': y0_err, 'eps_err': eps_err, 'pa_err': pa_err,
-                             'a3': 0.0, 'b3': 0.0, 'a3_err': 0.0, 'b3_err': 0.0, 'a4': 0.0, 'b4': 0.0, 'a4_err': 0.0, 'b4_err': 0.0,
                              'tflux_e': np.nan, 'tflux_c': np.nan, 'npix_e': 0, 'npix_c': 0}
+            # Initialize harmonics for all requested orders (default: [3, 4])
+            for n in harmonic_orders:
+                best_geometry[f'a{n}'] = 0.0
+                best_geometry[f'b{n}'] = 0.0
+                best_geometry[f'a{n}_err'] = 0.0
+                best_geometry[f'b{n}_err'] = 0.0
             if debug:
                 best_geometry.update({'ndata': actual_points, 'nflag': total_points - actual_points, 'grad': gradient,
                                       'grad_error': gradient_error if gradient_error is not None else np.nan,
@@ -754,15 +764,21 @@ def fit_isophote(image, mask, sma, start_geometry, config, going_inwards=False, 
                     harmonics = fit_higher_harmonics_simultaneous(
                         angles, intens, sma, gradient, harmonic_orders
                     )
-                    # Extract a3, b3, a4, b4 (fallback to zeros if not in harmonic_orders)
-                    a3, b3, a3_err, b3_err = harmonics.get(3, (0.0, 0.0, 0.0, 0.0))
-                    a4, b4, a4_err, b4_err = harmonics.get(4, (0.0, 0.0, 0.0, 0.0))
+                    # Store ALL requested harmonics
+                    for n in harmonic_orders:
+                        an, bn, an_err, bn_err = harmonics.get(n, (0.0, 0.0, 0.0, 0.0))
+                        best_geometry[f'a{n}'] = an
+                        best_geometry[f'b{n}'] = bn
+                        best_geometry[f'a{n}_err'] = an_err
+                        best_geometry[f'b{n}_err'] = bn_err
                 else:
                     # Sequential fitting (default, corrected to use angles)
-                    a3, b3, a3_err, b3_err = compute_deviations(angles, intens, sma, gradient, 3)
-                    a4, b4, a4_err, b4_err = compute_deviations(angles, intens, sma, gradient, 4)
-                best_geometry.update({'a3': a3, 'b3': b3, 'a3_err': a3_err, 'b3_err': b3_err,
-                                      'a4': a4, 'b4': b4, 'a4_err': a4_err, 'b4_err': b4_err})
+                    for n in harmonic_orders:
+                        an, bn, an_err, bn_err = compute_deviations(angles, intens, sma, gradient, n)
+                        best_geometry[f'a{n}'] = an
+                        best_geometry[f'b{n}'] = bn
+                        best_geometry[f'a{n}_err'] = an_err
+                        best_geometry[f'b{n}_err'] = bn_err
             
             # 6. FULL PHOTOMETRY (If requested)
             if full_photometry:
@@ -797,8 +813,13 @@ def fit_isophote(image, mask, sma, start_geometry, config, going_inwards=False, 
     if best_geometry is None:
         best_geometry = {'x0': x0, 'y0': y0, 'eps': eps, 'pa': pa, 'sma': sma, 'intens': np.nan, 'rms': np.nan, 'intens_err': np.nan,
                          'x0_err': 0.0, 'y0_err': 0.0, 'eps_err': 0.0, 'pa_err': 0.0,
-                         'tflux_e': np.nan, 'tflux_c': np.nan, 'npix_e': 0, 'npix_c': 0,
-                         'a3': 0.0, 'b3': 0.0, 'a3_err': 0.0, 'b3_err': 0.0, 'a4': 0.0, 'b4': 0.0, 'a4_err': 0.0, 'b4_err': 0.0}
+                         'tflux_e': np.nan, 'tflux_c': np.nan, 'npix_e': 0, 'npix_c': 0}
+        # Initialize harmonics for all requested orders (default: [3, 4])
+        for n in harmonic_orders:
+            best_geometry[f'a{n}'] = 0.0
+            best_geometry[f'b{n}'] = 0.0
+            best_geometry[f'a{n}_err'] = 0.0
+            best_geometry[f'b{n}_err'] = 0.0
         if debug: best_geometry.update({'ndata': 0, 'nflag': 0, 'grad': np.nan, 'grad_error': np.nan, 'grad_r_error': np.nan})
         
     best_geometry['stop_code'], best_geometry['niter'] = stop_code, niter

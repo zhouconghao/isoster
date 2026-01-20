@@ -9,7 +9,8 @@ import numpy as np
 from scipy.interpolate import interp1d
 
 
-def build_isoster_model(image_shape, isophote_results, fill=0.0, interp_kind='linear'):
+def build_isoster_model(image_shape, isophote_results, fill=0.0, interp_kind='linear',
+                        use_harmonics=True, harmonic_orders=None):
     """
     Reconstruct a 2D galaxy image model from fitted isophotes.
 
@@ -20,7 +21,7 @@ def build_isoster_model(image_shape, isophote_results, fill=0.0, interp_kind='li
     Algorithm:
     1. For each pixel, compute its elliptical radius using the local geometry
     2. Interpolate intensity between adjacent isophotes
-    3. Add harmonic deviations (a3, b3, a4, b4) if present
+    3. Apply harmonic deviations (a3, b3, a4, b4, ...) to modify elliptical radius
     4. Fill regions outside fitted range with specified value
 
     Parameters
@@ -34,13 +35,20 @@ def build_isoster_model(image_shape, isophote_results, fill=0.0, interp_kind='li
         - 'eps': ellipticity
         - 'pa': position angle
         - 'intens': mean intensity
-        - Optional: 'a3', 'b3', 'a4', 'b4': harmonic deviations
+        - Optional: 'a3', 'b3', 'a4', 'b4', ...: harmonic deviations
     fill : float, optional
         Value to fill pixels outside the largest isophote (default: 0.0)
     interp_kind : str, optional
         Interpolation method for radial intensity profile. Options:
         - 'linear': Linear interpolation (default, faster)
         - 'cubic': Cubic spline interpolation (smoother)
+    use_harmonics : bool, optional
+        If True (default), include harmonic deviations in the model reconstruction.
+        Harmonics modify the effective elliptical radius to capture isophote shape
+        deviations (diskiness, boxiness, etc.).
+    harmonic_orders : list of int, optional
+        Harmonic orders to include. Default: [3, 4]. Can include higher orders
+        like [3, 4, 5, 6, 7, 8, 9, 10] if available in the isophote results.
 
     Returns
     -------
@@ -51,9 +59,9 @@ def build_isoster_model(image_shape, isophote_results, fill=0.0, interp_kind='li
     -----
     - For pixels outside the outermost isophote or inside the innermost,
       uses the boundary isophote's parameters with no extrapolation.
-    - Harmonic deviations (a3, b3, a4, b4) are properly reconstructed using
-      the local gradient and SMA to convert normalized deviations back to
-      intensity units.
+    - Harmonic deviations are applied as radial corrections:
+      r_corrected = r * (1 + Σₙ [aₙ·sin(nθ) + bₙ·cos(nθ)])
+      where θ is the position angle on the ellipse.
     - The function uses local geometry interpolation at each radius to
       handle varying ellipticity and position angle profiles.
 
@@ -63,6 +71,8 @@ def build_isoster_model(image_shape, isophote_results, fill=0.0, interp_kind='li
     >>> model = build_isoster_model(image.shape, results['isophotes'])
     >>> residual = image - model
     """
+    if harmonic_orders is None:
+        harmonic_orders = [3, 4]
     h, w = image_shape
     model = np.full((h, w), fill, dtype=np.float64)
 
@@ -176,13 +186,65 @@ def build_isoster_model(image_shape, isophote_results, fill=0.0, interp_kind='li
             break
         r_ell = r_ell_new
 
-    # Now interpolate intensity at each elliptical radius
-    model_flat = intens_interp(r_ell.ravel())
-    model = model_flat.reshape(image_shape)
+    # Apply harmonic deviations if requested
+    if use_harmonics and len(sorted_isos) >= 2:
+        # Check if any harmonic coefficients are present
+        has_harmonics = any(
+            f'a{n}' in sorted_isos[0] for n in harmonic_orders
+        )
 
-    # TODO: Add harmonic deviations (a3, b3, a4, b4)
-    # This requires knowing the gradient at each radius to denormalize
-    # For now, harmonics are not included in reconstruction
+        if has_harmonics:
+            # Compute position angle theta for each pixel (angle on the ellipse)
+            # theta = arctan2(y_rot * (1 - eps), x_rot) gives the eccentric anomaly
+            # For harmonics, we use the position angle: theta = arctan2(y_rot, x_rot)
+            theta = np.arctan2(y_rot, x_rot)
+
+            # Create interpolators for harmonic coefficients
+            harm_interps = {}
+            for n in harmonic_orders:
+                an_key, bn_key = f'a{n}', f'b{n}'
+                if an_key in sorted_isos[0]:
+                    an_values = np.array([iso.get(an_key, 0.0) for iso in sorted_isos])
+                    bn_values = np.array([iso.get(bn_key, 0.0) for iso in sorted_isos])
+                    harm_interps[n] = (
+                        interp1d(sma_values, an_values, kind='linear',
+                                 bounds_error=False, fill_value=(an_values[0], an_values[-1])),
+                        interp1d(sma_values, bn_values, kind='linear',
+                                 bounds_error=False, fill_value=(bn_values[0], bn_values[-1]))
+                    )
+
+            # Compute harmonic deviation: Δr/r = Σₙ [aₙ·sin(nθ) + bₙ·cos(nθ)]
+            # The harmonic coefficients are already normalized by (gradient * sma)
+            # so Δr = (aₙ * sma) * sin(nθ) + (bₙ * sma) * cos(nθ)
+            # and Δr/r = aₙ * sin(nθ) + bₙ * cos(nθ)
+            r_ell_flat = r_ell.ravel()
+            dr_over_r = np.zeros_like(r_ell_flat)
+
+            for n, (an_interp, bn_interp) in harm_interps.items():
+                an_local = an_interp(r_ell_flat)
+                bn_local = bn_interp(r_ell_flat)
+                theta_flat = theta.ravel()
+                dr_over_r += an_local * np.sin(n * theta_flat) + bn_local * np.cos(n * theta_flat)
+
+            dr_over_r = dr_over_r.reshape(r_ell.shape)
+
+            # Apply harmonic correction to elliptical radius
+            # If deviation is positive (isophote bulges out), the effective radius
+            # is smaller to get higher intensity at that location
+            r_ell_corrected = r_ell * (1.0 - dr_over_r)
+            r_ell_corrected = np.clip(r_ell_corrected, 0, np.max(sma_values) * 2)
+
+            # Interpolate intensity at corrected radius
+            model_flat = intens_interp(r_ell_corrected.ravel())
+            model = model_flat.reshape(image_shape)
+        else:
+            # No harmonics available, use basic interpolation
+            model_flat = intens_interp(r_ell.ravel())
+            model = model_flat.reshape(image_shape)
+    else:
+        # Harmonics disabled or insufficient isophotes
+        model_flat = intens_interp(r_ell.ravel())
+        model = model_flat.reshape(image_shape)
 
     return model
 
