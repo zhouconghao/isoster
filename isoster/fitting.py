@@ -799,9 +799,9 @@ def fit_isophote(image, mask, sma, start_geometry, config, going_inwards=False, 
             x0 += aux * np.cos(pa)
             y0 += aux * np.sin(pa)
         elif max_idx == 2:
-            # denom = 1 - (1-eps)^2 = eps*(2-eps), always >= 0
-            denom = 1.0 - (1.0 - eps)**2
-            if abs(denom) < 1e-10: denom = 1e-10  # Avoid division by zero for eps~0
+            # denom = (1-eps)^2 - 1 = -eps*(2-eps), always <= 0 (matches photutils)
+            denom = (1.0 - eps)**2 - 1.0
+            if abs(denom) < 1e-10: denom = -1e-10  # Avoid division by zero for eps~0
             pa = (pa + (max_amp * 2.0 * (1.0 - eps) / sma / gradient / denom)) % np.pi
         elif max_idx == 3:
             eps = min(eps - (max_amp * 2.0 * (1.0 - eps) / sma / gradient), 0.95)
