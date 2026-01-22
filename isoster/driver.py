@@ -36,7 +36,7 @@ def fit_central_pixel(image, mask, x0, y0, debug=False):
         'niter': 0, 'valid': valid
     }
 
-def fit_image(image, mask=None, config=None):
+def fit_image(image, mask=None, config=None, template_isophotes=None):
     """
     Main driver to fit isophotes to an entire image.
 
@@ -48,11 +48,26 @@ def fit_image(image, mask=None, config=None):
         mask (np.ndarray, optional): 2D Bad pixel mask (True=bad).
         config (dict or IsosterConfig, optional): Configuration parameters.
             If None, default configuration is used.
+        template_isophotes (list of dict, optional): List of isophote dicts to use
+            as geometry template. When provided, photometry is extracted at each
+            template SMA using the template's geometry (x0, y0, eps, pa) at that SMA.
+            This enables multiband analysis where one band (e.g., g-band) defines
+            geometry, and the same variable geometry is applied to other bands for
+            consistent color profile measurement.
 
     Returns:
         dict: A dictionary containing:
             - 'isophotes': List of dictionaries, each representing a fitted isophote.
             - 'config': The IsosterConfig object used for the fit.
+
+    Examples
+    --------
+    >>> # Normal fitting
+    >>> results_g = fit_image(image_g, mask_g, config)
+    >>>
+    >>> # Template-based forced photometry (multiband)
+    >>> results_r = fit_image(image_r, mask_r, config,
+    ...                       template_isophotes=results_g['isophotes'])
     """
     if config is None:
         cfg = IsosterConfig()
@@ -60,7 +75,11 @@ def fit_image(image, mask=None, config=None):
         cfg = IsosterConfig(**config)
     else:
         cfg = config
-    
+
+    # Handle template-based forced mode (takes priority over regular forced mode)
+    if template_isophotes is not None:
+        return _fit_image_template_forced(image, mask, cfg, template_isophotes)
+
     # Handle forced mode
     if cfg.forced:
         from .fitting import extract_forced_photometry
@@ -184,3 +203,71 @@ def fit_image(image, mask=None, config=None):
             
     # Return as dict matching legacy structure + config object
     return {'isophotes': final_list, 'config': cfg}
+
+
+def _fit_image_template_forced(image, mask, config, template_isophotes):
+    """
+    Extract forced photometry using geometry from template isophotes.
+
+    This function extracts photometry at each SMA from the template, using the
+    template's geometry (x0, y0, eps, pa) at that specific SMA. Unlike regular
+    forced mode which uses a single fixed geometry for all SMA values, this
+    allows variable geometry along the radial profile.
+
+    Args:
+        image (np.ndarray): 2D input image.
+        mask (np.ndarray, optional): 2D bad pixel mask (True=bad).
+        config (IsosterConfig): Configuration object. Uses integrator, sclip,
+            nclip, and use_eccentric_anomaly settings.
+        template_isophotes (list of dict): List of isophote dicts from a
+            previous isoster run. Each dict must contain 'sma', 'x0', 'y0',
+            'eps', and 'pa' keys.
+
+    Returns:
+        dict: Results dictionary with 'isophotes' (list of dicts) and 'config'
+            (IsosterConfig) keys. The isophotes have intensity from the target
+            image but geometry from the template.
+
+    Raises:
+        ValueError: If template_isophotes is empty or None.
+
+    Notes
+    -----
+    The output isophotes preserve the template's geometry exactly. Only the
+    intensity-related fields (intens, rms, intens_err) and derived quantities
+    come from the target image.
+
+    This is designed for multiband analysis where one band (e.g., g-band)
+    defines the geometry, and the same geometry is applied to other bands
+    (r, i, z) for consistent color profile measurement.
+    """
+    from .fitting import extract_forced_photometry
+
+    if not template_isophotes or len(template_isophotes) == 0:
+        raise ValueError("template_isophotes cannot be empty")
+
+    # Sort template by SMA for consistent ordering
+    sorted_template = sorted(template_isophotes, key=lambda x: x['sma'])
+
+    # Extract forced photometry at each SMA with its own geometry
+    isophotes = []
+    for template_iso in sorted_template:
+        sma = template_iso['sma']
+
+        # Handle central pixel (sma=0) specially
+        if sma == 0:
+            iso = fit_central_pixel(image, mask, template_iso['x0'], template_iso['y0'])
+        else:
+            iso = extract_forced_photometry(
+                image, mask,
+                template_iso['x0'], template_iso['y0'],
+                sma,
+                template_iso['eps'], template_iso['pa'],
+                integrator=config.integrator,
+                sclip=config.sclip,
+                nclip=config.nclip,
+                use_eccentric_anomaly=config.use_eccentric_anomaly
+            )
+        isophotes.append(iso)
+
+    return {'isophotes': isophotes, 'config': config}

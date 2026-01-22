@@ -94,3 +94,62 @@ def isophote_results_to_fits(results, filename, overwrite=True):
                 tbl.meta[key] = str(value)
             
     tbl.write(filename, format='fits', overwrite=overwrite)
+
+
+def isophote_results_from_fits(filename):
+    """
+    Load isophote results from a FITS table file.
+
+    This is the inverse of isophote_results_to_fits(). It reconstructs
+    the results dict from a saved FITS file, enabling template-based
+    forced photometry workflows where geometry from one band is applied
+    to other bands.
+
+    Parameters
+    ----------
+    filename : str
+        Path to FITS file containing isophote table.
+
+    Returns
+    -------
+    results : dict
+        Dictionary with:
+        - 'isophotes': list of dicts, each containing isophote data
+        - 'config': None (config reconstruction not fully supported)
+
+    Notes
+    -----
+    The returned isophotes contain all columns saved in the FITS table.
+    Config parameters stored in the header are not reconstructed into
+    an IsosterConfig object to avoid potential validation issues with
+    partial config data.
+
+    Examples
+    --------
+    >>> # Load previously saved isophotes
+    >>> template = isophote_results_from_fits('galaxy_gband.fits')
+    >>> # Use as template for forced photometry
+    >>> results_r = fit_image(image_r, mask_r, config,
+    ...                       template_isophotes=template['isophotes'])
+    """
+    tbl = Table.read(filename, format='fits')
+
+    # Convert table rows to list of dicts
+    isophotes = []
+    for row in tbl:
+        iso_dict = {}
+        for colname in tbl.colnames:
+            value = row[colname]
+            # Convert numpy types to Python types for consistency
+            if isinstance(value, np.integer):
+                value = int(value)
+            elif isinstance(value, np.floating):
+                value = float(value)
+            elif isinstance(value, np.bool_):
+                value = bool(value)
+            iso_dict[colname] = value
+        isophotes.append(iso_dict)
+
+    # Note: We don't attempt to reconstruct config from header metadata
+    # as this could cause validation issues with partial data
+    return {'isophotes': isophotes, 'config': None}
