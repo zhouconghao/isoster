@@ -1,0 +1,53 @@
+{
+  "timestamp": "2026-01-21T18:00:31.646928",
+  "cpu_count": 20,
+  "summary": {
+    "avg_speedup": 0.0009523852185099686,
+    "max_speedup": 0.0013814779215795049,
+    "avg_efficiency": 0.023809630462749216
+  },
+  "speedup_data": [
+    {
+      "n_sma": 20,
+      "n_workers": 4,
+      "speedup": 0.0005232925154404325,
+      "efficiency": 0.013082312886010812,
+      "seq_time": 0.0008919993415474892,
+      "par_time": 1.7045902917161584
+    },
+    {
+      "n_sma": 50,
+      "n_workers": 4,
+      "speedup": 0.0013814779215795049,
+      "efficiency": 0.03453694803948762,
+      "seq_time": 0.002387375570833683,
+      "par_time": 1.7281315419822931
+    }
+  ],
+  "raw_results": [
+    {
+      "n_sma": 20,
+      "n_workers": 1,
+      "runtime_s": 0.0008919993415474892,
+      "n_isophotes": 20
+    },
+    {
+      "n_sma": 20,
+      "n_workers": 4,
+      "runtime_s": 1.7045902917161584,
+      "n_isophotes": 20
+    },
+    {
+      "n_sma": 50,
+      "n_workers": 1,
+      "runtime_s": 0.002387375570833683,
+      "n_isophotes": 50
+    },
+    {
+      "n_sma": 50,
+      "n_workers": 4,
+      "runtime_s": 1.7281315419822931,
+      "n_isophotes": 50
+    }
+  ]
+}
