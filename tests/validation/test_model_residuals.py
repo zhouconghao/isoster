@@ -3,6 +3,7 @@
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.gridspec import GridSpec
+from pathlib import Path
 from isoster import fit_image
 from isoster.model import build_isoster_model
 from isoster.config import IsosterConfig
@@ -274,7 +275,9 @@ def test_model_building():
         print(f"   This suggests issues in build_ellipse_model()")
 
     # Create diagnostic plot
-    plot_residual_analysis(data, model, R_e, x0, y0, stats, 'model_residuals_current.png')
+    output_dir = Path('tests/qa_outputs')
+    output_dir.mkdir(exist_ok=True)
+    plot_residual_analysis(data, model, R_e, x0, y0, stats, output_dir / 'model_residuals_current.png')
 
     return stats, mid_max, mid_median
 
