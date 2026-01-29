@@ -39,6 +39,7 @@ isoster image.fits --output isophotes.fits --config config.yaml
 1. **driver.py** (`fit_image`) - Main entry point orchestrating the fitting:
    - Fits central pixel, then initial isophote at `sma0`
    - Iteratively grows outward (increasing SMA) then inward
+   - Supports template-based forced photometry via `template_isophotes` parameter for multiband analysis
    - Returns dict with `{'isophotes': [...], 'config': IsosterConfig}`
 
 2. **sampling.py** (`extract_isophote_data`) - Vectorized ellipse sampling:
@@ -52,13 +53,21 @@ isoster image.fits --output isophotes.fits --config config.yaml
 
 4. **config.py** (`IsosterConfig`) - Pydantic configuration model with all parameters
 
-5. **model.py** (`build_isoster_model`) - Reconstructs 2D image from isophote profiles using radial interpolation
+5. **model.py** (`build_isoster_model`) - Reconstructs 2D image from isophote profiles using radial interpolation, with optional higher-order harmonic deviations
 
 ### Key Concepts
 
-- **Eccentric Anomaly (EA) mode**: When `use_eccentric_anomaly=True`, samples uniformly in ψ for uniform arc-length coverage on high-ellipticity ellipses. Harmonics fitted in ψ-space, geometry updates in φ-space.
+- **Eccentric Anomaly (EA) mode**: When `use_eccentric_anomaly=True`, samples uniformly in ψ for uniform arc-length coverage on high-ellipticity ellipses. Harmonics fitted in ψ-space, geometry updates in φ-space. Recommended for ε > 0.3.
 
-- **Forced mode**: When `forced=True`, extracts photometry at predefined SMA values without geometry fitting.
+- **Forced mode**: When `forced=True`, extracts photometry at predefined SMA values without geometry fitting (uses single fixed geometry).
+
+- **Template-based forced mode**: When `template_isophotes` is provided to `fit_image()`, applies variable geometry (one per SMA) from the template to new image. Enables consistent multiband photometry by using geometry from one band (e.g., g-band) for other bands (r, i, z).
+
+- **Simultaneous harmonics fitting**: When `simultaneous_harmonics=True`, uses ISOFIT-style simultaneous fitting of higher-order harmonics (orders specified by `harmonic_orders=[3, 4, ...]`) that accounts for cross-correlations.
+
+- **Permissive geometry mode**: When `permissive_geometry=True`, enables photutils-style "best effort" geometry updates that continue even from failed fits, preventing cascading failures in challenging data.
+
+- **Central regularization**: When `use_central_regularization=True`, applies geometry regularization in low S/N central regions (SMA < `central_reg_sma_threshold`) to stabilize fitting by penalizing large geometry changes.
 
 - **Stop codes**: 0=converged, 1=too many flagged pixels, 2=minor issues, 3=too few points, -1=gradient error
 
@@ -73,15 +82,112 @@ isoster image.fits --output isophotes.fits --config config.yaml
 
 ## Public API
 
+### Basic Usage
+
 ```python
 import isoster
 
+# Single-band fitting
 results = isoster.fit_image(image, mask, config)
-model = isoster.build_isoster_model(image.shape, results['isophotes'])
+
+# Save results to FITS
 isoster.isophote_results_to_fits(results, "output.fits")
+
+# Load results from FITS
+results = isoster.isophote_results_from_fits("output.fits")
+
+# Build 2D model (with optional harmonics)
+model = isoster.build_isoster_model(
+    image.shape,
+    results['isophotes'],
+    use_harmonics=True,      # Include harmonic deviations (default: True)
+    harmonic_orders=[3, 4]   # Which harmonics to use (default: [3, 4])
+)
+
+# Convert to Astropy table
 table = isoster.isophote_results_to_astropy_tables(results)
-isoster.plot_qa_summary(...)  # QA visualization
+
+# QA visualization
+isoster.plot_qa_summary(...)
 ```
+
+### Multiband Analysis with Template-Based Forced Photometry
+
+```python
+import isoster
+
+# Fit reference band (e.g., g-band) normally
+results_g = isoster.fit_image(image_g, mask_g, config)
+isoster.isophote_results_to_fits(results_g, "galaxy_g.fits")
+
+# Apply g-band geometry to other bands using template
+results_r = isoster.fit_image(
+    image_r, mask_r, config,
+    template_isophotes=results_g['isophotes']
+)
+
+results_i = isoster.fit_image(
+    image_i, mask_i, config,
+    template_isophotes=results_g['isophotes']
+)
+
+# OR load template from saved FITS
+template = isoster.isophote_results_from_fits('galaxy_g.fits')
+results_r = isoster.fit_image(
+    image_r, mask_r, config,
+    template_isophotes=template['isophotes']
+)
+```
+
+## Important Configuration Parameters
+
+### Advanced Fitting Options
+
+```python
+from isoster.config import IsosterConfig
+
+config = IsosterConfig(
+    # Basic geometry
+    sma0=10.0,           # Initial semi-major axis
+    x0=None, y0=None,    # Center (None = auto-detect)
+    eps=0.2, pa=0.0,     # Initial ellipticity and position angle
+
+    # Sampling mode
+    use_eccentric_anomaly=True,  # Recommended for eps > 0.3
+
+    # Higher-order harmonics
+    simultaneous_harmonics=False,  # Enable ISOFIT-style simultaneous fitting
+    harmonic_orders=[3, 4],        # Harmonic orders to fit
+
+    # Geometry behavior
+    permissive_geometry=False,     # Enable photutils-style "best effort" updates
+
+    # Central region stabilization
+    use_central_regularization=False,  # Enable geometry regularization
+    central_reg_sma_threshold=5.0,     # SMA threshold (pixels)
+    central_reg_strength=1.0,          # Regularization strength (0-10)
+    central_reg_weights={              # Per-parameter weights
+        'eps': 1.0,
+        'pa': 1.0,
+        'center': 1.0
+    },
+
+    # Convergence criteria
+    maxgerr=0.5,         # Max gradient error (use 1.0-1.2 for eps > 0.6)
+    conver=0.05,         # Harmonic convergence threshold
+
+    # Photometry
+    full_photometry=True,  # Enable flux integration metrics
+)
+```
+
+### Parameter Guidelines
+
+- **Eccentric Anomaly (EA) mode**: Use `use_eccentric_anomaly=True` for ε > 0.3 to improve sampling uniformity
+- **High ellipticity**: For ε > 0.6, use relaxed `maxgerr=1.0` or higher to prevent excessive failures
+- **Challenging data**: Enable `permissive_geometry=True` to continue fitting through convergence issues
+- **Low S/N centers**: Enable `use_central_regularization=True` with appropriate threshold and strength
+- **Morphological features**: Enable `simultaneous_harmonics=True` to capture higher-order deviations
 
 ## QA Figure Rules
 
