@@ -14,6 +14,7 @@ import matplotlib.pyplot as plt
 from isoster import fit_image
 from isoster.config import IsosterConfig
 from isoster.model import build_isoster_model
+from isoster.output_paths import resolve_output_directory
 
 
 def create_simple_galaxy():
@@ -113,9 +114,12 @@ def main():
     axes[2].set_title('Surface Brightness Profile')
     axes[2].grid(True, alpha=0.3)
 
+    output_dir = resolve_output_directory("examples_basic_usage")
+    output_path = output_dir / "basic_usage_example.png"
+
     plt.tight_layout()
-    plt.savefig('outputs/figures/basic_usage_example.png', dpi=150)
-    print("Saved figure to outputs/figures/basic_usage_example.png")
+    plt.savefig(output_path, dpi=150)
+    print(f"Saved figure to {output_path}")
     plt.close()
 
     print("\nDone!")

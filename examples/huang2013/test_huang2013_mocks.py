@@ -1701,7 +1701,7 @@ def main():
                        help=f'SMA step size (default: {DEFAULT_ASTEP})')
 
     # Output
-    parser.add_argument('--output-dir', type=str, default='outputs/huang2013_test/',
+    parser.add_argument('--output-dir', type=str, default='outputs/examples_huang2013/',
                        help='Output directory')
     parser.add_argument('--dpi', type=int, default=FIGURE_DPI,
                        help=f'Figure DPI (default: {FIGURE_DPI})')

@@ -330,4 +330,4 @@ reliable = [iso for iso in isophotes if iso['stop_code'] in [0, 2]]
 - `IsosterConfig` documentation - Parameter tuning guide
 - `fit_isophote()` source code - Implementation details
 - `examples/` directory - Typical usage patterns
-- `CODE_REVIEW.md` - Detailed code analysis including stop code consistency
+- `docs/archive/review/code-review.md` - Historical code analysis including stop code consistency

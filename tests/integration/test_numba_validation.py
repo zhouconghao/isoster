@@ -13,6 +13,7 @@ from pathlib import Path
 
 from isoster.driver import fit_image
 from isoster.config import IsosterConfig
+from isoster.output_paths import resolve_output_directory
 from isoster.numba_kernels import (
     NUMBA_AVAILABLE,
     _harmonic_model_numba, _harmonic_model_numpy,
@@ -478,8 +479,7 @@ def test_numba_qa_figure():
     ax_center.grid(alpha=0.3)
 
     # Save figure
-    output_dir = Path('tests/qa_outputs')
-    output_dir.mkdir(exist_ok=True)
+    output_dir = resolve_output_directory("tests_integration", "numba_validation")
     output_path = output_dir / 'test_numba_validation.png'
     plt.savefig(output_path, dpi=150, bbox_inches='tight')
     plt.close()

@@ -1,0 +1,49 @@
+# Tests
+
+This folder contains automated correctness tests for ISOSTER development.
+
+## Scope
+
+- `unit/`: low-level module behavior and API contracts.
+- `integration/`: cross-module behavior on synthetic data.
+- `validation/`: method-level validation against expectations/reference behavior.
+- `real_data/`: real-galaxy tests, marked `real_data` and excluded by default.
+- `fixtures/`: reusable synthetic data factories.
+
+## Non-Scope
+
+- Performance benchmarking belongs in `benchmarks/`.
+- End-to-end scientific workflows belong in `examples/`.
+
+## Reproducible Commands
+
+```bash
+# Fast local default (excludes real_data by marker policy)
+pytest tests/ -q
+
+# Unit only
+pytest tests/unit -q
+
+# Integration only
+pytest tests/integration -q
+
+# Validation only
+pytest tests/validation -q
+
+# Real data tests (explicit)
+pytest tests/real_data -m real_data -v -s
+
+# Collection sanity check
+pytest --collect-only -q
+```
+
+## Output Policy
+
+Tests that generate artifacts should write under `outputs/`, not under `tests/`.
+You can override the output root with `ISOSTER_OUTPUT_ROOT`.
+
+Recommended naming:
+- `outputs/tests_unit/<run_id>/...`
+- `outputs/tests_integration/<run_id>/...`
+- `outputs/tests_validation/<run_id>/...`
+- `outputs/tests_real_data/<run_id>/...`

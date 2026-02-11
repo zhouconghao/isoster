@@ -13,7 +13,17 @@
       "Bash(NUMBA_DISABLE_JIT=1 python:*)",
       "Bash(git merge:*)",
       "Bash(ls:*)",
-      "Bash(git mv:*)"
+      "Bash(git mv:*)",
+      "WebFetch(domain:iopscience.iop.org)",
+      "WebSearch",
+      "WebFetch(domain:arxiv.org)",
+      "WebFetch(domain:ui.adsabs.harvard.edu)",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:www.semanticscholar.org)",
+      "Bash(git branch:*)",
+      "Bash(find:*)",
+      "Bash(git push:*)",
+      "Bash(pip install:*)"
     ]
   }
 }

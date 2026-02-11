@@ -13,6 +13,12 @@ from pathlib import Path
 
 from isoster.driver import fit_image
 from isoster.config import IsosterConfig
+from isoster.output_paths import resolve_output_directory
+
+
+def get_qa_output_directory():
+    """Return output directory for integration QA artifacts."""
+    return resolve_output_directory("tests_integration", "sersic_accuracy")
 
 
 def create_sersic_model(R_e, n, I_e, eps, pa, oversample=1):
@@ -343,8 +349,7 @@ def test_sersic_n4_noiseless():
     isophotes = results['isophotes']
 
     # Generate QA figure
-    output_dir = Path('tests/qa_outputs')
-    output_dir.mkdir(exist_ok=True)
+    output_dir = get_qa_output_directory()
     plot_qa_figure(image, results, true_profile, params,
                   output_dir / 'test_sersic_n4_noiseless.png')
 
@@ -411,8 +416,7 @@ def test_sersic_n1_high_ellipticity():
     isophotes = results['isophotes']
 
     # Generate QA figure
-    output_dir = Path('tests/qa_outputs')
-    output_dir.mkdir(exist_ok=True)
+    output_dir = get_qa_output_directory()
     plot_qa_figure(image, results, true_profile, params,
                   output_dir / 'test_sersic_n1_high_eps.png')
 
@@ -482,8 +486,7 @@ def test_sersic_n4_extreme_ellipticity():
     isophotes = results['isophotes']
 
     # Generate QA figure
-    output_dir = Path('tests/qa_outputs')
-    output_dir.mkdir(exist_ok=True)
+    output_dir = get_qa_output_directory()
     plot_qa_figure(image, results, true_profile, params,
                   output_dir / 'test_sersic_n4_eps0.6_extreme.png')
 

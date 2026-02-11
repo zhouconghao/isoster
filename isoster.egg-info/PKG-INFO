@@ -19,9 +19,11 @@ ISOSTER is an accelerated Python library for elliptical isophote fitting in gala
 ## Key Features
 
 - **High Performance**: 10-15x faster than `photutils.isophote` using vectorized path-based sampling.
+- **Multiband Analysis**: Template-based forced photometry for consistent color profiles across wavelengths.
+- **Advanced Harmonics**: Simultaneous higher-order harmonic fitting and 2D model reconstruction with shape deviations.
 - **Modular Design**: Refactored into specialized modules for sampling, fitting, and model building.
 - **Enhanced Photometry**: Includes local flux integration metrics (`tflux_e`, `tflux_c`, `npix_e`, `npix_c`).
-- **Model Building**: Reconstruct 2D galaxy images from isophote profiles.
+- **Model Building**: Reconstruct 2D galaxy images from isophote profiles with optional harmonic deviations.
 - **Photutils Compatibility**: Logical and algorithmic consistency with industry standards.
 - **Function-based API**: Simple, stateless API for easier integration and testing.
 
@@ -53,9 +55,38 @@ results = isoster.fit_image(image, None, config)
 # Save results to FITS
 isoster.isophote_results_to_fits(results, "isophotes.fits")
 
-# Build 2D model
-model = isoster.build_isoster_model(image.shape, results['isophotes'])
+# Build 2D model with harmonics
+model = isoster.build_isoster_model(
+    image.shape,
+    results['isophotes'],
+    use_harmonics=True,      # Include harmonic deviations (default)
+    harmonic_orders=[3, 4]   # Higher-order shape features
+)
 fits.writeto("model.fits", model, overwrite=True)
+```
+
+### Multiband Analysis
+
+```python
+import isoster
+from astropy.io import fits
+
+# Fit reference band (e.g., g-band) with full geometry fitting
+image_g = fits.getdata("galaxy_g.fits")
+results_g = isoster.fit_image(image_g, None, config)
+isoster.isophote_results_to_fits(results_g, "galaxy_g_isophotes.fits")
+
+# Apply g-band geometry to r-band for consistent photometry
+image_r = fits.getdata("galaxy_r.fits")
+results_r = isoster.fit_image(
+    image_r, None, config,
+    template_isophotes=results_g['isophotes']
+)
+
+# OR load template from saved FITS
+template = isoster.isophote_results_from_fits('galaxy_g_isophotes.fits')
+results_i = isoster.fit_image(image_i, None, config,
+                              template_isophotes=template['isophotes'])
 ```
 
 ## Important Considerations
@@ -87,6 +118,37 @@ results = isoster.fit_image(image, mask, config)
 - Always enable `use_eccentric_anomaly=True` for ε > 0.3
 
 See `docs/STOP_CODES.md` for detailed information on stop codes and convergence criteria.
+
+### Advanced Features
+
+ISOSTER includes several advanced capabilities for challenging data:
+
+**Permissive Geometry Mode**: For data with convergence issues, enable "best effort" geometry updates:
+```python
+config = IsosterConfig(
+    permissive_geometry=True,  # Continue fitting through failures
+)
+```
+
+**Central Region Regularization**: Stabilize fitting in low S/N central regions:
+```python
+config = IsosterConfig(
+    use_central_regularization=True,
+    central_reg_sma_threshold=5.0,  # Regularize below 5 pixels
+    central_reg_strength=1.0,       # Moderate strength
+)
+```
+
+**Simultaneous Higher-Order Harmonics**: Capture morphological features (boxy/disky isophotes):
+```python
+config = IsosterConfig(
+    simultaneous_harmonics=True,
+    harmonic_orders=[3, 4, 5, 6],  # Fit up to 6th order
+    use_eccentric_anomaly=True,    # Recommended with harmonics
+)
+```
+
+For complete documentation of all configuration parameters, see `CLAUDE.md`.
 
 ## Repository Structure
 

@@ -71,8 +71,11 @@ results_r = isoster.fit_image(
 
 # OR load template from saved FITS
 template = isoster.isophote_results_from_fits('galaxy_g_isophotes.fits')
-results_i = isoster.fit_image(image_i, None, config,
-                              template_isophotes=template['isophotes'])
+image_i = fits.getdata("galaxy_i.fits")
+results_i = isoster.fit_image(
+    image_i, None, config,
+    template_isophotes=template['isophotes']
+)
 ```
 
 ## Important Considerations
@@ -103,7 +106,7 @@ results = isoster.fit_image(image, mask, config)
 - **ε > 0.7**: Use `maxgerr=1.2` or higher
 - Always enable `use_eccentric_anomaly=True` for ε > 0.3
 
-See `docs/STOP_CODES.md` for detailed information on stop codes and convergence criteria.
+See `docs/stop-codes.md` for detailed information on stop codes and convergence criteria.
 
 ### Advanced Features
 
@@ -134,18 +137,39 @@ config = IsosterConfig(
 )
 ```
 
-For complete documentation of all configuration parameters, see `CLAUDE.md`.
+For complete documentation, see:
+
+- `docs/README.md` for docs structure
+- `docs/spec.md` for architecture and interfaces
+- `docs/user-guide.md` for usage guidance
+- `CLAUDE.md` for agent/development rules
+
+## Test and Benchmark Entry Points
+
+```bash
+# Tests (default set)
+pytest tests/ -q
+
+# Real-data tests (explicit)
+pytest tests/real_data -m real_data -v -s
+
+# Benchmarks
+python benchmarks/performance/bench_vs_photutils.py --quick
+```
 
 ## Repository Structure
 
 - `isoster/`:
     - `sampling.py`: Vectorized elliptical coordinate sampling.
     - `fitting.py`: Iterative harmonic fitting and error estimation.
-    - `driver.py`: High-level image fitting loops.
+    - `driver.py`: High-level image fitting orchestration.
     - `model.py`: 2D image reconstruction.
     - `plotting.py`: Comparison and analysis visualization.
-- `examples/`: Comprehensive benchmarks and usage examples.
-- `tests/`: Unit and regression tests.
+- `tests/`: Unit/integration/validation tests (`tests/README.md`).
+- `benchmarks/`: Performance and profiling benchmarks (`benchmarks/README.md`).
+- `examples/`: Reproducible mock/realistic workflows (`examples/README.md`).
+- `outputs/`: Generated artifacts (gitignored).
+- `docs/`: Stable docs + archived historical notes (`docs/README.md`).
 
 ## Acknowledgments
 

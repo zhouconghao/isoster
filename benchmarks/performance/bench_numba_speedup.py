@@ -5,13 +5,14 @@ This script compares the performance of isoster with and without numba JIT compi
 It also validates that the numerical results are identical.
 
 Usage:
-    python benchmarks/numba_benchmark.py
+    python benchmarks/performance/bench_numba_speedup.py
 
 Output:
-    - benchmarks/results/numba_benchmark_results.json
+    - outputs/benchmarks_performance/bench_numba_speedup/numba_benchmark_results.json
     - Console summary of speedup and validation results
 """
 
+import argparse
 import time
 import json
 import os
@@ -21,7 +22,9 @@ from pathlib import Path
 import numpy as np
 
 # Ensure we can import isoster
-sys.path.insert(0, str(Path(__file__).parent.parent))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
+from isoster.output_paths import resolve_output_directory
 
 
 def create_test_image(n=4.0, R_e=30.0, I_e=1000.0, eps=0.4, pa=np.pi/4, oversample=5):
@@ -376,6 +379,15 @@ def validate_results(numba_results, no_numba_results):
 
 def main():
     """Main benchmark function."""
+    parser = argparse.ArgumentParser(description="Benchmark numba speedup for ISOSTER")
+    parser.add_argument(
+        "--output",
+        "-o",
+        default=None,
+        help="Output directory override",
+    )
+    args = parser.parse_args()
+
     print("="*70)
     print("ISOSTER NUMBA PERFORMANCE BENCHMARK")
     print("="*70)
@@ -466,8 +478,11 @@ def main():
     print()
 
     # Save results
-    output_dir = Path(__file__).parent / 'results'
-    output_dir.mkdir(exist_ok=True)
+    output_dir = resolve_output_directory(
+        "benchmarks_performance",
+        "bench_numba_speedup",
+        explicit_output_directory=args.output,
+    )
 
     output_data = {
         'numba_available': numba_available,
