@@ -19,11 +19,5 @@ isoster.egg-info/dependency_links.txt
 isoster.egg-info/entry_points.txt
 isoster.egg-info/requires.txt
 isoster.egg-info/top_level.txt
-tests/test_driver.py
-tests/test_edge_cases.py
-tests/test_fitting.py
-tests/test_integration_qa.py
-tests/test_model.py
-tests/test_model_residuals.py
-tests/test_photutils_comparison.py
-tests/test_sampling.py
+isoster/examples/mockgal.py
+isoster/examples/test_huang2013_mocks.py

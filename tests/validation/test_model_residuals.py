@@ -7,6 +7,7 @@ from pathlib import Path
 from isoster import fit_image
 from isoster.model import build_isoster_model
 from isoster.config import IsosterConfig
+from isoster.output_paths import resolve_output_directory
 
 
 def create_sersic_model(R_e, n, I_e, eps, pa, oversample=1):
@@ -275,8 +276,7 @@ def test_model_building():
         print(f"   This suggests issues in build_ellipse_model()")
 
     # Create diagnostic plot
-    output_dir = Path('tests/qa_outputs')
-    output_dir.mkdir(exist_ok=True)
+    output_dir = resolve_output_directory("tests_validation", "model_residuals")
     plot_residual_analysis(data, model, R_e, x0, y0, stats, output_dir / 'model_residuals_current.png')
 
     return stats, mid_max, mid_median

@@ -1,51 +1,76 @@
-# ISOSTER To-Do List: Missing Features & Options
+# Phase 1 Plan: Documentation and Structure Reorganization
 
-This document outlines the discrepancies between `isoster` and the original `photutils.isophote` implementation. These items represent missing functionalities, options, or data outputs that need to be addressed to achieve full parity.
+## Scope
+This plan covers the first implementation phase:
+- documentation architecture cleanup
+- naming consistency for markdown files
+- folder-level README tables of contents for `tests`, `benchmarks`, and `examples`
+- alignment updates in `README.md` and `CLAUDE.md`
 
-## 1. Missing Model Building Functionality
+## Checklist
+| Item | Status | Notes |
+|---|---|---|
+| 1. Preserve existing planning memory and legacy docs in archive | [x] | `docs/archive/legacy_todo_photutils_parity.md` created |
+| 2. Define canonical docs structure and naming convention | [x] | Convention set to lowercase kebab-case markdown names |
+| 3. Reorganize `docs/` with a new `docs/README.md` and stable sections | [x] | Stable docs promoted; legacy material moved to `docs/archive/` |
+| 4. Add `README.md` files to `tests/`, `benchmarks/`, and `examples/` | [x] | Added folder-level scope, reproducible commands, and output policy |
+| 5. Update top-level `README.md` links and testing guidance | [x] | Updated links and added run entry points |
+| 6. Update `CLAUDE.md` with architecture/file naming rules and memory-preservation workflow | [x] | Added explicit context and memory-preservation section |
+| 7. Fix `mkdocs.yml` navigation to existing files | [x] | Removed missing API pages and linked current docs |
+| 8. Verify by checking links/paths and running a fast sanity check | [x] | `pytest --collect-only -q` passed (102 collected, 4 deselected) |
+| 9. Write phase review summary in this file | [x] | Added below |
 
-The original `photutils.isophote` includes tools to reconstruct a 2D model image from the fitted isophotes. ISOSTER completely lacks this capability.
+## Review
 
--   **`model.py:build_ellipse_model()`**: Function to generate a synthetic image from a list of isophotes.
-    -   Uses spline interpolation (`scipy.interpolate.LSQUnivariateSpline`) to smooth geometry parameters (SMA, eps, PA, x0, y0) between isophotes.
-    -   Supports higher-order harmonics (a3, b3, a4, b4).
-    -   Handles partial pixel coverage.
--   **`ellipse_model.pyx`**: Cython extension for efficient pixel rendering of the model.
+### Completed
 
-## 2. Missing Data Outputs
+- Preserved legacy plan memory in `docs/archive/legacy_todo_photutils_parity.md`.
+- Reorganized docs into stable root docs and historical archive:
+  - moved `docs/development/` -> `docs/archive/development/`
+  - moved `docs/review/` -> `docs/archive/review/`
+- Normalized markdown naming to lowercase kebab-case for active docs and archive files.
+- Added `docs/README.md` as docs table of contents and maintenance guide.
+- Added `docs/spec.md` to serve as the architecture specification baseline.
+- Added `docs/lessons.md` for persistent development lessons.
+- Added folder-level READMEs for `tests/`, `benchmarks/`, and `examples/`.
+- Updated `README.md` links and test/benchmark entry-point commands.
+- Updated `CLAUDE.md` with:
+  - docs naming convention
+  - output policy
+  - context and memory-preservation workflow
+  - corrected test command examples
+- Updated `mkdocs.yml` to remove missing API pages and point to existing docs.
 
-The following properties available in `photutils.isophote.Isophote` are currently **NOT** calculated or returned by ISOSTER:
+### Remaining for Phase 2
 
-### Flux Integration Metrics
-ISOSTER currently only computes mean intensity and RMS along the elliptical path. It does not calculate the total integrated flux within the ellipse.
--   **`tflux_e`**: Total flux sum of all pixels inside the isophote ellipse.
--   **`tflux_c`**: Total flux sum of all pixels inside a circle with radius `sma`.
--   **`npix_e`**: Total number of valid pixels inside the ellipse.
--   **`npix_c`**: Total number of valid pixels inside the circle.
--   **`sarea`**: Average sector area (relevant for area-based integration).
+- Validate MkDocs rendering in an environment with `mkdocs` installed (CLI unavailable in current shell).
 
-### Diagnostic Flags
--   **`nflag`**: Number of flagged/discarded data points per isophote. (Currently only available in debug mode).
--   **`ndata`**: Number of actual valid data points used for the fit. (Currently only available in debug mode).
--   **`valid`**: Explicit success/failure flag (derived from `stop_code`, but not returned as a separate column).
+## Phase 2 Plan: Output Path Standardization
 
-## 3. Unimplemented Options
+### Scope
+- consolidate generated artifacts under `outputs/`
+- remove hardcoded mixed output paths from tests/benchmarks/examples
+- keep reproducibility via explicit overrides
 
-### Integration Modes
-`photutils` supports multiple algorithms for sampling the image. ISOSTER strictly implements vector-based sampling which approximates **bilinear** interpolation.
--   **`mean`**: Calculate the mean of pixel values within ellipse sectors. (Missing)
--   **`median`**: Calculate the median of pixel values within ellipse sectors. (Missing)
--   **`nearest_neighbor`**: Use nearest pixel values. (Missing; effectively covered by bilinear with order=0, but not exposed as an option).
+### Checklist
+| Item | Status | Notes |
+|---|---|---|
+| 1. Add shared output-path utility | [x] | Added `isoster/output_paths.py` with `resolve_output_directory()` |
+| 2. Migrate integration/validation/real-data test artifacts to standardized output folders | [x] | Updated `tests/integration/*`, `tests/validation/*`, `tests/real_data/*` |
+| 3. Migrate benchmark outputs to standardized folders | [x] | Updated `bench_vs_photutils.py` and `bench_numba_speedup.py` |
+| 4. Migrate example outputs to standardized folders | [x] | Updated `examples/basic_usage.py` and Huang2013 default output path |
+| 5. Update folder README guidance for reproducible output roots | [x] | Added `ISOSTER_OUTPUT_ROOT` note in tests/benchmarks/examples READMEs |
+| 6. Verify with collection and targeted execution | [x] | `pytest --collect-only -q` + targeted tests and script checks passed |
+| 7. Record phase review and residual risks | [x] | Added below |
 
-### Sampling Control
--   **`integrmode`**: The option to switch between the modes above is not available in `fit_image` or `config.yaml`.
+### Review
 
-## 4. Workflow & API Differences
+- Added a reusable path helper in `isoster/output_paths.py`.
+- Replaced `tests/qa_outputs` and `outputs/figures` writers in active code paths with standardized `outputs/<category>/<run>` layout.
+- Removed legacy `tests/qa_outputs/` directory to prevent further artifact drift.
+- Updated benchmark scripts to support explicit `--output` override and standardized defaults.
+- Fixed a benchmark import-path issue in `bench_vs_photutils.py` so CLI invocation now works.
 
--   **`Isophote.to_table()`**: The convenience method on the result object is replaced by `isoster.utils.isophote_results_to_astropy_tables`.
--   **`EllipseSample.update()`**: The granular control to update a specific sample's geometry without re-fitting is not exposed in the high-level API.
-
-## Priority Recommendation
-
-1.  **Model Building**: Implementing `build_ellipse_model` is critical for galaxy subtraction.
-2.  **Flux Metrics**: `tflux_e` and `npix_e` are essential for photometry.
+Residual risks:
+- `qa/` reference materials remain as historical content and still describe legacy generation workflows.
+- `mkdocs` CLI is unavailable in current shell, so docs rendering was not validated here.

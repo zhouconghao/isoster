@@ -35,6 +35,7 @@ from astropy.io import fits
 from isoster import fit_image
 from isoster.config import IsosterConfig
 from isoster.model import build_isoster_model
+from isoster.output_paths import resolve_output_directory
 
 # Import photutils
 try:
@@ -53,7 +54,7 @@ ESO243_PATH = DATA_DIR / "eso243-49.fits"
 NGC3610_PATH = DATA_DIR / "ngc3610.fits"
 
 # Output directory
-OUTPUT_DIR = Path(__file__).parent.parent.parent / "outputs" / "figures"
+OUTPUT_DIR = resolve_output_directory("tests_real_data", "ea_harmonics_comparison")
 
 
 # =============================================================================

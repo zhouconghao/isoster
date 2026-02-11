@@ -41,5 +41,5 @@ python -m qa.generate_comparison_figures
 python -m qa.generate_numba_figures
 ```
 
-Output goes to `outputs/figures/` (gitignored). Compare with these reference figures
+Output goes to standardized folders under `outputs/` (gitignored). Compare with these reference figures
 for visual regression testing.

@@ -16,7 +16,7 @@ class IsosterConfig(BaseModel):
     - 3: Too few points (<6)
     - -1: Gradient error (invalid or unreliable)
 
-    See docs/STOP_CODES.md for detailed documentation.
+    See docs/stop-codes.md for detailed documentation.
     """
     # Geometry initialization
     x0: Optional[float] = Field(None, description="Initial center x coordinate. If None, uses image center.")

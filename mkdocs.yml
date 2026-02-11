@@ -11,12 +11,12 @@ theme:
 
 nav:
   - Home: index.md
-  - User Guide: guide.md
+  - Docs Map: README.md
+  - Spec: spec.md
+  - User Guide: user-guide.md
   - Algorithm: algorithm.md
-  - API Reference:
-      - Core Fitting: api/optimize.md
-      - Configuration: api/config.md
-      - Fitting Logic: api/fitting.md
+  - Stop Codes: stop-codes.md
+  - Optimization Notes: advanced-optimization.md
 
 markdown_extensions:
   - admonition

@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+This file provides guidance to coding agents when working with code in this repository.
 
 ## Project Overview
 
@@ -9,6 +9,22 @@ ISOSTER (ISOphote on STERoid) is an accelerated Python library for elliptical is
 ## Non-negotiable Rules for developing
 - Always create a new branch for new features and new development. Do not merge back into the main branch unless I approve it.
 - It is essential to provide informative and concise docstrings and inline comments.
+- Warn the users when the context window has <30% left. Remind the users to save the conversation and start fresh. Also propose ways to compact the conversation and save the current progress in files.
+- Keep record of development progress, important lessons, and critical decisions in markdown files in `docs/journal/`.
+- Keep `docs/spec.md` updated for architecture and interface changes.
+- Keep active execution checklist and end-of-phase review in `docs/todo.md`.
+- Use lowercase kebab-case for markdown file names (for example, `stop-codes.md`).
+- Generated artifacts must be written under `outputs/` and not mixed into source folders.
+
+## Context and Memory Preservation
+
+When a task is long or the context window is becoming constrained:
+
+1. Write a concise status snapshot to `docs/journal/` (what was done, what remains, blockers).
+2. Update `docs/todo.md` checklist status and review notes.
+3. Update `docs/spec.md` if architecture or interfaces changed.
+4. Update `docs/lessons.md` when a correction yields a reusable lesson.
+5. Before ending, include exact file paths and commands needed to resume.
 
 ## Build and Test Commands
 
@@ -20,7 +36,7 @@ pip install .
 pytest tests/
 
 # Run a single test file
-pytest tests/test_fitting.py
+pytest tests/unit/test_fitting.py
 
 # Run reference implementation tests (photutils-compatible)
 pytest reference/tests/
@@ -75,10 +91,12 @@ isoster image.fits --output isophotes.fits --config config.yaml
 
 - `isoster/` - Main package
 - `reference/` - Photutils-compatible reference implementation (excluded from install)
-- `tests/` - Unit tests for main package
+- `tests/` - Unit/integration/validation/real-data tests
 - `reference/tests/` - Tests for reference implementation
-- `examples/` - Benchmark and usage examples
-- `benchmarks/` - Performance profiling scripts
+- `benchmarks/` - Performance and profiling scripts
+- `examples/` - Reproducible workflow examples
+- `outputs/` - Generated artifacts (gitignored)
+- `docs/` - Stable docs + archived historical notes (`docs/README.md`)
 
 ## Public API
 

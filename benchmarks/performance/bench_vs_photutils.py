@@ -25,11 +25,12 @@ import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_pdf import PdfPages
 
-# Add parent directory to path for imports
-sys.path.insert(0, str(Path(__file__).parent.parent))
+# Add repository root to path for imports
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 import isoster
-from benchmarks.sersic_model import (
+from isoster.output_paths import resolve_output_directory
+from benchmarks.utils.sersic_model import (
     create_sersic_image_vectorized,
     add_noise,
     get_true_profile_at_sma,
@@ -39,6 +40,15 @@ from benchmarks.sersic_model import (
 
 # photutils imports
 from photutils.isophote import Ellipse, EllipseGeometry
+
+
+def resolve_benchmark_output_directory(output_dir=None):
+    """Return output directory for this benchmark run."""
+    return resolve_output_directory(
+        "benchmarks_performance",
+        "bench_vs_photutils",
+        explicit_output_directory=output_dir,
+    )
 
 
 def run_isoster_fit(image, x0, y0, eps, pa, sma0=10.0, maxsma=None):
@@ -396,12 +406,7 @@ def run_all_benchmarks(output_dir=None, quick=False):
     dict
         All benchmark results.
     """
-    if output_dir is None:
-        output_dir = Path(__file__).parent / 'results'
-    else:
-        output_dir = Path(output_dir)
-
-    output_dir.mkdir(parents=True, exist_ok=True)
+    output_dir = resolve_benchmark_output_directory(output_dir)
 
     # Define test cases
     if quick:
@@ -500,10 +505,7 @@ def generate_comparison_plots(results, output_dir=None):
     output_dir : str, optional
         Output directory.
     """
-    if output_dir is None:
-        output_dir = Path(__file__).parent / 'results'
-    else:
-        output_dir = Path(output_dir)
+    output_dir = resolve_benchmark_output_directory(output_dir)
 
     plots_dir = output_dir / 'comparison_plots'
     plots_dir.mkdir(parents=True, exist_ok=True)
