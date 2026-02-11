@@ -19,22 +19,22 @@ This folder contains automated correctness tests for ISOSTER development.
 
 ```bash
 # Fast local default (excludes real_data by marker policy)
-pytest tests/ -q
+uv run pytest tests/ -q
 
 # Unit only
-pytest tests/unit -q
+uv run pytest tests/unit -q
 
 # Integration only
-pytest tests/integration -q
+uv run pytest tests/integration -q
 
 # Validation only
-pytest tests/validation -q
+uv run pytest tests/validation -q
 
 # Real data tests (explicit)
-pytest tests/real_data -m real_data -v -s
+uv run pytest tests/real_data -m real_data -v -s
 
 # Collection sanity check
-pytest --collect-only -q
+uv run pytest --collect-only -q
 ```
 
 ## Output Policy

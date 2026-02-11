@@ -74,3 +74,37 @@ This plan covers the first implementation phase:
 Residual risks:
 - `qa/` reference materials remain as historical content and still describe legacy generation workflows.
 - `mkdocs` CLI is unavailable in current shell, so docs rendering was not validated here.
+
+## Phase 3 Plan: Adopt uv Environment Management
+
+### Scope
+- adopt `uv` for dependency locking and environment sync
+- align dependency metadata with actual runtime/test/docs usage
+- install project dependencies with docs tooling (`mkdocs`) locally
+
+### Checklist
+| Item | Status | Notes |
+|---|---|---|
+| 1. Audit imports vs declared dependencies | [x] | Audited runtime/test/benchmark/docs imports and dependency gaps |
+| 2. Update `pyproject.toml` dependency metadata for uv workflows | [x] | Added `pydantic` runtime dependency and `dev`/`docs` extras with Python markers |
+| 3. Update docs (`README.md`, `CLAUDE.md`) with uv-first commands | [x] | Updated install/test/benchmark/docs command examples to uv-first |
+| 4. Generate/update lockfile with `uv lock` | [x] | Generated `uv.lock` |
+| 5. Install dependencies via `uv sync` including docs tooling | [x] | Installed core + dev + docs extras (including mkdocs) into `.venv` |
+| 6. Verify with uv-based commands | [x] | `uv run pytest --collect-only -q` passed; `mkdocs --version` confirmed from `.venv` |
+| 7. Record review and lessons | [x] | Updated this file, `docs/lessons.md`, and journal entry |
+
+### Review
+
+- `uv` is practical for this repo and now configured end-to-end:
+  - dependency metadata in `pyproject.toml`
+  - lockfile in `uv.lock`
+  - synced environment in `.venv`
+- Runtime dependency gap fixed: `pydantic` is now declared in core dependencies.
+- Added optional extras:
+  - `dev`: pytest, photutils, numba, ruff, pre-commit
+  - `docs`: mkdocs, mkdocs-material, pymdown-extensions
+- Added Python markers for some dev tools to keep resolution compatible with `requires-python >=3.8`.
+- Updated project docs to uv-first command paths.
+
+Notes:
+- In this environment, `uv` commands required elevated execution due sandbox/system-configuration constraints.

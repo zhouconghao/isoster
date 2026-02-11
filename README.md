@@ -16,7 +16,11 @@ ISOSTER is an accelerated Python library for elliptical isophote fitting in gala
 ## Installation
 
 ```bash
-pip install .
+# Create/sync local virtual environment with core + dev + docs tools
+uv sync --extra dev --extra docs
+
+# Run commands inside the managed environment
+uv run isoster --help
 ```
 
 ## Basic Usage
@@ -148,13 +152,16 @@ For complete documentation, see:
 
 ```bash
 # Tests (default set)
-pytest tests/ -q
+uv run pytest tests/ -q
 
 # Real-data tests (explicit)
-pytest tests/real_data -m real_data -v -s
+uv run pytest tests/real_data -m real_data -v -s
 
 # Benchmarks
-python benchmarks/performance/bench_vs_photutils.py --quick
+uv run python benchmarks/performance/bench_vs_photutils.py --quick
+
+# Docs tooling
+uv run mkdocs --version
 ```
 
 ## Repository Structure

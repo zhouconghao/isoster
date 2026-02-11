@@ -18,14 +18,14 @@ This folder contains reproducible workflow examples on mock or real-like data.
 
 ```bash
 # Basic usage example
-python examples/basic_usage.py
+uv run python examples/basic_usage.py
 
 # Curve-of-growth example
-python examples/curve_of_growth.py
+uv run python examples/curve_of_growth.py
 
 # Huang2013 mock workflow
-python examples/huang2013/test_huang2013_mocks.py --help
-python examples/huang2013/test_huang2013_mocks.py --output-dir outputs/examples_huang2013/manual_run
+uv run python examples/huang2013/test_huang2013_mocks.py --help
+uv run python examples/huang2013/test_huang2013_mocks.py --output-dir outputs/examples_huang2013/manual_run
 ```
 
 ## Output Policy

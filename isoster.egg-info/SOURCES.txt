@@ -10,6 +10,7 @@ isoster/fitting.py
 isoster/model.py
 isoster/numba_kernels.py
 isoster/optimize.py
+isoster/output_paths.py
 isoster/plotting.py
 isoster/sampling.py
 isoster/utils.py
@@ -19,5 +20,3 @@ isoster.egg-info/dependency_links.txt
 isoster.egg-info/entry_points.txt
 isoster.egg-info/requires.txt
 isoster.egg-info/top_level.txt
-isoster/examples/mockgal.py
-isoster/examples/test_huang2013_mocks.py
