@@ -19,16 +19,16 @@ This folder contains performance and comparison benchmarks.
 
 ```bash
 # Efficiency benchmark
-python benchmarks/performance/bench_efficiency.py
+uv run python benchmarks/performance/bench_efficiency.py
 
 # Numba speedup benchmark
-python benchmarks/performance/bench_numba_speedup.py
+uv run python benchmarks/performance/bench_numba_speedup.py
 
 # Method comparison benchmark (quick mode)
-python benchmarks/performance/bench_vs_photutils.py --quick
+uv run python benchmarks/performance/bench_vs_photutils.py --quick
 
 # Method comparison with explicit output root
-python benchmarks/performance/bench_vs_photutils.py --quick --output outputs/benchmarks_performance/manual_run
+uv run python benchmarks/performance/bench_vs_photutils.py --quick --output outputs/benchmarks_performance/manual_run
 ```
 
 ## Output Policy

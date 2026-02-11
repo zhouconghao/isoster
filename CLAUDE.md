@@ -15,6 +15,7 @@ ISOSTER (ISOphote on STERoid) is an accelerated Python library for elliptical is
 - Keep active execution checklist and end-of-phase review in `docs/todo.md`.
 - Use lowercase kebab-case for markdown file names (for example, `stop-codes.md`).
 - Generated artifacts must be written under `outputs/` and not mixed into source folders.
+- Use `uv` as the default tool for dependency management and environment execution.
 
 ## Context and Memory Preservation
 
@@ -29,24 +30,50 @@ When a task is long or the context window is becoming constrained:
 ## Build and Test Commands
 
 ```bash
-# Install locally
-pip install .
+# Sync project environment (core + development + docs tooling)
+uv sync --extra dev --extra docs
 
 # Run all tests (main package)
-pytest tests/
+uv run pytest tests/
 
 # Run a single test file
-pytest tests/unit/test_fitting.py
+uv run pytest tests/unit/test_fitting.py
 
 # Run reference implementation tests (photutils-compatible)
-pytest reference/tests/
+uv run pytest reference/tests/
 
 # Run with verbose output
-pytest tests/ -v
+uv run pytest tests/ -v
 
 # CLI usage
-isoster image.fits --output isophotes.fits --config config.yaml
+uv run isoster image.fits --output isophotes.fits --config config.yaml
+
+# Build docs
+uv run mkdocs serve
 ```
+
+## uv Workflow Rules
+
+Follow these rules for all Python environment and dependency work in this repository:
+
+1. Use `uv` as the single workflow for environment and dependency management.
+2. Do not use `pip`, `poetry`, or `conda` commands for project dependency changes.
+3. Install/sync environment with:
+   - `uv sync --extra dev --extra docs`
+4. Run project commands through the managed environment:
+   - `uv run pytest ...`
+   - `uv run python ...`
+   - `uv run isoster ...`
+   - `uv run mkdocs ...`
+5. When adding/removing dependencies, update `pyproject.toml` and then run:
+   - `uv lock`
+   - `uv sync --extra dev --extra docs`
+6. Keep `uv.lock` committed and up to date with dependency changes.
+7. For tools that are not compatible with all Python versions in `requires-python`,
+   use dependency markers in `pyproject.toml` (for example `python_version >= '3.9'`).
+8. Minimum verification after dependency changes:
+   - `uv run pytest --collect-only -q`
+   - `uv run mkdocs --version`
 
 ## Architecture
 
