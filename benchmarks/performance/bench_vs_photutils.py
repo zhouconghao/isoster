@@ -13,9 +13,8 @@ Acceptance criteria:
 4. Applies to intensity, ellipticity, and position angle profiles
 """
 
-import os
 import sys
-import json
+import csv
 import time
 import argparse
 from datetime import datetime
@@ -30,12 +29,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 import isoster
 from isoster.output_paths import resolve_output_directory
+from benchmarks.utils.run_metadata import collect_environment_metadata, write_json
 from benchmarks.utils.sersic_model import (
     create_sersic_image_vectorized,
     add_noise,
     get_true_profile_at_sma,
-    sersic_1d,
-    compute_bn
 )
 
 # photutils imports
@@ -290,9 +288,7 @@ def run_single_benchmark(n, R_e, eps, pa, noise_snr=None, image_size=512, seed=4
 
     # Add noise if requested
     if noise_snr is not None:
-        image, noise_sigma = add_noise(image, noise_snr, R_e, I_e, seed=seed)
-    else:
-        noise_sigma = 0.0
+        image, _ = add_noise(image, noise_snr, R_e, I_e, seed=seed)
 
     x0, y0 = params['x0'], params['y0']
 
@@ -376,6 +372,12 @@ def run_single_benchmark(n, R_e, eps, pa, noise_snr=None, image_size=512, seed=4
         },
         'speedup': speedup,
         'passed': passed,
+        'tolerances': {
+            'speedup_min': 3.0,
+            'intens_max_rel_dev': tolerance_intens,
+            'eps_max_dev': tolerance_eps,
+            'pa_max_dev': tolerance_pa if check_pa else None
+        },
         'comparison_range': {
             'sma_min': inner_sma,
             'sma_max': outer_sma
@@ -388,6 +390,105 @@ def run_single_benchmark(n, R_e, eps, pa, noise_snr=None, image_size=512, seed=4
     }
 
     return result
+
+
+def write_case_csv(results, output_dir):
+    """Write compact benchmark case summary CSV."""
+    csv_path = output_dir / 'benchmark_results.csv'
+    field_names = [
+        'n',
+        'R_e',
+        'eps',
+        'pa',
+        'noise_snr',
+        'speedup',
+        'passed',
+        'isoster_runtime_s',
+        'photutils_runtime_s',
+        'isoster_intens_max_rel_dev',
+        'isoster_eps_max_dev',
+        'isoster_pa_max_dev',
+    ]
+
+    with open(csv_path, 'w', newline='', encoding='utf-8') as file_pointer:
+        writer = csv.DictWriter(file_pointer, fieldnames=field_names)
+        writer.writeheader()
+        for case in results:
+            writer.writerow({
+                'n': case['params']['n'],
+                'R_e': case['params']['R_e'],
+                'eps': case['params']['eps'],
+                'pa': case['params']['pa'],
+                'noise_snr': case['params']['noise_snr'],
+                'speedup': case['speedup'],
+                'passed': case['passed'],
+                'isoster_runtime_s': case['isoster']['runtime_s'],
+                'photutils_runtime_s': case['photutils']['runtime_s'],
+                'isoster_intens_max_rel_dev': case['isoster']['intens_max_rel_dev'],
+                'isoster_eps_max_dev': case['isoster']['eps_max_dev'],
+                'isoster_pa_max_dev': case['isoster']['pa_max_dev'],
+            })
+    return csv_path
+
+
+def generate_failure_diagnostics(results, output_dir=None):
+    """Generate default QA diagnostic plot for failing or borderline cases."""
+    output_dir = resolve_benchmark_output_directory(output_dir)
+    diagnostics_dir = output_dir / 'failure_diagnostics'
+    diagnostics_dir.mkdir(parents=True, exist_ok=True)
+
+    diagnostic_cases = []
+    for case in results['test_cases']:
+        speedup_borderline = case['speedup'] < (case['tolerances']['speedup_min'] * 1.15)
+        intensity_borderline = (
+            case['isoster']['intens_max_rel_dev'] >
+            (0.85 * case['tolerances']['intens_max_rel_dev'])
+        )
+        eps_borderline = case['isoster']['eps_max_dev'] > (0.85 * case['tolerances']['eps_max_dev'])
+
+        pa_tol = case['tolerances']['pa_max_dev']
+        pa_borderline = False
+        if pa_tol is not None:
+            pa_borderline = case['isoster']['pa_max_dev'] > (0.85 * pa_tol)
+
+        if (not case['passed']) or speedup_borderline or intensity_borderline or eps_borderline or pa_borderline:
+            diagnostic_cases.append(case)
+
+    if len(diagnostic_cases) == 0:
+        return None
+
+    case_labels = [
+        f"n={case['params']['n']},Re={case['params']['R_e']},eps={case['params']['eps']},snr={case['params']['noise_snr']}"
+        for case in diagnostic_cases
+    ]
+    speedups = [case['speedup'] for case in diagnostic_cases]
+    intensity = [100.0 * case['isoster']['intens_max_rel_dev'] for case in diagnostic_cases]
+    threshold_intensity = [100.0 * case['tolerances']['intens_max_rel_dev'] for case in diagnostic_cases]
+
+    figure, axes = plt.subplots(2, 1, figsize=(13, 9), sharex=True)
+    x_index = np.arange(len(case_labels))
+
+    axes[0].bar(x_index, speedups, color='steelblue', alpha=0.8, label='Measured speedup')
+    axes[0].axhline(3.0, color='red', linestyle='--', linewidth=2, label='Speedup threshold')
+    axes[0].set_ylabel('Speedup')
+    axes[0].set_title('Failing/Borderline Cases: Speedup and Intensity Deviation')
+    axes[0].legend()
+    axes[0].grid(alpha=0.3, axis='y')
+
+    axes[1].bar(x_index, intensity, color='coral', alpha=0.8, label='Measured max |ΔI| (%)')
+    axes[1].plot(x_index, threshold_intensity, 'k--', linewidth=2, label='Threshold (%)')
+    axes[1].set_ylabel('Max |ΔI| (%)')
+    axes[1].set_xticks(x_index)
+    axes[1].set_xticklabels(case_labels, rotation=35, ha='right')
+    axes[1].legend()
+    axes[1].grid(alpha=0.3, axis='y')
+
+    figure.tight_layout()
+    output_path = diagnostics_dir / 'failing_or_borderline_cases.png'
+    figure.savefig(output_path, dpi=150, bbox_inches='tight')
+    plt.close(figure)
+    print(f"Failure diagnostics saved to: {output_path}")
+    return output_path
 
 
 def run_all_benchmarks(output_dir=None, quick=False):
@@ -472,13 +573,14 @@ def run_all_benchmarks(output_dir=None, quick=False):
 
     # Save results
     output = {
+        'environment': collect_environment_metadata(project_root=Path(__file__).resolve().parents[2]),
         'summary': summary,
         'test_cases': results
     }
 
     json_path = output_dir / 'benchmark_results.json'
-    with open(json_path, 'w') as f:
-        json.dump(output, f, indent=2)
+    write_json(json_path, output)
+    csv_path = write_case_csv(results, output_dir)
 
     print("\n" + "=" * 60)
     print("SUMMARY")
@@ -490,6 +592,7 @@ def run_all_benchmarks(output_dir=None, quick=False):
     print(f"Min speedup:    {summary['min_speedup']:.1f}x")
     print(f"Max speedup:    {summary['max_speedup']:.1f}x")
     print(f"\nResults saved to: {json_path}")
+    print(f"CSV summary saved to: {csv_path}")
 
     return output
 
@@ -614,6 +717,8 @@ def main():
                         help='Run quick test with reduced parameter space')
     parser.add_argument('--plots', '-p', action='store_true',
                         help='Generate comparison plots')
+    parser.add_argument('--no-failure-plots', action='store_true',
+                        help='Disable default failing/borderline diagnostic plots')
 
     args = parser.parse_args()
 
@@ -623,6 +728,9 @@ def main():
     # Generate plots if requested
     if args.plots:
         generate_comparison_plots(results, output_dir=args.output)
+
+    if not args.no_failure_plots:
+        generate_failure_diagnostics(results, output_dir=args.output)
 
     # Return exit code based on results
     if results['summary']['all_tests_passed']:

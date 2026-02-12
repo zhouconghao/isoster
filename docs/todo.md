@@ -112,3 +112,225 @@ Residual risks:
 
 Notes:
 - In this environment, `uv` commands required elevated execution due sandbox/system-configuration constraints.
+
+## Phase 4 Plan: Test and Benchmark Improvement Program
+
+### Scope
+- harden tests so regressions cannot pass silently
+- expand API and CLI coverage
+- standardize quantitative validation criteria
+- improve benchmark/profiling diagnostics and artifact outputs
+- prepare future libprofit-based mock generation integration
+
+### Checklist
+| Item | Status | Notes |
+|---|---|---|
+| 1. Draft detailed test/benchmark improvement roadmap in docs | [x] | Added `docs/test-benchmark-improvement-plan.md` |
+| 2. Persist new user-defined constraints in project memory | [x] | Updated `CLAUDE.md` testing directives section |
+| 3. Baseline-measure current tests/benchmarks and lock quantitative thresholds from measurements | [x] | Locked in `benchmarks/baselines/phase4_profile_thresholds_2026-02-11.json` |
+| 4. Remove false-pass patterns (`if valid.sum() > 0`) and enforce minimum valid-point assertions | [x] | Hardened in `tests/integration/test_sersic_accuracy.py` and `tests/integration/test_numba_validation.py` |
+| 5. Add missing direct tests for public API and CLI surfaces | [x] | Added `tests/unit/test_public_api.py` and `tests/integration/test_cli.py` |
+| 6. Normalize basic real-data test name to `m51_test` and ensure canonical M51 path usage | [x] | Renamed to `TestM51::test_m51_test` in `tests/real_data/test_m51.py` |
+| 7. Standardize all benchmark/profiling outputs under `outputs/` with JSON + figure + metadata artifacts | [x] | Updated performance + profiling scripts; `.prof` persistence added |
+| 8. Add optional future adapter workflow for libprofit `mockgal.py` mock generation | [x] | Added `benchmarks/baselines/mockgal_adapter.py` with dry-run + metadata output |
+| 9. Record phase review and closeout summary | [x] | Added below and journal closeout |
+| 10. Save compact context-handoff snapshot for next conversation window | [x] | Added `docs/journal/2026-02-11-phase4-step2-closeout.md` |
+
+### Review (Implementation Progress: Step 2 Closeout)
+
+- Program requirements were captured as an executable roadmap in `docs/test-benchmark-improvement-plan.md`.
+- The roadmap defines workstreams, execution phases, artifact contracts, and quantitative metric formulas.
+- Threshold policy remains measurement-first and is now locked from measured baseline data.
+- Added baseline collection script:
+  - `benchmarks/baselines/collect_phase4_profile_baseline.py`
+  - output artifact: `outputs/tests_integration/baseline_metrics/phase4_profile_baseline_metrics.json`
+- Added threshold locking script and locked threshold file:
+  - `benchmarks/baselines/lock_phase4_thresholds.py`
+  - `benchmarks/baselines/phase4_profile_thresholds_2026-02-11.json`
+- Baseline script run summary:
+  - `sersic_n4_noiseless`: valid=19, median|ΔI|=0.000096, max|ΔI|=0.002098
+  - `sersic_n1_high_eps_noise`: valid=15, median|ΔI|=0.003759, max|ΔI|=0.114202
+  - `sersic_n4_extreme_eps_noise`: valid=15, median|ΔI|=0.002971, max|ΔI|=0.009876
+- Replaced false-pass behavior by enforcing explicit valid-point assertions before metric computation in:
+  - `tests/integration/test_sersic_accuracy.py`
+  - `tests/integration/test_numba_validation.py`
+- Added missing API/CLI coverage:
+  - `fit_isophote`, `isophote_results_to_astropy_tables`, `plot_qa_summary`, `build_ellipse_model` regression in `tests/unit/test_public_api.py`
+  - CLI smoke run in `tests/integration/test_cli.py`
+- Normalized M51 canonical basic test to `test_m51_test` in `tests/real_data/test_m51.py`.
+- Standardized benchmark/profiling artifacts and metadata:
+  - `benchmarks/performance/bench_efficiency.py` now writes JSON+CSV+summary plot under `outputs/benchmarks_performance/bench_efficiency`
+  - `benchmarks/performance/bench_vs_photutils.py` now writes metadata in JSON + CSV and default failing/borderline diagnostics
+  - `benchmarks/performance/bench_numba_speedup.py` now writes metadata JSON + CSV + speedup plot
+  - `benchmarks/profiling/profile_hotpaths.py` and `benchmarks/profiling/profile_isophote.py` now persist `.prof` and parsed summaries under `outputs/benchmarks_profiling`
+- Added optional mockgal adapter workflow:
+  - `benchmarks/baselines/mockgal_adapter.py`
+  - dry-run validation output: `outputs/benchmarks_performance/mockgal_adapter/mockgal_adapter_run.json`
+- Verification run results:
+  - `uv run pytest tests/unit/test_public_api.py tests/integration/test_cli.py -q` passed (`5 passed`)
+  - `uv run pytest tests/integration/test_sersic_accuracy.py tests/integration/test_numba_validation.py -q` passed (`27 passed`)
+  - `uv run pytest tests/real_data/test_m51.py --collect-only -q -m real_data` collected `test_m51_test`
+  - `uv run python benchmarks/performance/bench_efficiency.py --quick --n-runs 1` generated JSON/CSV/plots
+  - `uv run python benchmarks/performance/bench_vs_photutils.py --quick` generated JSON/CSV with all quick cases passing
+  - `uv run python benchmarks/performance/bench_numba_speedup.py` generated JSON/CSV/plot
+  - `uv run python benchmarks/profiling/profile_hotpaths.py --multi 1 --top-n 10` generated `.prof` + summaries
+  - `uv run python benchmarks/profiling/profile_isophote.py --repetitions 1 --top-n 10` generated `.prof` + summaries
+  - `uv run python benchmarks/baselines/mockgal_adapter.py --dry-run` generated adapter metadata output
+
+### Residual Risks
+
+- `bench_numba_speedup.py` currently shows modest speedup (~1.24x in this environment), so expectations should remain environment-dependent and tracked over time.
+- `mockgal_adapter.py` is intentionally generic; concrete argument presets for science-ready scenarios still need to be codified once `mockgal.py` interface choices are finalized.
+
+## Phase 5 Plan: Numba Diagnostics and mockgal Presets
+
+### Scope
+- review generated benchmark/profiling artifacts for actionable gaps
+- improve numba speedup diagnostics beyond single mean-runtime reporting
+- add science-ready `mockgal` adapter presets with structured overrides
+- save compact continuation notes for next context window
+
+### Checklist
+| Item | Status | Notes |
+|---|---|---|
+| 1. Review existing outputs under `outputs/benchmarks_performance` and `outputs/benchmarks_profiling` | [x] | Reviewed speedup/profiling summaries and identified diagnostic gaps |
+| 2. Propose follow-up diagnostics plan for numba benchmarking | [x] | Added steady-state/variability/overhead diagnostic plan and implemented directly |
+| 3. Implement improved numba benchmark diagnostics (`n_runs`, `scale_factor`, steady-state metrics, slowdown flags) | [x] | Updated `benchmarks/performance/bench_numba_speedup.py` |
+| 4. Validate diagnostics on baseline scale and scaled workload | [x] | Ran scale1 and scale2 outputs with persisted artifacts |
+| 5. Add science-ready argument presets for `mockgal_adapter.py` | [x] | Added `single_noiseless_truth`, `single_psf_noise_sblimit`, `models_config_batch` |
+| 6. Validate preset listing and dry-run execution with overrides | [x] | Verified preset list and two dry-run outputs |
+| 7. Document commands and outcomes in docs and journal | [x] | Updated `benchmarks/README.md` and added journal closeout below |
+
+### Review (Implementation Progress: Step 3)
+
+- Updated `benchmarks/performance/bench_numba_speedup.py` to include:
+  - configurable `--n-runs`
+  - configurable `--scale-factor`
+  - first-run vs steady-state diagnostics
+  - timing variability diagnostics (coefficient of variation)
+  - slowdown/high-variability case flags in JSON summary
+  - enhanced CSV and three-panel diagnostic plot
+- Baseline diagnostic run (`--n-runs 4 --scale-factor 1.0`) summary:
+  - mean speedup: `1.32x`, steady-state mean speedup: `1.32x`
+  - slowdown cases: `0`
+  - high variability cases: `0`
+- Scaled workload diagnostic run (`--n-runs 3 --scale-factor 2.0`) summary:
+  - mean speedup: `1.22x`, steady-state mean speedup: `1.25x`
+  - slowdown cases (steady-state): `1`
+  - high variability cases: `3`
+- Added structured `mockgal` presets in `benchmarks/baselines/mockgal_adapter.py`:
+  - `single_noiseless_truth`
+  - `single_psf_noise_sblimit`
+  - `models_config_batch`
+- Verified:
+  - `--list-presets`
+  - dry-run for `single_psf_noise_sblimit`
+  - dry-run override flow for `models_config_batch`
+
+### Residual Risks (Updated)
+
+- Numba speedup remains sensitive to workload shape and run-to-run noise; use steady-state plus variability diagnostics instead of a single aggregate speedup number.
+- `mockgal` presets are operational but should be expanded with project-specific model/config templates once science campaign parameter files are finalized.
+
+## Phase 5 Follow-up Plan: Flagged Case Drills and Preset Templates
+
+### Scope
+- implement targeted numba profiling drills for slowdown/high-variability cases from measured JSON artifacts
+- prioritize `n1_medium_eps07__scale2` in drill execution order
+- add reusable `models_config_batch` YAML templates for adapter presets
+- verify both profiling drill and template-backed preset dry-run outputs
+
+### Checklist
+| Item | Status | Notes |
+|---|---|---|
+| 1. Parse measured case flags from scale1 and scale2 numba benchmark JSON files | [x] | Implemented in `benchmarks/profiling/profile_numba_flagged_cases.py` (`summary` + `case_diagnostics`) |
+| 2. Implement case-specific numba drill runner with per-case profiler artifacts | [x] | New script writes per-case `.prof`, text summaries, and `case_drill_summary.json` |
+| 3. Ensure `n1_medium_eps07__scale2` is prioritized in default drill selection | [x] | `--focus-case` default set to `n1_medium_eps07__scale2` |
+| 4. Add aggregate machine-readable drill summary | [x] | `numba_case_drill_summary.json` includes ranking by drill CV and source diagnostics |
+| 5. Add reusable `models_config_batch` templates under `examples/` | [x] | Added `examples/mockgal/models_config_batch/galaxies.yaml` and `image_config.yaml` |
+| 6. Point `models_config_batch` preset defaults to tracked template files | [x] | Updated default `models_file`/`config_file` in `mockgal_adapter.py` |
+| 7. Verify script execution and preset dry-run outputs | [x] | Verified with uv commands listed below; artifacts written under `outputs/` |
+| 8. Update docs/journal/spec references for continuation | [x] | Updated `benchmarks/README.md`, `examples/README.md`, `docs/spec.md`, and journal entry |
+
+### Review (Implementation Progress: Step 4)
+
+- Added new script:
+  - `benchmarks/profiling/profile_numba_flagged_cases.py`
+  - default source inputs:
+    - `outputs/benchmarks_performance/bench_numba_speedup/numba_benchmark_results.json`
+    - `outputs/benchmarks_performance/bench_numba_speedup_scale2/numba_benchmark_results.json`
+  - default focus case:
+    - `n1_medium_eps07__scale2`
+- Drill outputs now include:
+  - per-case profiler artifacts:
+    - `case_profile.prof`
+    - `top_cumulative.txt`
+    - `top_tottime.txt`
+    - `case_drill_summary.json`
+  - aggregate summary:
+    - `numba_case_drill_summary.json`
+- Smoke verification run selected and executed flagged scale2 cases:
+  - `n1_medium_eps07__scale2`
+  - `n1_large_eps06__scale2`
+  - `n1_medium_eps04__scale2`
+- Added reusable templates:
+  - `examples/mockgal/models_config_batch/galaxies.yaml`
+  - `examples/mockgal/models_config_batch/image_config.yaml`
+- Updated `models_config_batch` preset defaults to these tracked template files.
+
+Verification commands:
+- `/bin/zsh -lc 'UV_CACHE_DIR=.uv-cache uv run python benchmarks/profiling/profile_numba_flagged_cases.py --timing-runs 2 --profile-runs 1 --top-n 8 --output outputs/benchmarks_profiling/profile_numba_flagged_cases_smoke'`
+- `/bin/zsh -lc 'UV_CACHE_DIR=.uv-cache uv run python benchmarks/baselines/mockgal_adapter.py --preset models_config_batch --dry-run --output outputs/benchmarks_performance/mockgal_adapter_template_example'`
+
+### Residual Risks (Follow-up)
+
+- Case-level variability is sensitive to local runtime noise; use repeated drill runs when comparing machines or commits.
+- The template YAMLs are intentionally minimal examples and should be replaced with campaign-specific model/config files for production benchmark batches.
+
+## Phase 5 Follow-up Extension: Long-Run Drill + Template Scaffold Helper
+
+### Checklist
+| Item | Status | Notes |
+|---|---|---|
+| 1. Run longer flagged-case drill execution | [x] | `profile_numba_flagged_cases.py --timing-runs 8 --profile-runs 2` |
+| 2. Summarize variability deltas against source benchmark diagnostics | [x] | Wrote `variability_delta_summary.json` under long-run output directory |
+| 3. Add helper script to scaffold template YAML files into new outputs run directory | [x] | Added `benchmarks/baselines/scaffold_models_config_batch_templates.py` |
+| 4. Verify helper copies template files and persists manifest | [x] | Verified in `outputs/benchmarks_performance/mockgal_models_config_batch_templates_run1` |
+
+### Review
+
+- Long-run drill artifacts:
+  - `outputs/benchmarks_profiling/profile_numba_flagged_cases_longrun/`
+  - `outputs/benchmarks_profiling/profile_numba_flagged_cases_longrun/numba_case_drill_summary.json`
+  - `outputs/benchmarks_profiling/profile_numba_flagged_cases_longrun/variability_delta_summary.json`
+- Key focused case (`n1_medium_eps07__scale2`) improved strongly in long-run drill:
+  - source numba CV: `0.16849`
+  - drill steady-state CV: `0.00167`
+- Added helper script:
+  - `benchmarks/baselines/scaffold_models_config_batch_templates.py`
+  - command:
+    - `uv run python benchmarks/baselines/scaffold_models_config_batch_templates.py --output outputs/benchmarks_performance/mockgal_models_config_batch_templates_run1`
+  - copied files:
+    - `galaxies.yaml`
+    - `image_config.yaml`
+  - manifest:
+    - `outputs/benchmarks_performance/mockgal_models_config_batch_templates_run1/template_scaffold_manifest.json`
+
+## Pre-Merge Final Check (2026-02-12)
+
+### Checklist
+| Item | Status | Notes |
+|---|---|---|
+| 1. Check benchmark/tests/docs README consistency | [x] | Updated `README.md` and `tests/README.md`; `benchmarks/README.md` already aligned |
+| 2. Lint all changed Python files | [x] | `ruff check` passed after non-behavioral cleanup |
+| 3. Re-run focused Phase 4/5 regression tests | [x] | `5 + 27` tests passed; real-data collection validated |
+| 4. Re-run smoke checks for new scripts | [x] | `profile_numba_flagged_cases.py` and `scaffold_models_config_batch_templates.py` passed |
+
+### Verification Commands
+
+- `/bin/zsh -lc 'UV_CACHE_DIR=.uv-cache uv run ruff check ...'`
+- `/bin/zsh -lc 'UV_CACHE_DIR=.uv-cache uv run pytest tests/unit/test_public_api.py tests/integration/test_cli.py -q'`
+- `/bin/zsh -lc 'UV_CACHE_DIR=.uv-cache uv run pytest tests/integration/test_sersic_accuracy.py tests/integration/test_numba_validation.py -q'`
+- `/bin/zsh -lc 'UV_CACHE_DIR=.uv-cache uv run pytest tests/real_data/test_m51.py --collect-only -q -m real_data'`
+- `/bin/zsh -lc 'UV_CACHE_DIR=.uv-cache uv run python benchmarks/profiling/profile_numba_flagged_cases.py --case n1_medium_eps07__scale2 --timing-runs 1 --profile-runs 1 --top-n 5 --output outputs/benchmarks_profiling/profile_numba_flagged_cases_premerge_smoke'`
+- `/bin/zsh -lc 'UV_CACHE_DIR=.uv-cache uv run python benchmarks/baselines/scaffold_models_config_batch_templates.py --dry-run --output outputs/benchmarks_performance/mockgal_models_config_batch_templates_premerge_smoke'`
