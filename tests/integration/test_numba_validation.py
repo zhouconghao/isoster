@@ -9,7 +9,6 @@ import numpy as np
 import pytest
 import matplotlib.pyplot as plt
 from matplotlib.gridspec import GridSpec
-from pathlib import Path
 
 from isoster.driver import fit_image
 from isoster.config import IsosterConfig
@@ -293,23 +292,26 @@ def test_numba_full_fit_accuracy():
     # Validate accuracy
     valid = (sma >= 3) & (sma >= 0.5 * R_e) & (sma <= 5 * R_e) & (stop_codes == 0)
 
-    if valid.sum() > 0:
-        true_intens = true_profile(sma[valid])
-        rel_diff = np.abs((intens[valid] - true_intens) / true_intens)
+    valid_count = int(valid.sum())
+    assert valid_count > 0, "No valid converged points found in numba full-fit metric window"
 
-        max_rel_diff = np.max(rel_diff)
-        median_rel_diff = np.median(rel_diff)
+    true_intens = true_profile(sma[valid])
+    rel_diff = np.abs((intens[valid] - true_intens) / true_intens)
 
-        print(f"\nNumba full fit accuracy test:")
-        print(f"  Numba available: {NUMBA_AVAILABLE}")
-        print(f"  Valid range: {sma[valid].min():.1f} - {sma[valid].max():.1f} pixels")
-        print(f"  Max rel diff: {max_rel_diff*100:.3f}%")
-        print(f"  Median rel diff: {median_rel_diff*100:.3f}%")
-        print(f"  Converged: {(stop_codes == 0).sum()} / {len(isophotes)}")
+    max_rel_diff = np.max(rel_diff)
+    median_rel_diff = np.median(rel_diff)
 
-        # Accuracy criterion: < 1% max difference for noiseless data
-        assert max_rel_diff < 0.01, \
-            f"Max relative difference {max_rel_diff*100:.2f}% exceeds 1% threshold"
+    print("\nNumba full fit accuracy test:")
+    print(f"  Numba available: {NUMBA_AVAILABLE}")
+    print(f"  Valid range: {sma[valid].min():.1f} - {sma[valid].max():.1f} pixels")
+    print(f"  Valid points: {valid_count}")
+    print(f"  Max rel diff: {max_rel_diff*100:.3f}%")
+    print(f"  Median rel diff: {median_rel_diff*100:.3f}%")
+    print(f"  Converged: {(stop_codes == 0).sum()} / {len(isophotes)}")
+
+    # Accuracy criterion: < 1% max difference for noiseless data
+    assert max_rel_diff < 0.01, \
+        f"Max relative difference {max_rel_diff*100:.2f}% exceeds 1% threshold"
 
 
 def test_numba_qa_figure():
@@ -372,7 +374,6 @@ def test_numba_qa_figure():
 
     # Stop code masks
     good = stop_codes == 0
-    minor = stop_codes == 2
     failed = (stop_codes == -1) | (stop_codes == 3) | (stop_codes == 1)
 
     # X-axis: SMA^0.25
@@ -488,13 +489,16 @@ def test_numba_qa_figure():
 
     # Validation
     valid = (sma >= 3) & (sma >= 0.5 * R_e) & (sma <= 5 * R_e) & good
-    if valid.sum() > 0:
-        max_rel_diff = np.max(np.abs(rel_residual[valid]))
-        print(f"  Max rel diff in valid range: {max_rel_diff*100:.3f}%")
-        print(f"  Converged: {good.sum()} / {len(isophotes)}")
+    valid_count = int(valid.sum())
+    assert valid_count > 0, "No valid converged points found in numba QA metric window"
 
-        assert max_rel_diff < 0.02, \
-            f"Max relative difference {max_rel_diff*100:.2f}% exceeds 2% threshold"
+    max_rel_diff = np.max(np.abs(rel_residual[valid]))
+    print(f"  Valid points in metric window: {valid_count}")
+    print(f"  Max rel diff in valid range: {max_rel_diff*100:.3f}%")
+    print(f"  Converged: {good.sum()} / {len(isophotes)}")
+
+    assert max_rel_diff < 0.02, \
+        f"Max relative difference {max_rel_diff*100:.2f}% exceeds 2% threshold"
 
 
 if __name__ == '__main__':

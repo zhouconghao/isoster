@@ -9,7 +9,6 @@ import numpy as np
 import pytest
 import matplotlib.pyplot as plt
 from matplotlib.gridspec import GridSpec
-from pathlib import Path
 
 from isoster.driver import fit_image
 from isoster.config import IsosterConfig
@@ -153,9 +152,6 @@ def plot_qa_figure(image, results, true_profile, params, output_path):
 
     # Compute true profiles
     true_intens = true_profile(sma)
-    true_eps = np.full_like(sma, params['eps'])
-    true_pa = np.full_like(sma, params['pa'])
-
     # Relative residuals
     rel_residual = (intens - true_intens) / true_intens
 
@@ -360,22 +356,25 @@ def test_sersic_n4_noiseless():
 
     valid = (sma >= 3) & (sma >= 0.5 * R_e) & (sma <= 8 * R_e) & (stop_codes == 0)
 
-    if valid.sum() > 0:
-        true_intens = true_profile(sma[valid])
-        rel_diff = np.abs((intens[valid] - true_intens) / true_intens)
+    valid_count = int(valid.sum())
+    assert valid_count > 0, "No valid converged points found in the n=4 noiseless metric window"
 
-        max_rel_diff = np.max(rel_diff)
-        median_rel_diff = np.median(rel_diff)
+    true_intens = true_profile(sma[valid])
+    rel_diff = np.abs((intens[valid] - true_intens) / true_intens)
 
-        print(f"✓ Sersic n=4 noiseless test:")
-        print(f"  Image size: {params['shape']}, center: ({params['x0']}, {params['y0']})")
-        print(f"  Valid range: {sma[valid].min():.1f} - {sma[valid].max():.1f} pixels")
-        print(f"  Max rel diff: {max_rel_diff*100:.3f}%")
-        print(f"  Median rel diff: {median_rel_diff*100:.3f}%")
-        print(f"  Converged: {(stop_codes == 0).sum()} / {len(isophotes)}")
+    max_rel_diff = np.max(rel_diff)
+    median_rel_diff = np.median(rel_diff)
 
-        assert max_rel_diff < 0.01, \
-            f"Max relative difference {max_rel_diff*100:.2f}% exceeds 1% threshold"
+    print("✓ Sersic n=4 noiseless test:")
+    print(f"  Image size: {params['shape']}, center: ({params['x0']}, {params['y0']})")
+    print(f"  Valid range: {sma[valid].min():.1f} - {sma[valid].max():.1f} pixels")
+    print(f"  Valid points: {valid_count}")
+    print(f"  Max rel diff: {max_rel_diff*100:.3f}%")
+    print(f"  Median rel diff: {median_rel_diff*100:.3f}%")
+    print(f"  Converged: {(stop_codes == 0).sum()} / {len(isophotes)}")
+
+    assert max_rel_diff < 0.01, \
+        f"Max relative difference {max_rel_diff*100:.2f}% exceeds 1% threshold"
 
 
 def test_sersic_n1_high_ellipticity():
@@ -423,28 +422,28 @@ def test_sersic_n1_high_ellipticity():
     # Validation
     sma = np.array([iso['sma'] for iso in isophotes])
     intens = np.array([iso['intens'] for iso in isophotes])
-    eps_fit = np.array([iso['eps'] for iso in isophotes])
     stop_codes = np.array([iso['stop_code'] for iso in isophotes])
 
     valid = (sma >= 3) & (sma >= 0.5 * R_e) & (sma <= 5 * R_e) & (stop_codes == 0)
 
-    if valid.sum() > 0:
-        true_intens = true_profile(sma[valid])
-        rel_diff = np.abs((intens[valid] - true_intens) / true_intens)
-        eps_diff = np.abs(eps_fit[valid] - eps)
+    valid_count = int(valid.sum())
+    assert valid_count > 0, "No valid converged points found in the high-ellipticity metric window"
 
-        max_rel_diff = np.max(rel_diff)
-        median_rel_diff = np.median(rel_diff)
+    true_intens = true_profile(sma[valid])
+    rel_diff = np.abs((intens[valid] - true_intens) / true_intens)
+    max_rel_diff = np.max(rel_diff)
+    median_rel_diff = np.median(rel_diff)
 
-        print(f"✓ High ellipticity test (eps=0.7, S/N=100, maxgerr=1.0):")
-        print(f"  Image size: {params['shape']}, center: ({params['x0']}, {params['y0']})")
-        print(f"  Valid range: {sma[valid].min():.1f} - {sma[valid].max():.1f} pixels")
-        print(f"  Max intensity rel diff: {max_rel_diff*100:.3f}%")
-        print(f"  Median intensity rel diff: {median_rel_diff*100:.3f}%")
-        print(f"  Converged: {(stop_codes == 0).sum()} / {len(isophotes)}")
+    print("✓ High ellipticity test (eps=0.7, S/N=100, maxgerr=1.0):")
+    print(f"  Image size: {params['shape']}, center: ({params['x0']}, {params['y0']})")
+    print(f"  Valid range: {sma[valid].min():.1f} - {sma[valid].max():.1f} pixels")
+    print(f"  Valid points: {valid_count}")
+    print(f"  Max intensity rel diff: {max_rel_diff*100:.3f}%")
+    print(f"  Median intensity rel diff: {median_rel_diff*100:.3f}%")
+    print(f"  Converged: {(stop_codes == 0).sum()} / {len(isophotes)}")
 
-        assert max_rel_diff < 0.05, \
-            f"Max intensity difference {max_rel_diff*100:.2f}% exceeds 5% threshold"
+    assert max_rel_diff < 0.05, \
+        f"Max intensity difference {max_rel_diff*100:.2f}% exceeds 5% threshold"
 
 
 def test_sersic_n4_extreme_ellipticity():
@@ -497,25 +496,28 @@ def test_sersic_n4_extreme_ellipticity():
 
     valid = (sma >= 5) & (sma >= 0.5 * R_e) & (sma <= 5 * R_e) & (stop_codes == 0)
 
-    if valid.sum() > 0:
-        true_intens = true_profile(sma[valid])
-        rel_diff = np.abs((intens[valid] - true_intens) / true_intens)
+    valid_count = int(valid.sum())
+    assert valid_count > 0, "No valid converged points found in the extreme-case metric window"
 
-        max_rel_diff = np.max(rel_diff)
-        median_rel_diff = np.median(rel_diff)
+    true_intens = true_profile(sma[valid])
+    rel_diff = np.abs((intens[valid] - true_intens) / true_intens)
 
-        print(f"✓ EXTREME case (n=4, eps=0.6, S/N=80, maxgerr=1.2):")
-        print(f"  Image size: {params['shape']}, center: ({params['x0']}, {params['y0']})")
-        print(f"  Valid range: {sma[valid].min():.1f} - {sma[valid].max():.1f} pixels")
-        print(f"  Max rel diff: {max_rel_diff*100:.3f}%")
-        print(f"  Median rel diff: {median_rel_diff*100:.3f}%")
-        print(f"  Converged: {(stop_codes == 0).sum()} / {len(isophotes)}")
+    max_rel_diff = np.max(rel_diff)
+    median_rel_diff = np.median(rel_diff)
 
-        # Relaxed threshold for extreme case: <10% error acceptable
-        assert max_rel_diff < 0.10, \
-            f"Max relative difference {max_rel_diff*100:.2f}% exceeds 10% threshold"
-        assert (stop_codes == 0).sum() > 5, \
-            "Should have at least 5 converged isophotes for extreme case"
+    print("✓ EXTREME case (n=4, eps=0.6, S/N=80, maxgerr=1.2):")
+    print(f"  Image size: {params['shape']}, center: ({params['x0']}, {params['y0']})")
+    print(f"  Valid range: {sma[valid].min():.1f} - {sma[valid].max():.1f} pixels")
+    print(f"  Valid points: {valid_count}")
+    print(f"  Max rel diff: {max_rel_diff*100:.3f}%")
+    print(f"  Median rel diff: {median_rel_diff*100:.3f}%")
+    print(f"  Converged: {(stop_codes == 0).sum()} / {len(isophotes)}")
+
+    # Relaxed threshold for extreme case: <10% error acceptable
+    assert max_rel_diff < 0.10, \
+        f"Max relative difference {max_rel_diff*100:.2f}% exceeds 10% threshold"
+    assert (stop_codes == 0).sum() > 5, \
+        "Should have at least 5 converged isophotes for extreme case"
 
 
 if __name__ == '__main__':

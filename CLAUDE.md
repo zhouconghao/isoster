@@ -17,6 +17,12 @@ ISOSTER (ISOphote on STERoid) is an accelerated Python library for elliptical is
 - Generated artifacts must be written under `outputs/` and not mixed into source folders.
 - Use `uv` as the default tool for dependency management and environment execution.
 
+## Testing and Benchmark Directives (2026-02-11)
+- The canonical basic real-data dataset is `examples/data/m51/M51.fits`; the basic real-data test should be named `m51_test`.
+- For future high-fidelity mock generation, use `/Users/mac/Dropbox/work/project/otters/isophote_test/mockgal.py` (libprofit-based) when PSF convolution and realistic background-noise controls are required.
+- For noiseless single-Sersic validation without PSF convolution, compare against an analytic 1-D Sersic truth using accurate `b_n` evaluation (for example, `scipy.special.gammaincinv`) rather than low-accuracy approximations.
+- Tests and benchmarks must be quantitative, with explicit statistics from 1-D profile deviations and 2-D residual diagnostics.
+
 ## Context and Memory Preservation
 
 When a task is long or the context window is becoming constrained:

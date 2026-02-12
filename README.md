@@ -151,18 +151,30 @@ For complete documentation, see:
 ## Test and Benchmark Entry Points
 
 ```bash
-# Tests (default set)
+# Tests (default set; see tests/README.md for targeted suites)
 uv run pytest tests/ -q
 
 # Real-data tests (explicit)
 uv run pytest tests/real_data -m real_data -v -s
 
-# Benchmarks
+# Benchmarks (quick comparison)
 uv run python benchmarks/performance/bench_vs_photutils.py --quick
+
+# Numba diagnostics (baseline + scaled workload)
+uv run python benchmarks/performance/bench_numba_speedup.py --n-runs 4 --scale-factor 1.0
+uv run python benchmarks/performance/bench_numba_speedup.py --n-runs 3 --scale-factor 2.0 --output outputs/benchmarks_performance/bench_numba_speedup_scale2
+
+# Flagged-case numba drill (targets slowdown/high-variability cases)
+uv run python benchmarks/profiling/profile_numba_flagged_cases.py --timing-runs 3 --profile-runs 1
+
+# Scaffold reusable mockgal models_config_batch templates into outputs/
+uv run python benchmarks/baselines/scaffold_models_config_batch_templates.py
 
 # Docs tooling
 uv run mkdocs --version
 ```
+
+For the full benchmark command matrix and output conventions, see `benchmarks/README.md`.
 
 ## Repository Structure
 

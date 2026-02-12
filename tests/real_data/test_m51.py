@@ -35,9 +35,9 @@ class TestM51:
             image = hdul[0].data.astype(np.float64)
         return image
 
-    def test_m51_basic_fit(self, m51_image):
+    def test_m51_test(self, m51_image):
         """
-        Basic isophote fitting on M51.
+        m51_test: canonical basic isophote fitting on M51.
 
         Verifies that:
         1. fit_image completes without error
@@ -75,7 +75,7 @@ class TestM51:
         assert convergence_rate > 0.5, \
             f"Low convergence rate: {convergence_rate:.1%} ({converged}/{len(isophotes)})"
 
-        print(f"\nM51 fit results:")
+        print("\nm51_test results:")
         print(f"  Total isophotes: {len(isophotes)}")
         print(f"  Converged: {converged} ({convergence_rate:.1%})")
         print(f"  SMA range: {isophotes[0]['sma']:.1f} - {isophotes[-1]['sma']:.1f} pixels")
@@ -111,6 +111,6 @@ class TestM51:
 
         assert len(isophotes) > 5, f"Expected >5 isophotes with mask, got {len(isophotes)}"
 
-        print(f"\nM51 with mask results:")
+        print("\nM51 with mask results:")
         print(f"  Masked pixels: {mask.sum()} ({100*mask.sum()/mask.size:.2f}%)")
         print(f"  Total isophotes: {len(isophotes)}")

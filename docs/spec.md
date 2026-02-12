@@ -48,7 +48,16 @@ ISOSTER is a Python library for accelerated elliptical isophote fitting on galax
 - Unit/integration coverage in `tests/`.
 - Real-data checks in `tests/real_data/` marked `real_data`.
 - Performance comparisons in `benchmarks/`.
+- Phase 4 baseline metric collector: `benchmarks/baselines/collect_phase4_profile_baseline.py`.
+- Locked threshold file: `benchmarks/baselines/phase4_profile_thresholds_2026-02-11.json`.
+- Optional high-fidelity mock adapter: `benchmarks/baselines/mockgal_adapter.py`.
+- Numba diagnostics benchmark: `benchmarks/performance/bench_numba_speedup.py` with `n_runs`, `scale_factor`, steady-state speedup, and variability reporting.
+- Flagged-case numba drill workflow: `benchmarks/profiling/profile_numba_flagged_cases.py` for case-specific profiler artifacts (including `n1_medium_eps07__scale2` follow-up).
+- Reusable batch template examples for mockgal presets: `examples/mockgal/models_config_batch/galaxies.yaml` and `examples/mockgal/models_config_batch/image_config.yaml`.
+- Template scaffold helper for campaign setup: `benchmarks/baselines/scaffold_models_config_batch_templates.py`.
 - Reproducible scientific workflows in `examples/`.
+- Test/benchmark improvement roadmap is tracked in `docs/test-benchmark-improvement-plan.md`.
+- Quantitative validation policy: use explicit 1-D deviation and 2-D residual statistics, and lock thresholds from measured baselines (not guessed values).
 
 ## Output Policy
 

@@ -33,6 +33,10 @@ uv run pytest tests/validation -q
 # Real data tests (explicit)
 uv run pytest tests/real_data -m real_data -v -s
 
+# Focused Phase 4 regression checks
+uv run pytest tests/unit/test_public_api.py tests/integration/test_cli.py -q
+uv run pytest tests/integration/test_sersic_accuracy.py tests/integration/test_numba_validation.py -q
+
 # Collection sanity check
 uv run pytest --collect-only -q
 ```

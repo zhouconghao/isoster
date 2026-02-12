@@ -7,6 +7,7 @@ This folder contains reproducible workflow examples on mock or real-like data.
 - `basic_usage.py`: minimal API walkthrough.
 - `curve_of_growth.py`: curve-of-growth oriented workflow.
 - `huang2013/`: realistic mock-galaxy workflow and QA generation.
+- `mockgal/models_config_batch/`: reusable template files for batch-mode `mockgal_adapter` presets.
 - `data/`: example input data used by scripts.
 
 ## Non-Scope

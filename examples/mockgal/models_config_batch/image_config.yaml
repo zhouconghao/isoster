@@ -1,0 +1,26 @@
+image_configs:
+  - name: truth_clean
+    pixel_scale: 0.30
+    zeropoint: 27.0
+    size_factor: 15.0
+    psf_enabled: false
+    sky_enabled: false
+    noise_enabled: false
+    engine: auto
+
+  - name: psf_noise_realistic
+    pixel_scale: 0.30
+    zeropoint: 27.0
+    size_factor: 15.0
+    psf_enabled: true
+    psf_type: moffat
+    psf_fwhm: 1.0
+    psf_moffat_beta: 4.765
+    sky_enabled: true
+    sky_type: flat
+    sky_sb_value: 22.0
+    noise_enabled: true
+    sky_sb_limit: 27.0
+    gain: 4.0
+    noise_seed: 42
+    engine: auto
