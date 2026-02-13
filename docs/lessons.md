@@ -20,3 +20,6 @@
 - When evaluating drill variability deltas, compare against both source numba CV and source no-numba CV to avoid mis-attributing runtime noise.
 - For optional external generators, prefer preset-driven adapters with explicit override keys so workflows remain reproducible and auditable.
 - Keep reusable preset input templates in `examples/` and point preset defaults to those tracked files.
+- For iterative science QA workflows, split fitting/extraction and QA rendering into separate scripts so QA can be rerun independently as an afterburner without recomputing profiles.
+- Profiling wrappers used in retry loops must disable cProfile in a `finally` block; otherwise failed attempts can leave an active profiler and break subsequent attempts.
+- For photutils runs on large external mock frames, use a header-driven `maxsma` default (for example derived from `RE_PX*`) plus progressive fallback retries to avoid NaN-coordinate failures at extreme radii.

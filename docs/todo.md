@@ -334,3 +334,92 @@ Verification commands:
 - `/bin/zsh -lc 'UV_CACHE_DIR=.uv-cache uv run pytest tests/real_data/test_m51.py --collect-only -q -m real_data'`
 - `/bin/zsh -lc 'UV_CACHE_DIR=.uv-cache uv run python benchmarks/profiling/profile_numba_flagged_cases.py --case n1_medium_eps07__scale2 --timing-runs 1 --profile-runs 1 --top-n 5 --output outputs/benchmarks_profiling/profile_numba_flagged_cases_premerge_smoke'`
 - `/bin/zsh -lc 'UV_CACHE_DIR=.uv-cache uv run python benchmarks/baselines/scaffold_models_config_batch_templates.py --dry-run --output outputs/benchmarks_performance/mockgal_models_config_batch_templates_premerge_smoke'`
+
+## Phase 6 Plan: Huang2013 Real Mock Demo (IC2597 mock1)
+
+### Scope
+- formalize durable run requirements for real Huang2013 mock datasets
+- implement a reproducible demo runner for `IC2597_mock1.fits`
+- keep photutils and isoster executions independently repeatable with shared artifact conventions
+- generate per-method QA, cross-method comparison QA, and a concise markdown run report
+
+### Checklist
+| Item | Status | Notes |
+|---|---|---|
+| 1. Persist user requirements in `examples/huang2013` memory file | [x] | Create a requirement-spec markdown for this campaign |
+| 2. Define artifact naming and manifest schema using `GALAXY_MOCKID` prefix | [x] | Include profile FITS/ECSV, JSON metadata, QA PNG, report MD |
+| 3. Implement a script that reads external mock FITS and runs photutils independently | [x] | Save profile + runtime + true CoG columns |
+| 4. Implement a script that reads external mock FITS and runs isoster independently | [x] | Save profile + runtime + true CoG columns |
+| 5. Include run profiling and persist runtime diagnostics | [x] | Save wall/cpu timings and cProfile top-call summary |
+| 6. Generate per-method QA figure with image/isophotes, model, residual, and 1-D panels | [x] | Use shared x-axis in `kpc^0.25`, stop-code styling, PA normalization |
+| 7. Generate method-comparison QA figure from saved artifacts | [x] | Include relative surface-brightness difference panel |
+| 8. Generate concise markdown report and JSON manifest linking all artifacts | [x] | Summary includes runtime and fit-quality counts |
+| 9. Verify script entrypoint and help output | [x] | `--help` + smoke runs completed with reduced `maxsma` |
+| 10. Split extraction and QA into separate scripts (afterburner workflow) | [x] | Added dedicated extraction + QA afterburner entrypoints and verified both |
+| 11. Execute full IC2597 mock1 baseline in external dataset folder | [x] | Extraction + afterburner completed under `/Users/mac/work/hsc/huang2013/IC2597` |
+
+### Review
+
+- Added requirements-memory document:
+  - `examples/huang2013/real-huang2013-requirements.md`
+- Added split workflow entrypoints:
+  - extraction: `examples/huang2013/run_huang2013_profile_extraction.py`
+  - QA afterburner: `examples/huang2013/run_huang2013_qa_afterburner.py`
+- Kept shared reusable implementation in:
+  - `examples/huang2013/run_huang2013_real_mock_demo.py`
+- Implemented behavior and conventions:
+  - independent method execution (`photutils`, `isoster`, or both)
+  - output naming based on `GALAXY_MOCKID` and method/config suffix
+  - profile FITS/ECSV outputs with derived columns needed for 1-D and 2-D reproduction
+  - runtime profiling (`wall`, `cpu`, and cProfile top-call dump)
+  - true CoG append using high-subpixel elliptical apertures (`subpixels=9` default for extraction)
+  - per-method QA and comparison QA generated in afterburner stage from saved profile artifacts
+  - markdown report and manifest JSON written in afterburner stage
+- User-confirmed defaults applied:
+  - pixel scale source: FITS header (`PIXSCALE`)
+  - `use_eccentric_anomaly=False`
+  - true CoG subpixel sampling factor: `9`
+- Lightweight validation completed on `IC2597_mock1.fits` with reduced `maxsma`:
+  - extraction smoke run (`--method both`)
+  - QA afterburner smoke run (`--method both`)
+  - split artifact generation verified in `/tmp/huang2013_ic2597_split_smoke`
+- Production baseline execution completed in external target folder:
+  - profile extraction:
+    - `/Users/mac/work/hsc/huang2013/IC2597/IC2597_mock1_profiles_manifest.json`
+  - QA/report afterburner:
+    - `/Users/mac/work/hsc/huang2013/IC2597/IC2597_mock1_qa_manifest.json`
+    - `/Users/mac/work/hsc/huang2013/IC2597/IC2597_mock1_report.md`
+- Production run highlights (`IC2597_mock1`):
+  - runtime:
+    - photutils wall `7.261 s`
+    - isoster wall `0.513 s`
+  - isophotes:
+    - photutils `64` (`62` converged, stop codes `0:62, 2:2`)
+    - isoster `64` (`64` converged, stop code `0:64`)
+  - median absolute relative surface-brightness difference:
+    - `0.01884%`
+
+## Phase 6 Follow-up: Huang2013 Folder Cleanup and Guide
+
+### Checklist
+| Item | Status | Notes |
+|---|---|---|
+| 1. Remove legacy Huang2013 relic files with `git rm` | [x] | Removed old model/mock/test/QA scripts from `examples/huang2013` |
+| 2. Add `examples/huang2013/README.md` with test setup and TOC | [x] | Added workflow overview, commands, and artifact naming |
+| 3. Document exact QA reproduction command for IC2597 | [x] | Added under README section “Reproduce IC2597 QA Figures” |
+
+### Review
+
+- Removed tracked legacy files:
+  - `examples/huang2013/huang2013_models.yaml`
+  - `examples/huang2013/mockgal.py`
+  - `examples/huang2013/plot_qa_huang2013.py`
+  - `examples/huang2013/test_huang2013_mocks.py`
+- Added workflow README:
+  - `examples/huang2013/README.md`
+- README now provides:
+  - concise setup assumptions
+  - table of contents
+  - extraction and QA afterburner usage
+  - direct IC2597 QA reproduction commands
+  - plot customization entry points

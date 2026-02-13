@@ -56,6 +56,10 @@ ISOSTER is a Python library for accelerated elliptical isophote fitting on galax
 - Reusable batch template examples for mockgal presets: `examples/mockgal/models_config_batch/galaxies.yaml` and `examples/mockgal/models_config_batch/image_config.yaml`.
 - Template scaffold helper for campaign setup: `benchmarks/baselines/scaffold_models_config_batch_templates.py`.
 - Reproducible scientific workflows in `examples/`.
+- Real Huang2013 external-mock demo workflow:
+  - extraction stage: `examples/huang2013/run_huang2013_profile_extraction.py`
+  - QA afterburner stage: `examples/huang2013/run_huang2013_qa_afterburner.py`
+  - shared helper implementation currently in `examples/huang2013/run_huang2013_real_mock_demo.py`
 - Test/benchmark improvement roadmap is tracked in `docs/test-benchmark-improvement-plan.md`.
 - Quantitative validation policy: use explicit 1-D deviation and 2-D residual statistics, and lock thresholds from measured baselines (not guessed values).
 
