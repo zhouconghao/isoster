@@ -2,6 +2,14 @@ import numpy as np
 from .fitting import fit_isophote
 from .config import IsosterConfig
 
+ACCEPTABLE_STOP_CODES = {0, 1}
+
+
+def _is_acceptable_stop_code(stop_code):
+    """Return True when a stop code is acceptable for geometry propagation."""
+    return stop_code in ACCEPTABLE_STOP_CODES
+
+
 def fit_central_pixel(image, mask, x0, y0, debug=False):
     """
     Fit the central pixel (SMA=0).
@@ -127,7 +135,7 @@ def fit_image(image, mask=None, config=None, template_isophotes=None):
     
     # 3. Grow Outwards
     outwards_results = []
-    if first_iso['stop_code'] <= 2: # Success or minor issues
+    if _is_acceptable_stop_code(first_iso['stop_code']):
         outwards_results.append(first_iso)
         current_iso = first_iso
         current_sma = first_iso['sma']
@@ -144,17 +152,20 @@ def fit_image(image, mask=None, config=None, template_isophotes=None):
             # Update sma tracking
             current_sma = next_sma
                 
-            next_iso = fit_isophote(image, mask, next_sma, current_iso, cfg)
+            next_iso = fit_isophote(
+                image, mask, next_sma, current_iso, cfg,
+                previous_geometry=current_iso
+            )
             outwards_results.append(next_iso)
 
             # If good fit, update geometry for next step
             # In permissive mode, always update to prevent cascading failures
-            if next_iso['stop_code'] in [0, 1, 2] or cfg.permissive_geometry:
+            if _is_acceptable_stop_code(next_iso['stop_code']) or cfg.permissive_geometry:
                 current_iso = next_iso
                 
     # 4. Grow Inwards
     inwards_results = []
-    if minsma < sma0:
+    if minsma < sma0 and _is_acceptable_stop_code(first_iso['stop_code']):
         current_iso = first_iso
         current_sma = first_iso['sma']
         
@@ -172,11 +183,15 @@ def fit_image(image, mask=None, config=None, template_isophotes=None):
             current_sma = next_sma
             
             # Use going_inwards=True flag
-            next_iso = fit_isophote(image, mask, next_sma, current_iso, cfg, going_inwards=True)
+            next_iso = fit_isophote(
+                image, mask, next_sma, current_iso, cfg,
+                going_inwards=True,
+                previous_geometry=current_iso
+            )
             inwards_results.append(next_iso)
 
             # In permissive mode, always update to prevent cascading failures
-            if next_iso['stop_code'] in [0, 1, 2] or cfg.permissive_geometry:
+            if _is_acceptable_stop_code(next_iso['stop_code']) or cfg.permissive_geometry:
                 current_iso = next_iso
 
     # Combine results

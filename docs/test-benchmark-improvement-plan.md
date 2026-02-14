@@ -183,3 +183,71 @@ Recommended output layout:
 - Added reusable `models_config_batch` template files:
   - `examples/mockgal/models_config_batch/galaxies.yaml`
   - `examples/mockgal/models_config_batch/image_config.yaml`
+
+## Session Update (2026-02-14): libprofit + System-Level 2-D Caveat
+
+### Additional Non-Negotiables
+
+- For `mockgal.py`-based benchmark/test generation, force `--engine libprofit` explicitly.
+- Do not treat 2-D residual metrics as extraction-only diagnostics: they measure the combined behavior of profile extraction and 2-D model reconstruction.
+
+### Current Benchmark Review (Condensed)
+
+- `bench_efficiency.py` is useful for runtime + convergence trends, but currently lacks truth-based quantitative quality gates.
+- `bench_numba_speedup.py` validates numba/non-numba numerical consistency and timing, but does not validate absolute scientific accuracy against truth.
+- `bench_vs_photutils.py` includes pass/fail logic, but tolerance values are hardcoded and should be aligned to the measured baseline-lock policy.
+- `collect_phase4_profile_baseline.py` + `phase4_profile_thresholds_2026-02-11.json` already implement the correct lock-from-measurement policy for 1-D profile metrics.
+
+### Proposed Benchmark Plan
+
+#### Workstream F: mockgal libprofit Enforcement
+
+- Update `benchmarks/baselines/mockgal_adapter.py` presets so `--engine libprofit` is the default for benchmark workflows.
+- Add a preflight assertion in adapter metadata: fail fast when requested `libprofit` engine is unavailable.
+- Persist backend provenance (`engine`, `profit_cli_path`, `mockgal.py` git SHA when available) into output metadata JSON.
+
+#### Workstream G: Benchmark Model Set (Analytic + mockgal)
+
+Use two benchmark families, each with explicit case metadata and seeds:
+
+1. Analytic single-Sersic (no PSF/noise) for extraction-focused checks:
+- Morphology grid: `n in {1, 4}`, `eps in {0.0, 0.4, 0.6}`.
+- Sampling scale grid: `R_e in {10, 20, 40}` pixels.
+- Oversampling policy: `{5, 10, 15}` tied to difficulty (higher for high-`n` and high-`eps`).
+
+2. mockgal realism (libprofit) for system-level checks:
+- Paired `truth` and `observed` mocks with identical intrinsic component definitions.
+- Truth run: no PSF, no sky, no noise.
+- Observed run: PSF convolution + sky + noise (using `sky_sb_value` / `sky_sb_limit` / `gain` controls).
+- Fixed seed and full config capture per case.
+
+#### Workstream H: Quantitative QA Criteria and Gating
+
+Keep threshold policy evidence-based: measure first, then lock.
+
+1. Efficiency criteria (runtime regression gate):
+- Per-case `mean_time`, `steady_state_mean_time`, `coefficient_of_variation`.
+- Compare against locked per-case baseline distributions; no synthetic margins.
+
+2. 1-D profile criteria (extraction-centric):
+- `delta_I = (I_isoster - I_truth) / I_truth`.
+- Required stats: `median|delta_I|`, `max|delta_I|`, `valid_point_count`, stop-code distribution.
+- Radial windows:
+  - no-PSF noiseless: `[max(3 px, 0.5 Re), 8 Re]`
+  - noisy: `[max(3 px, 0.5 Re), 5 Re]`
+  - PSF cases: exclude `<= 2 * FWHM`
+
+3. 2-D criteria (system-level, not extraction-only):
+- Fractional residual, fractional absolute residual, and chi-square by radial bands:
+  - `<0.5 Re`, `0.5-4 Re`, `4-8 Re`.
+- Interpretation note must be carried in docs and benchmark outputs:
+  - failing 2-D metrics can originate from reconstruction/modeling issues even when 1-D extraction is stable.
+
+#### Workstream I: Baseline Lock and Artifacts
+
+- Add a dedicated collector for mockgal-case metrics under `benchmarks/baselines/`.
+- Emit lock files for runtime and QA metrics in versioned JSON.
+- Every benchmark run writes:
+  - JSON + CSV metrics,
+  - QA figure(s),
+  - environment/backend metadata.

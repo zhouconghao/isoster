@@ -12,6 +12,7 @@ import numpy as np
 import pytest
 from isoster import fit_image
 from isoster.config import IsosterConfig
+from tests.fixtures import compute_bn
 
 
 def create_sersic_model(R_e, n, I_e, eps, pa, noise_level=None, oversample=1):
@@ -23,7 +24,7 @@ def create_sersic_model(R_e, n, I_e, eps, pa, noise_level=None, oversample=1):
     shape = (2 * half_size, 2 * half_size)
     x0, y0 = half_size, half_size
 
-    b_n = 1.9992 * n - 0.3271
+    b_n = compute_bn(n)
 
     if oversample > 1:
         oversamp_shape = (shape[0] * oversample, shape[1] * oversample)

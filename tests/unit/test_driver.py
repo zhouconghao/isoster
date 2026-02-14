@@ -4,7 +4,8 @@ Tests for isoster.driver module.
 
 import numpy as np
 import pytest
-from isoster.driver import fit_central_pixel
+from isoster.driver import fit_central_pixel, fit_image
+from isoster.config import IsosterConfig
 
 
 def test_central_pixel_rounding_basic():
@@ -119,3 +120,132 @@ def test_central_pixel_rounding_parametrized(x0, y0, expected_y, expected_x):
     expected_val = image[expected_y, expected_x]
     assert result['intens'] == expected_val, \
         f"For ({x0}, {y0}): Expected image[{expected_y},{expected_x}]={expected_val}, got {result['intens']}"
+
+
+def _build_mock_isophote(sma, stop_code=0):
+    """Create a minimal fit_isophote-like result for driver-flow tests."""
+    return {
+        'x0': 20.0,
+        'y0': 20.0,
+        'eps': 0.2,
+        'pa': 0.1,
+        'sma': sma,
+        'intens': 100.0,
+        'rms': 1.0,
+        'intens_err': 0.1,
+        'x0_err': 0.0,
+        'y0_err': 0.0,
+        'eps_err': 0.0,
+        'pa_err': 0.0,
+        'tflux_e': np.nan,
+        'tflux_c': np.nan,
+        'npix_e': 0,
+        'npix_c': 0,
+        'a3': 0.0,
+        'b3': 0.0,
+        'a3_err': 0.0,
+        'b3_err': 0.0,
+        'a4': 0.0,
+        'b4': 0.0,
+        'a4_err': 0.0,
+        'b4_err': 0.0,
+        'stop_code': stop_code,
+        'niter': 1,
+    }
+
+
+def test_fit_image_passes_previous_geometry_to_growth_calls(monkeypatch):
+    """Regular mode should pass previous_geometry for outward and inward calls."""
+    image = np.ones((40, 40), dtype=float)
+    config = IsosterConfig(
+        x0=20.0,
+        y0=20.0,
+        sma0=10.0,
+        minsma=8.0,
+        maxsma=12.0,
+        astep=2.0,
+        linear_growth=True,
+    )
+
+    call_log = []
+
+    def fake_fit_isophote(image_arg, mask_arg, sma, start_geometry, cfg_arg,
+                          going_inwards=False, previous_geometry=None):
+        result = _build_mock_isophote(sma=sma, stop_code=0)
+        call_log.append({
+            'sma': sma,
+            'going_inwards': going_inwards,
+            'previous_geometry': previous_geometry,
+            'result': result,
+        })
+        return result
+
+    monkeypatch.setattr("isoster.driver.fit_isophote", fake_fit_isophote)
+
+    fit_image(image, mask=None, config=config)
+
+    assert len(call_log) == 3, "Expected first + one outward + one inward fit call"
+    assert call_log[0]['previous_geometry'] is None
+    assert call_log[1]['previous_geometry'] == call_log[0]['result']
+    assert call_log[2]['going_inwards'] is True
+    assert call_log[2]['previous_geometry'] == call_log[0]['result']
+
+
+def test_fit_image_skips_inward_growth_when_first_isophote_fails(monkeypatch):
+    """Inward pass should not start unless first isophote passes quality gating."""
+    image = np.ones((40, 40), dtype=float)
+    config = IsosterConfig(
+        x0=20.0,
+        y0=20.0,
+        sma0=10.0,
+        minsma=0.0,
+        maxsma=14.0,
+        astep=2.0,
+        linear_growth=True,
+    )
+
+    call_count = {'n': 0}
+
+    def fake_fit_isophote(image_arg, mask_arg, sma, start_geometry, cfg_arg,
+                          going_inwards=False, previous_geometry=None):
+        call_count['n'] += 1
+        if call_count['n'] > 1:
+            pytest.fail("fit_isophote should only run once when first isophote is unacceptable")
+        return _build_mock_isophote(sma=sma, stop_code=3)
+
+    monkeypatch.setattr("isoster.driver.fit_isophote", fake_fit_isophote)
+
+    results = fit_image(image, mask=None, config=config)
+
+    assert call_count['n'] == 1
+    assert [iso['sma'] for iso in results['isophotes']] == [0.0]
+
+
+def test_fit_image_treats_stop_code_2_as_unacceptable(monkeypatch):
+    """Compatibility stop code 2 should not be treated as acceptable in driver growth."""
+    image = np.ones((40, 40), dtype=float)
+    config = IsosterConfig(
+        x0=20.0,
+        y0=20.0,
+        sma0=10.0,
+        minsma=0.0,
+        maxsma=14.0,
+        astep=2.0,
+        linear_growth=True,
+    )
+
+    call_count = {'n': 0}
+
+    def fake_fit_isophote(image_arg, mask_arg, sma, start_geometry, cfg_arg,
+                          going_inwards=False, previous_geometry=None):
+        call_count['n'] += 1
+        if call_count['n'] > 1:
+            pytest.fail("growth should stop after first stop_code=2 isophote")
+        return _build_mock_isophote(sma=sma, stop_code=2)
+
+    monkeypatch.setattr("isoster.driver.fit_isophote", fake_fit_isophote)
+
+    results = fit_image(image, mask=None, config=config)
+
+    assert call_count['n'] == 1
+    assert [iso['sma'] for iso in results['isophotes']] == [0.0]

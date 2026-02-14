@@ -13,6 +13,7 @@ from matplotlib.gridspec import GridSpec
 from isoster.driver import fit_image
 from isoster.config import IsosterConfig
 from isoster.output_paths import resolve_output_directory
+from tests.fixtures import compute_bn
 
 
 def get_qa_output_directory():
@@ -46,8 +47,8 @@ def create_sersic_model(R_e, n, I_e, eps, pa, oversample=1):
 
     h, w = shape
 
-    # Compute b_n parameter (approximation from Ciotti & Bertin 1999)
-    b_n = 1.9992 * n - 0.3271
+    # Compute b_n parameter via exact incomplete-gamma inversion
+    b_n = compute_bn(n)
 
     if oversample > 1:
         # High-resolution grid for central region

@@ -9,7 +9,7 @@ Regular mode in `fit_image` (`isoster/driver.py`) runs:
 1. Central pixel estimate (`fit_central_pixel`).
 2. First free-geometry isophote at `sma0` (`fit_isophote`).
 3. Outward growth until `maxsma`.
-4. Optional inward growth until `max(minsma, 0.5)`.
+4. Optional inward growth until `max(minsma, 0.5)`, but only when the first fitted isophote stop code is acceptable (`0` or `1`).
 5. Optional CoG attachment (`compute_cog`) in regular mode.
 
 Mode selection priority is:
@@ -99,12 +99,11 @@ Current `isoster` fitting emits:
 - `3`: too few points
 - `-1`: gradient-related failure
 
-`2` is reserved/compatibility-only in current core code and is not emitted by `fit_isophote`.
 
 Canonical user-facing reference: `docs/user-guide.md`.
 
 ## Current Caveats
 
-- Central regularization depends on `previous_geometry`, but regular `fit_image` calls currently do not pass it.
+- Central regularization uses `previous_geometry` propagated by regular `fit_image` outward/inward growth when enabled.
 - In `compute_gradient`, both linear and multiplicative growth use `/ (sma * astep)` normalization; linear-growth users should treat this behavior as implementation-specific.
 - `build_isoster_model` currently filters only on `sma > 0`, not by stop-code quality.

@@ -47,6 +47,12 @@ uv run python benchmarks/baselines/collect_phase4_profile_baseline.py
 # Lock threshold file from baseline metrics
 uv run python benchmarks/baselines/lock_phase4_thresholds.py
 
+# Lock efficiency thresholds from measured efficiency baselines
+uv run python benchmarks/baselines/lock_efficiency_thresholds.py
+
+# Run combined baseline-locked benchmark gate (efficiency + 1-D + 2-D system diagnostics)
+uv run python benchmarks/baselines/run_benchmark_gate.py --quick --n-runs 1 --efficiency-lock benchmarks/baselines/efficiency_thresholds_quick_2026-02-14.json
+
 # Optional external mockgal adapter (safe dry-run)
 uv run python benchmarks/baselines/mockgal_adapter.py --dry-run
 

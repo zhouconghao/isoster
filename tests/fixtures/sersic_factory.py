@@ -13,14 +13,12 @@ from dataclasses import dataclass
 from typing import Callable, Optional, Tuple
 
 import numpy as np
+from scipy.special import gammaincinv
 
 
 def compute_bn(n: float) -> float:
     """
     Compute the Sersic b_n parameter.
-
-    Uses the approximation from Ciotti & Bertin (1999):
-    b_n ≈ 1.9992*n - 0.3271
 
     Args:
         n: Sersic index
@@ -28,7 +26,7 @@ def compute_bn(n: float) -> float:
     Returns:
         b_n parameter value
     """
-    return 1.9992 * n - 0.3271
+    return float(gammaincinv(2.0 * n, 0.5))
 
 
 def sersic_1d(r: np.ndarray, R_e: float, n: float, I_e: float) -> np.ndarray:

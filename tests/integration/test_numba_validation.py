@@ -13,6 +13,7 @@ from matplotlib.gridspec import GridSpec
 from isoster.driver import fit_image
 from isoster.config import IsosterConfig
 from isoster.output_paths import resolve_output_directory
+from tests.fixtures import compute_bn
 from isoster.numba_kernels import (
     NUMBA_AVAILABLE,
     _harmonic_model_numba, _harmonic_model_numpy,
@@ -29,7 +30,7 @@ def create_sersic_model(R_e, n, I_e, eps, pa, oversample=5):
     shape = (2 * half_size, 2 * half_size)
     x0, y0 = half_size, half_size
 
-    b_n = 1.9992 * n - 0.3271
+    b_n = compute_bn(n)
 
     if oversample > 1:
         y_hr = np.linspace(0, shape[0], shape[0] * oversample, endpoint=False) + 0.5/oversample
