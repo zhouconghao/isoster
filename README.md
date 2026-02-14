@@ -110,7 +110,7 @@ results = isoster.fit_image(image, mask, config)
 - **ε > 0.7**: Use `maxgerr=1.2` or higher
 - Always enable `use_eccentric_anomaly=True` for ε > 0.3
 
-See `docs/stop-codes.md` for detailed information on stop codes and convergence criteria.
+See `docs/user-guide.md` (Stop Codes (Canonical Reference)) for detailed stop-code semantics and filtering guidance.
 
 ### Advanced Features
 
@@ -143,9 +143,10 @@ config = IsosterConfig(
 
 For complete documentation, see:
 
-- `docs/README.md` for docs structure
+- `docs/index.md` for docs structure
 - `docs/spec.md` for architecture and interfaces
-- `docs/user-guide.md` for usage guidance
+- `docs/user-guide.md` for usage guidance and stop-code interpretation
+- `docs/future.md` for long-term roadmap
 - `CLAUDE.md` for agent/development rules
 
 ## Test and Benchmark Entry Points
@@ -188,7 +189,7 @@ For the full benchmark command matrix and output conventions, see `benchmarks/RE
 - `benchmarks/`: Performance and profiling benchmarks (`benchmarks/README.md`).
 - `examples/`: Reproducible mock/realistic workflows (`examples/README.md`).
 - `outputs/`: Generated artifacts (gitignored).
-- `docs/`: Stable docs + archived historical notes (`docs/README.md`).
+- `docs/`: Stable docs + archived historical notes (`docs/index.md`).
 
 ## Acknowledgments
 

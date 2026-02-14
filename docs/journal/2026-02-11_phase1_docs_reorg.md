@@ -13,7 +13,7 @@ Executed phase 1 plan for documentation and structure cleanup.
   - moved `docs/review/` to `docs/archive/review/`
 - Renamed markdown files to lowercase kebab-case where applicable.
 - Added canonical docs:
-  - `docs/README.md`
+  - `docs/index.md`
   - `docs/spec.md`
   - `docs/lessons.md`
 - Updated docs home page: `docs/index.md`.

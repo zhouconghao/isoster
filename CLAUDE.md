@@ -7,6 +7,7 @@ This file provides guidance to coding agents when working with code in this repo
 ISOSTER (ISOphote on STERoid) is an accelerated Python library for elliptical isophote fitting in galaxy images. It provides 10-15x faster performance compared to `photutils.isophote` using vectorized path-based sampling via scipy's `map_coordinates`.
 
 ## Non-negotiable Rules for developing
+
 - Always create a new branch for new features and new development. Do not merge back into the main branch unless I approve it.
 - It is essential to provide informative and concise docstrings and inline comments.
 - Warn the users when the context window has <30% left. Remind the users to save the conversation and start fresh. Also propose ways to compact the conversation and save the current progress in files.
@@ -18,6 +19,7 @@ ISOSTER (ISOphote on STERoid) is an accelerated Python library for elliptical is
 - Use `uv` as the default tool for dependency management and environment execution.
 
 ## Testing and Benchmark Directives (2026-02-11)
+
 - The canonical basic real-data dataset is `examples/data/m51/M51.fits`; the basic real-data test should be named `m51_test`.
 - For future high-fidelity mock generation, use `/Users/mac/Dropbox/work/project/otters/isophote_test/mockgal.py` (libprofit-based) when PSF convolution and realistic background-noise controls are required.
 - For noiseless single-Sersic validation without PSF convolution, compare against an analytic 1-D Sersic truth using accurate `b_n` evaluation (for example, `scipy.special.gammaincinv`) rather than low-accuracy approximations.
@@ -129,7 +131,7 @@ Follow these rules for all Python environment and dependency work in this reposi
 - `benchmarks/` - Performance and profiling scripts
 - `examples/` - Reproducible workflow examples
 - `outputs/` - Generated artifacts (gitignored)
-- `docs/` - Stable docs + archived historical notes (`docs/README.md`)
+- `docs/` - Stable docs + archived historical notes (`docs/index.md`)
 
 ## Public API
 
@@ -242,13 +244,14 @@ config = IsosterConfig(
 
 ## QA Figure Rules
 
-When making QA figures to compare the `isoster` result with the truth or the `photutils.isophote` results, following the guidelines below: 
-- Show the original image with a few selective isophotes on top. 
-- If possible, reconstruct the 2-D model and subtract it from the image to highlight the residual pattern is informative. 
+When making QA figures to compare the `isoster` result with the truth or the `photutils.isophote` results, following the guidelines below:
+
+- Show the original image with a few selective isophotes on top.
+- If possible, reconstruct the 2-D model and subtract it from the image to highlight the residual pattern is informative.
 - When showing 1-D profiles, using `SMA ** 0.25` as the X-axis as it compress the outer profile that typically has a shallow slope while not zooming in to the center too much
-- When comparing with truth or different methods, use the relative 1-D residual or difference in the form of `(intensity_isoster - intensity_reference) / intensity_reference`. 
+- When comparing with truth or different methods, use the relative 1-D residual or difference in the form of `(intensity_isoster - intensity_reference) / intensity_reference`.
 - Arrange all the sub-plots for 1-D information, including the surface brightness, residual/difference, position angle, axis ratio, and centroid vertically, sharing the same X-axis to save space. Among them, 1-D surface brightness profile should occupy larger area than the rest.
-- Using scatter plot with errorbar to show these 1-D profiles (`plt.scatter()`), not lines (`plt.plot`). Using dash line for the true model profiles. 
+- Using scatter plot with errorbar to show these 1-D profiles (`plt.scatter()`), not lines (`plt.plot`). Using dash line for the true model profiles.
 - Intensity, position angle, axis ratio, and centroid results in the outskirt can have huge errorbars. When setting the Y-axis ranges, do not include the error bars.
 - Normalize the position angle: sudden jump larger than 90 degrees often mean normalization issue.
 - For `isoster` or `photutils.isophote` results, should visually separate the valid and problematic 1-D datapoints using the stop code.
@@ -260,25 +263,25 @@ When making QA figures to compare the `isoster` result with the truth or the `ph
 - The mock galaxy model shall be centered with the image array.
 - The half-size of the mock image shall be at least 10 times of the effective radius of the mock model; if the mock model's effective radius is not very large, 15x would be even better.
 - Pay attention to the oversampling ratio, high-Sersic index and high ellipticity often require higher oversampling in the central region.
-- When comparing results between the truth or the reference profile: 
-   - Ignore the region smaller than 3 pixels when there is no PSF convolution because sampling the central region often has numerical issues; ignore the region `<= 2 * psf_fwhm` due to PSF convolution.
-   - Ignore the region in the outskirt where problematic data points (using stop code) begin to appear or the intensity error bars become huge.
-- Metrics to evaluate the results: 
-   - Median or maximum difference of a property between `0.5 * r_effective` (or 3 pixels, whichever is larger) to `8 * r_effective` is good for noiseless mocks; and to `5 * r_effective` is good for mocks with noise.
-   - Using median or maximum absolute different is a more strict standard. 
-   - `isoster` can provide the curve of growth measurement, the relative difference of the curve of growth values at a few typical radius could be useful metrics.
+- When comparing results between the truth or the reference profile:
+  - Ignore the region smaller than 3 pixels when there is no PSF convolution because sampling the central region often has numerical issues; ignore the region `<= 2 * psf_fwhm` due to PSF convolution.
+  - Ignore the region in the outskirt where problematic data points (using stop code) begin to appear or the intensity error bars become huge.
+- Metrics to evaluate the results:
+  - Median or maximum difference of a property between `0.5 * r_effective` (or 3 pixels, whichever is larger) to `8 * r_effective` is good for noiseless mocks; and to `5 * r_effective` is good for mocks with noise.
+  - Using median or maximum absolute different is a more strict standard.
+  - `isoster` can provide the curve of growth measurement, the relative difference of the curve of growth values at a few typical radius could be useful metrics.
 
 ### Build Ellipse Model Tests
 
 - Key residual statistics:
-  - Fractional residual level: `100.0 * (model - data) / data`; 
+  - Fractional residual level: `100.0 * (model - data) / data`;
   - Fractional absolute residual level: `100.0 * |model - data| / data`
   - Chi-Square statistics: `(model - data) ** 2.0 / (sigma ** 2)`
 - Key metrics to evaluate the 2-D ellipse model:
   - 1. Statistics of the fractional residual level, e.g., median or maximum values, within different radial range. This works the best for noiseless mock.
-  - 2. Statistics of the integrated values of the fractional absolute residual level within different radial range. This works the best for noiseless mock.
-  - 3. Integrated Chi-square statistics within different radial range. This works the best for noisy-added mocks or real images.
+  - 1. Statistics of the integrated values of the fractional absolute residual level within different radial range. This works the best for noiseless mock.
+  - 1. Integrated Chi-square statistics within different radial range. This works the best for noisy-added mocks or real images.
 - Radial ranges:
   - < 0.5 Re (effective radius)
-  - 0.5-4 Re 
+  - 0.5-4 Re
   - 4-8 Re

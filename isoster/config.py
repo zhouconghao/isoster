@@ -12,11 +12,11 @@ class IsosterConfig(BaseModel):
     Fitting results include a 'stop_code' field indicating termination condition:
     - 0: Success (converged)
     - 1: Too many flagged pixels (>fflag threshold)
-    - 2: Minor issues
+    - 2: Reserved compatibility code (not emitted by current core fitter)
     - 3: Too few points (<6)
     - -1: Gradient error (invalid or unreliable)
 
-    See docs/stop-codes.md for detailed documentation.
+    See docs/user-guide.md (Stop Codes (Canonical Reference)) for detailed documentation.
     """
     # Geometry initialization
     x0: Optional[float] = Field(None, description="Initial center x coordinate. If None, uses image center.")

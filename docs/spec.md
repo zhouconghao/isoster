@@ -2,14 +2,7 @@
 
 ## Purpose
 
-ISOSTER is a Python library for accelerated elliptical isophote fitting on galaxy images, targeting scientific consistency with `photutils.isophote` while improving runtime through vectorized sampling and optimized fitting workflows.
-
-## Primary Goals
-
-- Fit radial isophote profiles with stable geometry estimation.
-- Support template-based forced photometry for multiband analysis.
-- Provide stop-code based quality control for profile interpretation.
-- Export fit products for downstream analysis and model reconstruction.
+ISOSTER is a Python library for elliptical isophote fitting on 2D images, with a function-first API and vectorized sampling/fitting internals.
 
 ## Public Interfaces
 
@@ -21,54 +14,77 @@ ISOSTER is a Python library for accelerated elliptical isophote fitting on galax
 - `isoster.build_isoster_model(...)`
 - CLI entry point: `isoster` (`isoster/cli.py`)
 
-## Module Architecture
+## Core Modules
 
-- `isoster/optimize.py`: facade for core fitting API.
-- `isoster/driver.py`: image-level orchestration (central, outward, inward growth).
-- `isoster/fitting.py`: single-isophote fitting, harmonics, clipping, error terms.
-- `isoster/sampling.py`: ellipse coordinate sampling and extraction.
-- `isoster/model.py`: 2-D model reconstruction from fitted profiles.
-- `isoster/config.py`: pydantic configuration schema and validation.
-- `isoster/utils.py`: serialization and table/FITS conversion utilities.
-- `isoster/numba_kernels.py`: optional accelerated kernels.
+- `isoster/driver.py`: image-level orchestration and mode routing.
+- `isoster/fitting.py`: per-isophote fitting loop, gradient checks, geometry updates.
+- `isoster/sampling.py`: vectorized ellipse sampling via `scipy.ndimage.map_coordinates`.
+- `isoster/config.py`: `IsosterConfig` schema and validators.
+- `isoster/model.py`: 2D model reconstruction by radial interpolation.
+- `isoster/cog.py`: curve-of-growth computation and crossing flags.
+- `isoster/utils.py`: serialization to/from FITS and Astropy tables.
+- `isoster/optimize.py`: compatibility facade re-exporting driver/fitting APIs.
 
-## Data Flow
+## Runtime Modes
 
-1. Validate/construct config.
-2. Choose mode:
-   - normal fitting
-   - fixed-geometry forced mode
-   - template-based forced mode
-3. Fit central point and radial isophotes.
-4. Attach quality flags (`stop_code`) and optional derived measurements.
-5. Return `{'isophotes': [...], 'config': IsosterConfig}`.
+`fit_image` selects exactly one mode in this priority order:
 
-## Quality and Verification
+1. `template_isophotes` provided -> template-based forced photometry (`driver._fit_image_template_forced`).
+2. `config.forced=True` -> fixed-geometry forced photometry (`fitting.extract_forced_photometry`) using `forced_sma`.
+3. Otherwise -> regular iterative fitting (central pixel, outward growth, optional inward growth).
 
-- Unit/integration coverage in `tests/`.
-- Real-data checks in `tests/real_data/` marked `real_data`.
-- Performance comparisons in `benchmarks/`.
-- Phase 4 baseline metric collector: `benchmarks/baselines/collect_phase4_profile_baseline.py`.
-- Locked threshold file: `benchmarks/baselines/phase4_profile_thresholds_2026-02-11.json`.
-- Optional high-fidelity mock adapter: `benchmarks/baselines/mockgal_adapter.py`.
-- Numba diagnostics benchmark: `benchmarks/performance/bench_numba_speedup.py` with `n_runs`, `scale_factor`, steady-state speedup, and variability reporting.
-- Flagged-case numba drill workflow: `benchmarks/profiling/profile_numba_flagged_cases.py` for case-specific profiler artifacts (including `n1_medium_eps07__scale2` follow-up).
-- Reusable batch template examples for mockgal presets: `examples/mockgal/models_config_batch/galaxies.yaml` and `examples/mockgal/models_config_batch/image_config.yaml`.
-- Template scaffold helper for campaign setup: `benchmarks/baselines/scaffold_models_config_batch_templates.py`.
-- Reproducible scientific workflows in `examples/`.
-- Real Huang2013 external-mock demo workflow:
-  - extraction stage: `examples/huang2013/run_huang2013_profile_extraction.py`
-  - QA afterburner stage: `examples/huang2013/run_huang2013_qa_afterburner.py`
-  - shared helper implementation currently in `examples/huang2013/run_huang2013_real_mock_demo.py`
-- Test/benchmark improvement roadmap is tracked in `docs/test-benchmark-improvement-plan.md`.
-- Quantitative validation policy: use explicit 1-D deviation and 2-D residual statistics, and lock thresholds from measured baselines (not guessed values).
+## Regular Fitting Contract
 
-## Output Policy
+For each SMA in regular mode:
 
-Generated artifacts (plots, benchmark JSON, QA figures, temporary results) should be written under `outputs/` using deterministic folder naming by source and scenario.
+1. Sample ellipse points (`sampling.extract_isophote_data`) with `n_samples = max(64, int(2*pi*sma))`.
+2. Apply sigma clipping to sampled `(angle, intensity)` pairs.
+3. Fit first/second harmonics (`I0`, `A1`, `B1`, `A2`, `B2`).
+4. Estimate radial gradient (`fitting.compute_gradient`).
+5. Update geometry based on dominant harmonic coefficient.
+6. Check convergence criterion: `abs(max_amp) < conver * rms` with iteration index check `i >= minit`.
+
+## Stop Codes (Implemented Semantics)
+
+Stop codes currently emitted by core `isoster` fitting paths are:
+
+- `0`: converged / successful forced extraction.
+- `1`: too many flagged/clipped samples for the current ellipse.
+- `3`: too few points (`< 6`) for first/second harmonic fit.
+- `-1`: gradient-related failure.
+
+`2` is reserved for compatibility and appears in external/legacy contexts, but is not emitted by current `fit_isophote` / `fit_image` logic.
+
+Canonical user-facing stop-code documentation lives in `docs/user-guide.md`.
+
+## Output Contract
+
+`fit_image` returns:
+
+- `results['isophotes']`: list of dict rows, one per sampled/fitted SMA.
+- `results['config']`: the resolved `IsosterConfig` object.
+
+Each isophote row includes geometry/intensity fields and optional blocks depending on config:
+
+- Harmonic deviations: `a{n}`, `b{n}`, `a{n}_err`, `b{n}_err` for requested `harmonic_orders`.
+- Full aperture photometry (`full_photometry`): `tflux_e`, `tflux_c`, `npix_e`, `npix_c`.
+- CoG (`compute_cog` in regular mode): `cog`, `cog_annulus`, `area_annulus`, `flag_cross`, `flag_negative_area`.
+
+## Known Behavior Notes
+
+- `template_isophotes` takes precedence over `forced=True`.
+- `compute_cog` is only run in regular mode in current `fit_image`; forced/template branches return before CoG attachment.
+- Central regularization requires `previous_geometry` in `fit_isophote`; current `fit_image` calls do not pass it.
+
+## Verification and Artifacts
+
+- Tests: `tests/`
+- Benchmarks/profiling: `benchmarks/`
+- Reproducible examples: `examples/`
+- Generated artifacts: `outputs/`
 
 ## Documentation Policy
 
 - Stable docs live in `docs/` root.
-- Historical work products live in `docs/archive/`.
-- Naming convention: lowercase kebab-case markdown files.
+- Historical records live under `docs/archive/` and `docs/journal/`.
+- Use lowercase kebab-case markdown filenames.

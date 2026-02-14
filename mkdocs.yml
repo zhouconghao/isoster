@@ -11,12 +11,10 @@ theme:
 
 nav:
   - Home: index.md
-  - Docs Map: README.md
   - Spec: spec.md
   - User Guide: user-guide.md
   - Algorithm: algorithm.md
-  - Stop Codes: stop-codes.md
-  - Optimization Notes: advanced-optimization.md
+  - Future: future.md
 
 markdown_extensions:
   - admonition
