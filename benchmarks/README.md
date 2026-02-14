@@ -51,7 +51,23 @@ uv run python benchmarks/baselines/lock_phase4_thresholds.py
 uv run python benchmarks/baselines/lock_efficiency_thresholds.py
 
 # Run combined baseline-locked benchmark gate (efficiency + 1-D + 2-D system diagnostics)
+# Defaults are loaded from benchmarks/baselines/benchmark_gate_defaults.json
+# Efficiency timing gate default: adjusted_threshold = locked_threshold + max(0.002s, 3.0 * current_std_time)
 uv run python benchmarks/baselines/run_benchmark_gate.py --quick --n-runs 1 --efficiency-lock benchmarks/baselines/efficiency_thresholds_quick_2026-02-14.json
+
+# Override defaults file (optional)
+uv run python benchmarks/baselines/run_benchmark_gate.py --quick --n-runs 1 --gate-defaults benchmarks/baselines/benchmark_gate_defaults.json --efficiency-lock benchmarks/baselines/efficiency_thresholds_quick_2026-02-14.json
+
+# Full lock-refresh + full gate workflow before large batches
+uv run python benchmarks/performance/bench_efficiency.py --n-runs 3 --output outputs/benchmarks_performance/bench_efficiency_full_refresh
+uv run python benchmarks/baselines/lock_efficiency_thresholds.py --input outputs/benchmarks_performance/bench_efficiency_full_refresh/efficiency_benchmark_results.json --output benchmarks/baselines/efficiency_thresholds_full_refresh.json
+uv run python benchmarks/baselines/collect_phase4_profile_baseline.py --output outputs/tests_integration/baseline_metrics_full_refresh
+uv run python benchmarks/baselines/lock_phase4_thresholds.py --input outputs/tests_integration/baseline_metrics_full_refresh/phase4_profile_baseline_metrics.json --output benchmarks/baselines/phase4_profile_thresholds_full_refresh.json
+# Run this full gate command sequentially (do not run concurrent benchmark commands).
+uv run python benchmarks/baselines/run_benchmark_gate.py --n-runs 3 --efficiency-lock benchmarks/baselines/efficiency_thresholds_full_refresh.json --profile-lock benchmarks/baselines/phase4_profile_thresholds_full_refresh.json --require-all-locked-cases
+
+# Gate now generates built-in Huang2013 basic-QA artifacts per Phase-4 case
+uv run python benchmarks/baselines/run_benchmark_gate.py --quick --n-runs 1 --efficiency-lock benchmarks/baselines/efficiency_thresholds_quick_2026-02-14.json --qa-output-subdir qa_figures --qa-overlay-step 10 --qa-dpi 180
 
 # Optional external mockgal adapter (safe dry-run)
 uv run python benchmarks/baselines/mockgal_adapter.py --dry-run

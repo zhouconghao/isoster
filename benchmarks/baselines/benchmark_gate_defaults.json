@@ -1,0 +1,7 @@
+{
+  "efficiency_time_jitter_floor_seconds": 0.002,
+  "efficiency_time_jitter_sigma": 3.0,
+  "qa_dpi": 180,
+  "qa_output_subdir": "qa_figures",
+  "qa_overlay_step": 10
+}
