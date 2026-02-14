@@ -34,3 +34,12 @@
 - For externally generated mock benchmarks, enforce backend selection at adapter validation time and reject conflicting pass-through overrides before process launch.
 - Keep separate efficiency lock files for quick smoke and full suites; lock from measured artifacts of the matching run shape to avoid false gate failures from case-set mismatch.
 - When `uv run` is unstable in the execution environment, use the project interpreter (`.venv/bin/python`) and record that fallback in evidence logs.
+- In LaTeX-rendered matplotlib figures, any literal `%` in titles/labels must be escaped (or preprocessed) to avoid silent text truncation.
+- For stacked image panels with mixed colorbar usage, reserve a dedicated colorbar column per row to prevent panel-width drift and axis misalignment.
+- For side-by-side data/model QA panels, derive display transform parameters from the data once and reuse them for the model to preserve absolute-value comparability.
+- When QA panels split centroid behavior into `dx` and `dy`, include `x0_err`/`y0_err` error bars by default; for axis ratio, use `ellip_err` fallback to `eps_err` when available.
+- Strict efficiency lock thresholds copied directly from a single timing run can be brittle across immediate reruns; expect small runtime jitter and record this explicitly in gate evidence when interpreting failures.
+- Efficiency timing gates should include measured per-case jitter tolerance (for example, based on `std_time`) to avoid false failures from millisecond-level runtime noise.
+- Do not run concurrent benchmark gate commands when collecting timing evidence; resource contention can inflate runtimes and produce invalid comparisons.
+- For this repository's current gate stability, a more tolerant default (`jitter_sigma=3.0`, `jitter_floor=0.002s`) is a practical baseline for avoiding false efficiency failures while preserving regression detection.
+- For recurring benchmark-gate knobs, keep a versioned project defaults JSON and let CLI options override it; this reduces command noise and keeps policy reproducible.

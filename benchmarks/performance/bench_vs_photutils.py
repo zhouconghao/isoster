@@ -17,27 +17,38 @@ import sys
 import csv
 import time
 import argparse
+import os
 from datetime import datetime
 from pathlib import Path
 
 import numpy as np
-import matplotlib.pyplot as plt
-from matplotlib.backends.backend_pdf import PdfPages
 
-# Add repository root to path for imports
-sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
 
-import isoster
-from isoster.output_paths import resolve_output_directory
-from benchmarks.utils.run_metadata import collect_environment_metadata, write_json
-from benchmarks.utils.sersic_model import (
+if "XDG_CACHE_HOME" not in os.environ:
+    xdg_cache_dir = PROJECT_ROOT / "outputs" / "tmp" / "xdg-cache"
+    xdg_cache_dir.mkdir(parents=True, exist_ok=True)
+    os.environ["XDG_CACHE_HOME"] = str(xdg_cache_dir)
+if "MPLCONFIGDIR" not in os.environ:
+    mpl_config_dir = PROJECT_ROOT / "outputs" / "tmp" / "mplconfig"
+    mpl_config_dir.mkdir(parents=True, exist_ok=True)
+    os.environ["MPLCONFIGDIR"] = str(mpl_config_dir)
+
+import matplotlib.pyplot as plt  # noqa: E402
+from matplotlib.backends.backend_pdf import PdfPages  # noqa: E402
+import isoster  # noqa: E402
+from isoster.output_paths import resolve_output_directory  # noqa: E402
+from benchmarks.utils.run_metadata import collect_environment_metadata, write_json  # noqa: E402
+from benchmarks.utils.sersic_model import (  # noqa: E402
     create_sersic_image_vectorized,
     add_noise,
     get_true_profile_at_sma,
 )
 
 # photutils imports
-from photutils.isophote import Ellipse, EllipseGeometry
+from photutils.isophote import Ellipse, EllipseGeometry  # noqa: E402
 
 
 def resolve_benchmark_output_directory(output_dir=None):

@@ -4,18 +4,28 @@ from __future__ import annotations
 
 import argparse
 import csv
+import os
 import sys
 import time
 from pathlib import Path
 from typing import Dict, List, Tuple
 
-import matplotlib.pyplot as plt
 import numpy as np
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
+if "XDG_CACHE_HOME" not in os.environ:
+    xdg_cache_dir = PROJECT_ROOT / "outputs" / "tmp" / "xdg-cache"
+    xdg_cache_dir.mkdir(parents=True, exist_ok=True)
+    os.environ["XDG_CACHE_HOME"] = str(xdg_cache_dir)
+if "MPLCONFIGDIR" not in os.environ:
+    mpl_config_dir = PROJECT_ROOT / "outputs" / "tmp" / "mplconfig"
+    mpl_config_dir.mkdir(parents=True, exist_ok=True)
+    os.environ["MPLCONFIGDIR"] = str(mpl_config_dir)
+
+import matplotlib.pyplot as plt  # noqa: E402
 from benchmarks.utils.run_metadata import collect_environment_metadata, write_json  # noqa: E402
 from benchmarks.utils.sersic_model import compute_bn  # noqa: E402
 from isoster import fit_image  # noqa: E402

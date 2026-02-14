@@ -257,6 +257,7 @@ When making QA figures to compare the `isoster` result with the truth or the `ph
 - Intensity, position angle, axis ratio, and centroid results in the outskirt can have huge errorbars. When setting the Y-axis ranges, do not include the error bars.
 - Normalize the position angle: sudden jump larger than 90 degrees often mean normalization issue.
 - For `isoster` or `photutils.isophote` results, should visually separate the valid and problematic 1-D datapoints using the stop code.
+- Treat the finalized IC2597 Huang2013 basic-QA style (`build_method_qa_figure` / `build_comparison_qa_figure`) as the default style/habit baseline for future QA figures unless a task explicitly requests a different style.
 
 ## Benchmark Tests Rules
 
