@@ -4,21 +4,30 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import shlex
+import shutil
 import subprocess
 import sys
 from pathlib import Path
-from typing import Dict, List
+from typing import Dict, List, Optional, Tuple
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from benchmarks.utils.run_metadata import collect_environment_metadata, write_json  # noqa: E402
+from benchmarks.utils.run_metadata import (  # noqa: E402
+    collect_environment_metadata,
+    get_git_sha,
+    write_json,
+)
 from isoster.output_paths import resolve_output_directory  # noqa: E402
 
 
 DEFAULT_MOCKGAL_PATH = Path("/Users/mac/Dropbox/work/project/otters/isophote_test/mockgal.py")
+DEFAULT_LIBPROFIT_BUILD_PATH = Path(
+    "/Users/mac/Dropbox/work/project/otters/isophote_test/libprofit/build"
+)
 
 PRESETS = {
     "single_noiseless_truth": {
@@ -55,7 +64,7 @@ PRESETS = {
             "sersic_n": 4.0,
             "ellip": 0.0,
             "pa_deg": 0.0,
-            "engine": "auto",
+            "engine": "libprofit",
         },
     },
     "single_psf_noise_sblimit": {
@@ -113,7 +122,7 @@ PRESETS = {
             "sky_sb_limit": 27.0,
             "gain": 4.0,
             "seed": 42,
-            "engine": "auto",
+            "engine": "libprofit",
         },
     },
     "models_config_batch": {
@@ -131,12 +140,15 @@ PRESETS = {
             "{output_dir}",
             "--format",
             "{output_format}",
+            "--engine",
+            "{engine}",
         ],
         "default_values": {
             "models_file": "examples/mockgal/models_config_batch/galaxies.yaml",
             "config_file": "examples/mockgal/models_config_batch/image_config.yaml",
             "workers": 1,
             "output_format": "fits",
+            "engine": "libprofit",
         },
     },
 }
@@ -192,12 +204,130 @@ def render_preset_arguments(preset_name: str, resolved_values: Dict[str, object]
     return tokens
 
 
-def build_command(mockgal_script_path: Path, preset_arguments: List[str], passthrough_arguments: str) -> List[str]:
+def parse_passthrough_arguments(passthrough_arguments: str) -> List[str]:
+    """Parse raw passthrough argument string into shell-safe tokens."""
+    if not passthrough_arguments:
+        return []
+    return shlex.split(passthrough_arguments)
+
+
+def _extract_last_option_value(tokens: List[str], option_name: str) -> Optional[str]:
+    """Extract last value for a --key value or --key=value option."""
+    extracted_value: Optional[str] = None
+    index = 0
+    while index < len(tokens):
+        token = tokens[index]
+        if token == option_name:
+            if index + 1 >= len(tokens):
+                raise ValueError(f"Missing value for {option_name}")
+            extracted_value = tokens[index + 1]
+            index += 2
+            continue
+        if token.startswith(f"{option_name}="):
+            extracted_value = token.split("=", 1)[1]
+        index += 1
+    return extracted_value
+
+
+def ensure_engine_is_libprofit(
+    resolved_values: Dict[str, object],
+    passthrough_tokens: List[str],
+) -> str:
+    """Enforce libprofit engine in presets and passthrough arguments."""
+    preset_engine = resolved_values.get("engine")
+    if preset_engine is not None and str(preset_engine).strip() != "libprofit":
+        raise ValueError(
+            f"Preset engine override is not allowed: expected 'libprofit', got '{preset_engine}'"
+        )
+
+    passthrough_engine = _extract_last_option_value(passthrough_tokens, "--engine")
+    if passthrough_engine is not None and passthrough_engine.strip() != "libprofit":
+        raise ValueError(
+            f"Pass-through --engine must be 'libprofit', got '{passthrough_engine}'"
+        )
+
+    if "engine" in resolved_values:
+        resolved_values["engine"] = "libprofit"
+    return "libprofit"
+
+
+def _resolve_profit_cli_path(path_value: Optional[str]) -> Optional[Path]:
+    """Resolve potential profit-cli path from binary or directory input."""
+    if not path_value:
+        return None
+
+    candidate = Path(path_value).expanduser()
+    if candidate.is_dir():
+        candidate = candidate / "profit-cli"
+
+    if candidate.exists() and os.access(candidate, os.X_OK):
+        return candidate.resolve()
+    return None
+
+
+def find_profit_cli_path(custom_path: Optional[str] = None) -> Optional[Path]:
+    """Locate an executable profit-cli path using common resolution order."""
+    ordered_candidates = [
+        _resolve_profit_cli_path(custom_path),
+        _resolve_profit_cli_path(os.getenv("LIBPROFIT_PATH")),
+        _resolve_profit_cli_path(os.getenv("PROFIT_CLI_PATH")),
+        _resolve_profit_cli_path(str(DEFAULT_LIBPROFIT_BUILD_PATH)),
+    ]
+    for candidate in ordered_candidates:
+        if candidate is not None:
+            return candidate
+
+    from_path = shutil.which("profit-cli")
+    if from_path:
+        return Path(from_path).resolve()
+
+    fallback_paths = [
+        Path(__file__).resolve().parent / "libprofit" / "build" / "profit-cli",
+        Path.home() / "libprofit" / "build" / "profit-cli",
+        Path("/usr/local/bin/profit-cli"),
+        Path("/opt/homebrew/bin/profit-cli"),
+    ]
+    for candidate in fallback_paths:
+        resolved = _resolve_profit_cli_path(str(candidate))
+        if resolved is not None:
+            return resolved
+    return None
+
+
+def get_mockgal_git_sha(mockgal_script_path: Path) -> str:
+    """Return git SHA for external mockgal.py checkout when available."""
+    if not mockgal_script_path.exists():
+        return "unknown"
+    return get_git_sha(project_root=mockgal_script_path.parent)
+
+
+def run_engine_preflight(passthrough_tokens: List[str]) -> Tuple[bool, Optional[Path], str]:
+    """Validate libprofit runtime requirements before invoking mockgal."""
+    profit_cli_override = _extract_last_option_value(passthrough_tokens, "--profit-cli")
+    profit_cli_path = find_profit_cli_path(custom_path=profit_cli_override)
+    if profit_cli_path is None:
+        message = (
+            "Preflight failed: required engine 'libprofit' is unavailable because "
+            "profit-cli was not found. Set --profit-cli or LIBPROFIT_PATH/PROFIT_CLI_PATH."
+        )
+        return False, None, message
+    return True, profit_cli_path, "libprofit preflight passed."
+
+
+def build_command(
+    mockgal_script_path: Path,
+    preset_arguments: List[str],
+    passthrough_tokens: List[str],
+    enforced_engine: str,
+) -> List[str]:
     """Build subprocess command for mockgal execution."""
     command = [sys.executable, str(mockgal_script_path)]
     command.extend(preset_arguments)
-    if passthrough_arguments:
-        command.extend(shlex.split(passthrough_arguments))
+    if _extract_last_option_value(preset_arguments, "--engine") is None and _extract_last_option_value(
+        passthrough_tokens, "--engine"
+    ) is None:
+        command.extend(["--engine", enforced_engine])
+    command.extend(passthrough_tokens)
     return command
 
 
@@ -221,13 +351,28 @@ def run_mockgal_adapter(
         )
         preset_arguments = render_preset_arguments(preset_name=preset_name, resolved_values=resolved_values)
 
+    passthrough_tokens = parse_passthrough_arguments(passthrough_arguments)
+    enforced_engine = ensure_engine_is_libprofit(
+        resolved_values=resolved_values,
+        passthrough_tokens=passthrough_tokens,
+    )
+    preflight_ok, profit_cli_path, preflight_message = run_engine_preflight(
+        passthrough_tokens=passthrough_tokens
+    )
+
     metadata = {
         "environment": collect_environment_metadata(project_root=PROJECT_ROOT),
         "mockgal_script_path": str(mockgal_script_path),
+        "mockgal_git_sha": get_mockgal_git_sha(mockgal_script_path),
         "preset_name": preset_name,
+        "engine": enforced_engine,
+        "profit_cli_path": str(profit_cli_path) if profit_cli_path else None,
+        "preflight_passed": bool(preflight_ok),
+        "preflight_message": preflight_message,
         "resolved_preset_values": resolved_values,
         "preset_arguments": preset_arguments,
         "passthrough_arguments": passthrough_arguments,
+        "passthrough_tokens": passthrough_tokens,
         "dry_run": bool(dry_run),
     }
 
@@ -237,10 +382,17 @@ def run_mockgal_adapter(
         write_json(output_directory / "mockgal_adapter_run.json", metadata)
         return metadata
 
+    if not preflight_ok:
+        metadata["status"] = "failed_preflight"
+        metadata["message"] = preflight_message
+        write_json(output_directory / "mockgal_adapter_run.json", metadata)
+        return metadata
+
     command = build_command(
         mockgal_script_path=mockgal_script_path,
         preset_arguments=preset_arguments,
-        passthrough_arguments=passthrough_arguments,
+        passthrough_tokens=passthrough_tokens,
+        enforced_engine=enforced_engine,
     )
     metadata["command"] = command
 
@@ -303,19 +455,38 @@ def main() -> int:
         "mockgal_adapter",
         explicit_output_directory=args.output,
     )
-    metadata = run_mockgal_adapter(
-        mockgal_script_path=Path(args.mockgal_script),
-        preset_name=args.preset,
-        preset_values=preset_values,
-        passthrough_arguments=args.mockgal_args,
-        dry_run=args.dry_run,
-        output_directory=output_directory,
-    )
+
+    try:
+        metadata = run_mockgal_adapter(
+            mockgal_script_path=Path(args.mockgal_script),
+            preset_name=args.preset,
+            preset_values=preset_values,
+            passthrough_arguments=args.mockgal_args,
+            dry_run=args.dry_run,
+            output_directory=output_directory,
+        )
+    except ValueError as error:
+        metadata_path = output_directory / "mockgal_adapter_run.json"
+        write_json(
+            metadata_path,
+            {
+                "status": "failed_validation",
+                "message": str(error),
+                "preset_name": args.preset,
+                "passthrough_arguments": args.mockgal_args,
+            },
+        )
+        print("mockgal adapter status: failed_validation")
+        print(f"Metadata written to: {metadata_path}")
+        print(str(error))
+        return 1
 
     print(f"mockgal adapter status: {metadata['status']}")
     print(f"Metadata written to: {output_directory / 'mockgal_adapter_run.json'}")
     if "message" in metadata:
         print(metadata["message"])
+    if metadata["status"] in {"failed_preflight", "failed"}:
+        return 1
     return 0
 
 

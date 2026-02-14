@@ -3,11 +3,11 @@
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.gridspec import GridSpec
-from pathlib import Path
 from isoster import fit_image
 from isoster.model import build_isoster_model
 from isoster.config import IsosterConfig
 from isoster.output_paths import resolve_output_directory
+from tests.fixtures import compute_bn
 
 
 def create_sersic_model(R_e, n, I_e, eps, pa, oversample=1):
@@ -21,7 +21,7 @@ def create_sersic_model(R_e, n, I_e, eps, pa, oversample=1):
     x0, y0 = half_size, half_size  # Center of image
 
     # Compute b_n for Sersic profile
-    b_n = 1.9992 * n - 0.3271  # Approximation
+    b_n = compute_bn(n)
 
     if oversample > 1:
         # Create oversampled grid
@@ -183,17 +183,17 @@ def plot_residual_analysis(data, model, R_e, x0, y0, stats, output_path):
     ax6.axis('off')
 
     text = "Residual Statistics:\n\n"
-    text += f"<0.5 Re:\n"
+    text += "<0.5 Re:\n"
     text += f"  Median: {stats['inner_median_frac']:.3f}%\n"
     text += f"  Max |frac|: {stats['inner_max_abs_frac']:.3f}%\n"
     text += f"  Median |frac|: {stats['inner_median_abs_frac']:.3f}%\n\n"
 
-    text += f"0.5-4 Re:\n"
+    text += "0.5-4 Re:\n"
     text += f"  Median: {stats['mid_median_frac']:.3f}%\n"
     text += f"  Max |frac|: {stats['mid_max_abs_frac']:.3f}%\n"
     text += f"  Median |frac|: {stats['mid_median_abs_frac']:.3f}%\n\n"
 
-    text += f"4-8 Re:\n"
+    text += "4-8 Re:\n"
     text += f"  Median: {stats['outer_median_frac']:.3f}%\n"
     text += f"  Max |frac|: {stats['outer_max_abs_frac']:.3f}%\n"
     text += f"  Median |frac|: {stats['outer_median_abs_frac']:.3f}%\n"
@@ -273,7 +273,7 @@ def test_model_building():
         print(f"⚠️  ACCEPTABLE: Max {mid_max:.3f}% < 5%, Median {mid_median:.3f}% < 2%")
     else:
         print(f"❌ POOR: Max {mid_max:.3f}% or Median {mid_median:.3f}% too high")
-        print(f"   This suggests issues in build_ellipse_model()")
+        print("   This suggests issues in build_ellipse_model()")
 
     # Create diagnostic plot
     output_dir = resolve_output_directory("tests_validation", "model_residuals")

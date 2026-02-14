@@ -22,8 +22,10 @@ ISOSTER (ISOphote on STERoid) is an accelerated Python library for elliptical is
 
 - The canonical basic real-data dataset is `examples/data/m51/M51.fits`; the basic real-data test should be named `m51_test`.
 - For future high-fidelity mock generation, use `/Users/mac/Dropbox/work/project/otters/isophote_test/mockgal.py` (libprofit-based) when PSF convolution and realistic background-noise controls are required.
+- For `mockgal.py` benchmark/test workflows, force `--engine libprofit` and do not rely on astropy fallback rendering.
 - For noiseless single-Sersic validation without PSF convolution, compare against an analytic 1-D Sersic truth using accurate `b_n` evaluation (for example, `scipy.special.gammaincinv`) rather than low-accuracy approximations.
 - Tests and benchmarks must be quantitative, with explicit statistics from 1-D profile deviations and 2-D residual diagnostics.
+- Treat 2-D residual metrics as system-level diagnostics (profile extraction + model reconstruction combined), not as an isolated extraction-only metric.
 
 ## Context and Memory Preservation
 
@@ -120,7 +122,7 @@ Follow these rules for all Python environment and dependency work in this reposi
 
 - **Central regularization**: When `use_central_regularization=True`, applies geometry regularization in low S/N central regions (SMA < `central_reg_sma_threshold`) to stabilize fitting by penalizing large geometry changes.
 
-- **Stop codes**: 0=converged, 1=too many flagged pixels, 2=minor issues, 3=too few points, -1=gradient error
+- **Stop codes**: 0=converged, 1=too many flagged pixels, 3=too few points, -1=gradient error
 
 ### Directory Layout
 

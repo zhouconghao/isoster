@@ -130,11 +130,11 @@ This section is the canonical stop-code reference for the current `isoster` impl
 | `1` | Too many flagged samples | `actual_points < total_points * fflag` | Inspect mask/clipping; treat cautiously |
 | `3` | Too few points | `< 6` valid points for harmonic fit | Discard this radius |
 | `-1` | Gradient failure | Gradient checks fail (or zero gradient) | Treat as boundary/failure |
-| `2` | Reserved compatibility code | Not emitted by current `fit_isophote` path | Handle only if present in imported/reference outputs |
 
 ### Notes by Path
 
 - Regular mode (`fit_isophote`) emits `0`, `1`, `3`, `-1`.
+- In regular `fit_image` growth, only stop codes `0` and `1` are treated as acceptable for outward/inward propagation.
 - `fit_central_pixel` emits `0` for unmasked center and `-1` for masked center.
 - Forced extraction (`extract_forced_photometry`) emits `0` or `3`.
 

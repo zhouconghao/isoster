@@ -53,8 +53,6 @@ Stop codes currently emitted by core `isoster` fitting paths are:
 - `3`: too few points (`< 6`) for first/second harmonic fit.
 - `-1`: gradient-related failure.
 
-`2` is reserved for compatibility and appears in external/legacy contexts, but is not emitted by current `fit_isophote` / `fit_image` logic.
-
 Canonical user-facing stop-code documentation lives in `docs/user-guide.md`.
 
 ## Output Contract
@@ -74,7 +72,8 @@ Each isophote row includes geometry/intensity fields and optional blocks dependi
 
 - `template_isophotes` takes precedence over `forced=True`.
 - `compute_cog` is only run in regular mode in current `fit_image`; forced/template branches return before CoG attachment.
-- Central regularization requires `previous_geometry` in `fit_isophote`; current `fit_image` calls do not pass it.
+- Regular mode passes `previous_geometry` during outward/inward growth, so central regularization can apply when enabled.
+- Inward growth starts only when the first fitted isophote has an acceptable stop code (`0` or `1`).
 
 ## Verification and Artifacts
 

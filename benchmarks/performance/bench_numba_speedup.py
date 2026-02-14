@@ -20,6 +20,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from benchmarks.utils.run_metadata import collect_environment_metadata, write_json  # noqa: E402
+from benchmarks.utils.sersic_model import compute_bn  # noqa: E402
 from isoster.output_paths import resolve_output_directory  # noqa: E402
 
 
@@ -63,7 +64,7 @@ def create_test_image(
     shape = (2 * half_size, 2 * half_size)
     x0, y0 = half_size, half_size
 
-    b_n = 1.9992 * n - 0.3271
+    b_n = compute_bn(n)
     if oversample > 1:
         oversampled_shape = (shape[0] * oversample, shape[1] * oversample)
         y = np.arange(oversampled_shape[0]) / oversample

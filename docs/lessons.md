@@ -23,3 +23,14 @@
 - For iterative science QA workflows, split fitting/extraction and QA rendering into separate scripts so QA can be rerun independently as an afterburner without recomputing profiles.
 - Profiling wrappers used in retry loops must disable cProfile in a `finally` block; otherwise failed attempts can leave an active profiler and break subsequent attempts.
 - For photutils runs on large external mock frames, use a header-driven `maxsma` default (for example derived from `RE_PX*`) plus progressive fallback retries to avoid NaN-coordinate failures at extreme radii.
+
+## 2026-02-14
+
+- Keep stop-code policy synchronized across driver gating, config/doc tables, and API assertions to avoid compatibility drift.
+- Features that depend on prior state (for example central regularization) require explicit state plumbing in driver loops, not only per-isophote support in core fitting.
+
+- For `mockgal.py` benchmark/test workflows, explicitly force `--engine libprofit`; do not depend on fallback backend auto-selection.
+- Interpret 2-D residual metrics as system-level checks (extraction + model reconstruction together), not extraction-only performance indicators.
+- For externally generated mock benchmarks, enforce backend selection at adapter validation time and reject conflicting pass-through overrides before process launch.
+- Keep separate efficiency lock files for quick smoke and full suites; lock from measured artifacts of the matching run shape to avoid false gate failures from case-set mismatch.
+- When `uv run` is unstable in the execution environment, use the project interpreter (`.venv/bin/python`) and record that fallback in evidence logs.

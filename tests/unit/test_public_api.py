@@ -122,7 +122,7 @@ def test_fit_isophote_public_api() -> None:
     assert required_keys.issubset(result.keys())
     assert result["sma"] == pytest.approx(10.0)
     assert np.isfinite(result["intens"])
-    assert result["stop_code"] in {0, 1, 2, 3, -1}
+    assert result["stop_code"] in {0, 1, 3, -1}
 
 
 def test_isophote_results_to_astropy_tables_order_and_shape() -> None:
