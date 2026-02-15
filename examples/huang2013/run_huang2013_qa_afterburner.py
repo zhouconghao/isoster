@@ -14,7 +14,6 @@ from __future__ import annotations
 import argparse
 import json
 from pathlib import Path
-
 import numpy as np
 from astropy.table import Table
 
@@ -83,6 +82,13 @@ def parse_arguments() -> argparse.Namespace:
     parser.add_argument("--photutils-run-json", type=Path, default=None, help="Explicit photutils run JSON")
     parser.add_argument("--isoster-run-json", type=Path, default=None, help="Explicit isoster run JSON")
 
+    parser.add_argument("--profiles-manifest", type=Path, default=None, help="Extraction manifest path. Default: <prefix>_profiles_manifest.json in output dir.")
+    parser.add_argument(
+        "--ignore-extraction-status",
+        action="store_true",
+        help="Ignore extraction manifest method statuses when deciding QA eligibility.",
+    )
+
     parser.add_argument("--redshift", type=float, default=None, help="Override redshift")
     parser.add_argument(
         "--pixel-scale",
@@ -96,6 +102,7 @@ def parse_arguments() -> argparse.Namespace:
     parser.add_argument("--isophote-overlay-step", type=int, default=10, help="Overlay every Nth isophote")
     parser.add_argument("--qa-dpi", type=int, default=180, help="DPI for QA figures")
     parser.add_argument("--skip-comparison", action="store_true", help="Skip cross-method comparison figure")
+    parser.add_argument("--verbose", action="store_true", help="Emit QA stage progress logs.")
 
     return parser.parse_args()
 
@@ -113,7 +120,11 @@ def load_runtime_from_run_json(run_json_path: Path | None) -> dict[str, float]:
     if run_json_path is None or not run_json_path.exists():
         return default_runtime
 
-    payload = json.loads(run_json_path.read_text())
+    try:
+        payload = json.loads(run_json_path.read_text())
+    except json.JSONDecodeError:
+        return default_runtime
+
     runtime = payload.get("runtime", {})
     return {
         "wall_time_seconds": float(runtime.get("wall_time_seconds", float("nan"))),
@@ -143,6 +154,30 @@ def resolve_method_paths(
             run_json = None
 
     return profile_fits, run_json
+
+
+def load_extraction_method_statuses(manifest_path: Path | None) -> dict[str, str]:
+    """Load extraction method status mapping from profiles manifest."""
+    if manifest_path is None or not manifest_path.exists():
+        return {}
+
+    try:
+        payload = json.loads(manifest_path.read_text())
+    except json.JSONDecodeError:
+        return {}
+
+    method_runs = payload.get("method_runs", {})
+    if not isinstance(method_runs, dict):
+        return {}
+
+    statuses: dict[str, str] = {}
+    for method_name, method_payload in method_runs.items():
+        if isinstance(method_payload, dict):
+            status_value = method_payload.get("status")
+            if isinstance(status_value, str):
+                statuses[method_name] = status_value
+
+    return statuses
 
 
 def main() -> None:
@@ -179,14 +214,33 @@ def main() -> None:
     photutils_tag = sanitize_label(arguments.photutils_tag) if arguments.photutils_tag is not None else shared_tag
     isoster_tag = sanitize_label(arguments.isoster_tag) if arguments.isoster_tag is not None else shared_tag
 
+    inferred_profiles_manifest = output_dir / f"{prefix}_profiles_manifest.json"
+    profiles_manifest_path = arguments.profiles_manifest if arguments.profiles_manifest is not None else inferred_profiles_manifest
+    extraction_status_by_method = load_extraction_method_statuses(profiles_manifest_path)
+
     methods_to_render = [arguments.method] if arguments.method in {"photutils", "isoster"} else ["photutils", "isoster"]
 
     method_tables: dict[str, Table] = {}
     method_models: dict[str, np.ndarray] = {}
     method_runtime: dict[str, dict[str, float]] = {}
-    method_outputs: dict[str, dict[str, str]] = {}
+    method_outputs: dict[str, dict[str, str | None]] = {}
+    method_skips: list[dict[str, str]] = []
+    method_failures: list[dict[str, str]] = []
 
     for method_name in methods_to_render:
+        extraction_status = extraction_status_by_method.get(method_name)
+        if not arguments.ignore_extraction_status and extraction_status is not None and extraction_status != "success":
+            method_skips.append(
+                {
+                    "method": method_name,
+                    "reason": f"extraction_status_{extraction_status}",
+                    "profiles_manifest": str(profiles_manifest_path),
+                }
+            )
+            if arguments.verbose:
+                print(f"[QA] SKIP method={method_name} reason=extraction_status_{extraction_status}")
+            continue
+
         method_tag = photutils_tag if method_name == "photutils" else isoster_tag
         explicit_profile = arguments.photutils_profile_fits if method_name == "photutils" else arguments.isoster_profile_fits
         explicit_run_json = arguments.photutils_run_json if method_name == "photutils" else arguments.isoster_run_json
@@ -201,36 +255,65 @@ def main() -> None:
         )
 
         if not profile_fits_path.exists():
-            raise FileNotFoundError(f"Missing {method_name} profile FITS: {profile_fits_path}")
+            method_skips.append(
+                {
+                    "method": method_name,
+                    "reason": "missing_profile_fits",
+                    "profile_fits": str(profile_fits_path),
+                }
+            )
+            if arguments.verbose:
+                print(f"[QA] SKIP method={method_name} reason=missing_profile_fits")
+            continue
 
-        profile_table = Table.read(profile_fits_path)
-        model_image = build_model_image(image.shape, profile_table)
-        runtime_info = load_runtime_from_run_json(run_json_path)
+        if arguments.verbose:
+            print(f"[QA] START method={method_name}")
 
-        qa_path = output_dir / f"{prefix}_{method_name}_{method_tag}_qa.png"
-        build_method_qa_figure(
-            image=image,
-            profile_table=profile_table,
-            model_image=model_image,
-            output_path=qa_path,
-            method_name=method_name,
-            galaxy_name=arguments.galaxy,
-            mock_id=arguments.mock_id,
-            pixel_scale_arcsec=pixel_scale_arcsec,
-            redshift=redshift,
-            runtime_metadata=runtime_info,
-            overlay_step=arguments.isophote_overlay_step,
-            dpi=arguments.qa_dpi,
-        )
+        try:
+            profile_table = Table.read(profile_fits_path)
+            model_image = build_model_image(image.shape, profile_table)
+            runtime_info = load_runtime_from_run_json(run_json_path)
+
+            qa_path = output_dir / f"{prefix}_{method_name}_{method_tag}_qa.png"
+            build_method_qa_figure(
+                image=image,
+                profile_table=profile_table,
+                model_image=model_image,
+                output_path=qa_path,
+                method_name=method_name,
+                galaxy_name=arguments.galaxy,
+                mock_id=arguments.mock_id,
+                pixel_scale_arcsec=pixel_scale_arcsec,
+                redshift=redshift,
+                runtime_metadata=runtime_info,
+                overlay_step=arguments.isophote_overlay_step,
+                dpi=arguments.qa_dpi,
+            )
+        except Exception as error:
+            method_failures.append(
+                {
+                    "method": method_name,
+                    "reason": "qa_generation_failed",
+                    "error": f"{type(error).__name__}: {error}",
+                    "profile_fits": str(profile_fits_path),
+                }
+            )
+            if arguments.verbose:
+                print(f"[QA] END method={method_name} status=failed error={type(error).__name__}: {error}")
+            continue
 
         method_tables[method_name] = profile_table
         method_models[method_name] = model_image
         method_runtime[method_name] = runtime_info
         method_outputs[method_name] = {
+            "status": "success",
             "profile_fits": str(profile_fits_path),
             "run_json": str(run_json_path) if run_json_path is not None else None,
             "qa_figure": str(qa_path),
         }
+
+        if arguments.verbose:
+            print(f"[QA] END method={method_name} status=success")
 
     comparison_summary = None
     comparison_qa_path = None
@@ -242,6 +325,9 @@ def main() -> None:
     ):
         comparison_suffix = f"{photutils_tag}_vs_{isoster_tag}" if photutils_tag != isoster_tag else shared_tag
         comparison_qa_path = output_dir / f"{prefix}_compare_{comparison_suffix}_qa.png"
+
+        if arguments.verbose:
+            print("[QA] START comparison")
 
         comparison_summary = build_comparison_qa_figure(
             image=image,
@@ -260,6 +346,9 @@ def main() -> None:
             dpi=arguments.qa_dpi,
         )
 
+        if arguments.verbose:
+            print("[QA] END comparison status=success")
+
     summary_photutils = summarize_table(method_tables["photutils"]) if "photutils" in method_tables else None
     summary_isoster = summarize_table(method_tables["isoster"]) if "isoster" in method_tables else None
 
@@ -277,6 +366,8 @@ def main() -> None:
         "zeropoint_mag": zeropoint_mag,
         "psf_fwhm_arcsec": psf_fwhm_arcsec,
         "software_versions": collect_software_versions(),
+        "profiles_manifest": str(profiles_manifest_path),
+        "extraction_status_by_method": extraction_status_by_method,
         "method_runs": {
             method_name: {
                 "runtime": method_runtime[method_name],
@@ -286,6 +377,8 @@ def main() -> None:
             }
             for method_name in method_outputs
         },
+        "method_skips": method_skips,
+        "method_failures": method_failures,
     }
 
     write_markdown_report(
@@ -311,6 +404,14 @@ def main() -> None:
         "comparison_qa": str(comparison_qa_path) if comparison_qa_path is not None else None,
         "comparison_summary": comparison_summary,
         "method_outputs": method_outputs,
+        "method_skips": method_skips,
+        "method_failures": method_failures,
+        "method_summary": {
+            "requested_methods": methods_to_render,
+            "successful_methods": sorted(method_outputs.keys()),
+            "skipped_methods": sorted([entry["method"] for entry in method_skips]),
+            "failed_methods": sorted([entry["method"] for entry in method_failures]),
+        },
         "run_metadata": run_metadata,
     }
     dump_json(manifest_path, manifest_payload)
@@ -318,6 +419,12 @@ def main() -> None:
     print(f"Input FITS: {input_fits}")
     print(f"Output directory: {output_dir}")
     print(f"QA manifest: {manifest_path}")
+    successful_methods = sorted(method_outputs.keys())
+    print(f"Successful QA methods: {successful_methods if successful_methods else 'none'}")
+    if method_skips:
+        print(f"Skipped methods: {[entry['method'] for entry in method_skips]}")
+    if method_failures:
+        print(f"Failed methods: {[entry['method'] for entry in method_failures]}")
     if comparison_qa_path is not None:
         print(f"Comparison QA: {comparison_qa_path}")
 

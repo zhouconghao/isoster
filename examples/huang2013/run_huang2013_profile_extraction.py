@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import time
 from pathlib import Path
 from typing import Any
 
@@ -123,6 +124,10 @@ def parse_arguments() -> argparse.Namespace:
         help="Subpixel factor for true CoG aperture photometry.",
     )
 
+    parser.add_argument("--verbose", action="store_true", help="Emit stage and method progress logs.")
+    parser.add_argument("--save-log", action="store_true", help="Write per-method logs to output directory.")
+    parser.add_argument("--update", action="store_true", help="Force rerun and overwrite existing method outputs.")
+
     return parser.parse_args()
 
 
@@ -155,6 +160,59 @@ def infer_default_maxsma(header, image_shape: tuple[int, int]) -> float:
     return float(min(image_limit, science_limit))
 
 
+def method_artifact_paths(output_dir: Path, prefix: str, method_name: str, config_tag: str) -> dict[str, Path]:
+    """Return per-method artifact paths."""
+    stem = f"{prefix}_{method_name}_{config_tag}"
+    return {
+        "profile_fits": output_dir / f"{stem}_profile.fits",
+        "profile_ecsv": output_dir / f"{stem}_profile.ecsv",
+        "runtime_profile": output_dir / f"{stem}_runtime-profile.txt",
+        "run_json": output_dir / f"{stem}_run.json",
+        "method_log": output_dir / f"{prefix}_{method_name}.log",
+    }
+
+
+def is_reusable_success(paths: dict[str, Path]) -> bool:
+    """Return true when existing outputs represent a reusable successful run."""
+    required_keys = ["profile_fits", "profile_ecsv", "runtime_profile", "run_json"]
+    if not all(paths[key].exists() for key in required_keys):
+        return False
+
+    try:
+        payload = json.loads(paths["run_json"].read_text())
+    except json.JSONDecodeError:
+        return False
+
+    payload_status = payload.get("status")
+    if payload_status is not None and payload_status != "success":
+        return False
+
+    return True
+
+
+def load_existing_manifest(manifest_path: Path) -> dict[str, Any]:
+    """Load existing manifest if present, otherwise empty dictionary."""
+    if not manifest_path.exists():
+        return {}
+
+    try:
+        payload = json.loads(manifest_path.read_text())
+    except json.JSONDecodeError:
+        return {}
+
+    if not isinstance(payload, dict):
+        return {}
+
+    return payload
+
+
+def write_method_log(log_path: Path, lines: list[str], enabled: bool) -> None:
+    """Write method log lines when logging is enabled."""
+    if not enabled:
+        return
+    log_path.write_text("\n".join(lines) + "\n")
+
+
 def run_single_method(
     method_name: str,
     image: np.ndarray,
@@ -170,11 +228,25 @@ def run_single_method(
     config_tag: str,
 ) -> dict[str, Any]:
     """Execute one method and persist profile extraction artifacts."""
-    stem = f"{prefix}_{method_name}_{config_tag}"
-    profile_fits_path = output_dir / f"{stem}_profile.fits"
-    profile_ecsv_path = output_dir / f"{stem}_profile.ecsv"
-    runtime_profile_path = output_dir / f"{stem}_runtime-profile.txt"
-    run_json_path = output_dir / f"{stem}_run.json"
+    paths = method_artifact_paths(output_dir, prefix, method_name, config_tag)
+    log_lines = [
+        f"method={method_name}",
+        f"prefix={prefix}",
+        f"start_time_unix={time.time():.6f}",
+    ]
+
+    if not arguments.update and is_reusable_success(paths):
+        log_lines.append("status=skipped_existing")
+        write_method_log(paths["method_log"], log_lines, arguments.save_log)
+        return {
+            "method": method_name,
+            "status": "success",
+            "skipped_existing": True,
+            "run_json": str(paths["run_json"]),
+            "profile_fits": str(paths["profile_fits"]),
+            "profile_ecsv": str(paths["profile_ecsv"]),
+            "runtime_profile": str(paths["runtime_profile"]),
+        }
 
     fit_retry_log: list[dict[str, Any]] = []
 
@@ -194,7 +266,7 @@ def run_single_method(
             "integrmode": arguments.photutils_integrmode,
         }
 
-        candidate_maxsma = []
+        candidate_maxsma: list[float] = []
         for scale_factor in [1.0, 0.85, 0.7, 0.55, 0.45, 0.35, 0.25, 0.18, 0.12, 0.08, 0.05]:
             candidate_value = float(max_sma * scale_factor)
             candidate_value = max(candidate_value, float(arguments.minsma) + 2.0)
@@ -210,6 +282,8 @@ def run_single_method(
         for attempt_index, candidate in enumerate(candidate_maxsma, start=1):
             photutils_config = dict(base_photutils_config)
             photutils_config["maxsma"] = candidate
+            if arguments.verbose:
+                print(f"[EXTRACT] START method=photutils attempt={attempt_index} maxsma={candidate:.3f}")
 
             try:
                 isophotes, runtime_info, runtime_profile_text = run_with_runtime_profile(
@@ -225,9 +299,11 @@ def run_single_method(
                         "status": "success",
                     }
                 )
+                if arguments.verbose:
+                    print(f"[EXTRACT] END method=photutils attempt={attempt_index} status=success")
                 break
             except Exception as error:
-                last_error_message = str(error)
+                last_error_message = f"{type(error).__name__}: {error}"
                 fit_retry_log.append(
                     {
                         "attempt": attempt_index,
@@ -236,12 +312,19 @@ def run_single_method(
                         "error": last_error_message,
                     }
                 )
+                if arguments.verbose:
+                    print(f"[EXTRACT] END method=photutils attempt={attempt_index} status=failed error={last_error_message}")
 
         if isophotes is None or runtime_info is None or fit_config is None:
+            log_lines.append("status=failed")
+            log_lines.append(f"error={last_error_message}")
+            log_lines.append(f"fit_retry_log={json.dumps(fit_retry_log, sort_keys=True)}")
+            write_method_log(paths["method_log"], log_lines, arguments.save_log)
             raise RuntimeError(
                 "photutils fitting failed after maxsma retry sequence: "
                 f"{last_error_message}"
             )
+
     else:
         isoster_config = {
             "x0": base_geometry["x0"],
@@ -275,6 +358,9 @@ def run_single_method(
                 overrides["pa"] = float(np.deg2rad(float(overrides.pop("pa_deg"))))
             isoster_config.update(overrides)
 
+        if arguments.verbose:
+            print("[EXTRACT] START method=isoster")
+
         fit_output, runtime_info, runtime_profile_text = run_with_runtime_profile(
             run_isoster_fit,
             image,
@@ -283,6 +369,9 @@ def run_single_method(
         isophotes = fit_output[0]
         fit_config = fit_output[1]
         fit_retry_log.append({"attempt": 1, "status": "success"})
+
+        if arguments.verbose:
+            print("[EXTRACT] END method=isoster status=success")
 
     profile_table = prepare_profile_table(
         isophotes=isophotes,
@@ -294,36 +383,45 @@ def run_single_method(
         method_name=method_name,
     )
 
-    profile_table.write(profile_fits_path, overwrite=True)
-    profile_table.write(profile_ecsv_path, format="ascii.ecsv", overwrite=True)
-    runtime_profile_path.write_text(runtime_profile_text)
+    profile_table.write(paths["profile_fits"], overwrite=True)
+    profile_table.write(paths["profile_ecsv"], format="ascii.ecsv", overwrite=True)
+    paths["runtime_profile"].write_text(runtime_profile_text)
 
     run_payload = {
         "prefix": prefix,
         "method": method_name,
         "config_tag": config_tag,
+        "status": "success",
         "runtime": runtime_info,
         "fit_config": fit_config,
         "table_summary": summarize_table(profile_table),
         "fit_retry_log": fit_retry_log,
         "outputs": {
-            "profile_fits": str(profile_fits_path),
-            "profile_ecsv": str(profile_ecsv_path),
-            "runtime_profile": str(runtime_profile_path),
+            "profile_fits": str(paths["profile_fits"]),
+            "profile_ecsv": str(paths["profile_ecsv"]),
+            "runtime_profile": str(paths["runtime_profile"]),
         },
     }
-    dump_json(run_json_path, run_payload)
+    dump_json(paths["run_json"], run_payload)
+
+    log_lines.append("status=success")
+    log_lines.append(f"runtime_wall_seconds={runtime_info['wall_time_seconds']:.6f}")
+    log_lines.append(f"runtime_cpu_seconds={runtime_info['cpu_time_seconds']:.6f}")
+    log_lines.append(f"fit_retry_log={json.dumps(fit_retry_log, sort_keys=True)}")
+    write_method_log(paths["method_log"], log_lines, arguments.save_log)
 
     return {
         "method": method_name,
+        "status": "success",
         "runtime": runtime_info,
-        "run_json": str(run_json_path),
-        "profile_fits": str(profile_fits_path),
-        "profile_ecsv": str(profile_ecsv_path),
-        "runtime_profile": str(runtime_profile_path),
+        "run_json": str(paths["run_json"]),
+        "profile_fits": str(paths["profile_fits"]),
+        "profile_ecsv": str(paths["profile_ecsv"]),
+        "runtime_profile": str(paths["runtime_profile"]),
         "fit_config": fit_config,
         "fit_retry_log": fit_retry_log,
         "table_summary": run_payload["table_summary"],
+        "skipped_existing": False,
     }
 
 
@@ -371,24 +469,62 @@ def main() -> None:
 
     methods_to_run = [arguments.method] if arguments.method in {"photutils", "isoster"} else ["photutils", "isoster"]
 
-    method_runs: dict[str, dict[str, Any]] = {}
-    for method_name in methods_to_run:
-        method_runs[method_name] = run_single_method(
-            method_name=method_name,
-            image=image,
-            base_geometry=base_geometry,
-            arguments=arguments,
-            redshift=redshift,
-            pixel_scale_arcsec=pixel_scale_arcsec,
-            zeropoint_mag=zeropoint_mag,
-            max_sma=max_sma,
-            maxgerr=float(maxgerr),
-            output_dir=output_dir,
-            prefix=prefix,
-            config_tag=config_tag,
-        )
-
     manifest_path = output_dir / f"{prefix}_profiles_manifest.json"
+    existing_manifest = load_existing_manifest(manifest_path)
+    existing_method_runs = existing_manifest.get("method_runs", {}) if isinstance(existing_manifest.get("method_runs", {}), dict) else {}
+
+    method_runs: dict[str, dict[str, Any]] = dict(existing_method_runs)
+    for method_name in methods_to_run:
+        if arguments.verbose:
+            print(f"[EXTRACT] START method={method_name} prefix={prefix}")
+
+        try:
+            run_result = run_single_method(
+                method_name=method_name,
+                image=image,
+                base_geometry=base_geometry,
+                arguments=arguments,
+                redshift=redshift,
+                pixel_scale_arcsec=pixel_scale_arcsec,
+                zeropoint_mag=zeropoint_mag,
+                max_sma=max_sma,
+                maxgerr=float(maxgerr),
+                output_dir=output_dir,
+                prefix=prefix,
+                config_tag=config_tag,
+            )
+            method_runs[method_name] = run_result
+            if arguments.verbose:
+                status_text = "skipped_existing" if run_result.get("skipped_existing") else "success"
+                print(f"[EXTRACT] END method={method_name} status={status_text}")
+        except Exception as error:
+            error_message = f"{type(error).__name__}: {error}"
+            method_runs[method_name] = {
+                "method": method_name,
+                "status": "failed",
+                "error": error_message,
+            }
+            if arguments.verbose:
+                print(f"[EXTRACT] END method={method_name} status=failed error={error_message}")
+
+            if arguments.save_log:
+                method_log = method_artifact_paths(output_dir, prefix, method_name, config_tag)["method_log"]
+                failure_lines = [
+                    f"method={method_name}",
+                    f"prefix={prefix}",
+                    f"start_time_unix={time.time():.6f}",
+                    "status=failed",
+                    f"error={error_message}",
+                ]
+                method_log.write_text("\n".join(failure_lines) + "\n")
+
+    successful_methods = sorted(
+        [name for name, payload in method_runs.items() if payload.get("status") == "success"]
+    )
+    failed_methods = sorted(
+        [name for name, payload in method_runs.items() if payload.get("status") == "failed"]
+    )
+
     manifest_payload = {
         "prefix": prefix,
         "input_fits": str(input_fits),
@@ -400,6 +536,11 @@ def main() -> None:
         "psf_fwhm_arcsec": psf_fwhm_arcsec,
         "cog_subpixels": int(arguments.cog_subpixels),
         "software_versions": collect_software_versions(),
+        "run_summary": {
+            "requested_methods": methods_to_run,
+            "successful_methods": successful_methods,
+            "failed_methods": failed_methods,
+        },
         "method_runs": method_runs,
     }
     dump_json(manifest_path, manifest_payload)
@@ -407,6 +548,9 @@ def main() -> None:
     print(f"Input FITS: {input_fits}")
     print(f"Output directory: {output_dir}")
     print(f"Profile manifest: {manifest_path}")
+    print(f"Successful methods: {successful_methods if successful_methods else 'none'}")
+    if failed_methods:
+        print(f"Failed methods: {failed_methods}")
 
 
 if __name__ == "__main__":

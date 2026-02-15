@@ -423,3 +423,64 @@ Action:
   - Result: `Gate pass: True` (using defaults-file policy, no jitter flags passed).
 - `uv run python benchmarks/baselines/run_benchmark_gate.py --n-runs 3 --efficiency-lock benchmarks/baselines/efficiency_thresholds_full_refresh_phase10_qa.json --profile-lock benchmarks/baselines/phase4_profile_thresholds_full_refresh_phase10_qa.json --require-all-locked-cases --output outputs/benchmarks_performance/benchmark_gate_full_refresh_phase10_qa_config_defaults_seq`
   - Result: `Gate pass: True` (sequential full run, defaults-file policy).
+
+## Phase 11 Plan (Huang2013 Campaign Fault Tolerance)
+
+| Item | Status | Notes |
+|---|---|---|
+| 1. Make extraction stage resilient to per-method failures | [x] | `run_huang2013_profile_extraction.py` now catches per-method errors, continues, and records `status` per method in `*_profiles_manifest.json`. |
+| 2. Make QA afterburner resilient to missing/invalid method artifacts | [x] | `run_huang2013_qa_afterburner.py` now skips missing profile FITS and records `method_skips` / `method_failures` in QA manifest. |
+| 3. Add all-galaxy campaign runner with aggregate summary | [x] | Added `examples/huang2013/run_huang2013_campaign.py` with end-of-run JSON/Markdown summary and per-method fail counts. |
+| 4. Document full-sample run command | [x] | Added full-campaign section and command in `examples/huang2013/README.md`. |
+| 5. Run lint/smoke verification for changed scripts | [x] | `uv run ruff check` on 3 scripts, `--help` on all 3 CLIs, and campaign smoke with missing-input root completed. |
+
+### Phase 11 Review Notes
+
+- Campaign-level summary outputs:
+  - `huang2013_campaign_summary.json`
+  - `huang2013_campaign_summary.md`
+- Summary includes:
+  - input-missing case count,
+  - extraction/QA invocation failures,
+  - method-level success/failure/unknown counters,
+  - per-case manifest/log paths.
+
+## Phase 12 Plan (Huang2013 Campaign Observability + Resume)
+
+| Item | Status | Notes |
+|---|---|---|
+| 1. QA should skip method QA/comparison when extraction status is failed | [x] | Afterburner now reads extraction manifest status and skips methods with non-success status. |
+| 2. Add campaign `--verbose` and per-method start/end/error telemetry | [x] | Campaign and extraction/QA scripts now emit explicit START/END/SKIP logs per stage/method. |
+| 3. Add campaign `--save-log` with method-specific log files | [x] | Campaign writes JSON logs to `<PREFIX>_photutils.log`, `<PREFIX>_isoster.log`, and `<PREFIX>_qa.log`. |
+| 4. Add campaign timeout option (`--max-runtime-seconds`, default 900) | [x] | Timeout now marks stage as `timeout`, records logs, and continues to next stage/case. |
+| 5. Add campaign resume (`--continue-from`) | [x] | Added `--continue-from` and `--continue-from-case` (inclusive resume). |
+| 6. Add update semantics (`--update`) for batch + single-image extraction | [x] | Campaign and extraction now skip reusable outputs by default and rerun only with `--update`. |
+| 7. Update docs and run smoke verification | [x] | README updated; ruff + py_compile + CLI help checks + timeout/resume/update smoke completed. |
+
+### Phase 12 Review Notes
+
+- Implemented QA extraction-status handshake:
+  - `run_huang2013_qa_afterburner.py` skips methods with extraction status not equal to `success` and therefore avoids invalid method/comparison QA generation.
+- Implemented campaign observability controls:
+  - `--verbose`, `--save-log`, `--max-runtime-seconds`, `--continue-from`, `--continue-from-case`, `--update`.
+- Implemented default skip + explicit update rerun:
+  - campaign skips reusable method/QA artifacts unless `--update`.
+  - single-image extraction skips reusable method artifacts unless `--update`.
+- Timeout robustness fix:
+  - normalized timeout stdout/stderr payloads to text before JSON log serialization.
+
+#### Phase 12 Verification Commands
+
+- `uv run ruff check examples/huang2013/run_huang2013_profile_extraction.py examples/huang2013/run_huang2013_qa_afterburner.py examples/huang2013/run_huang2013_campaign.py`
+- `uv run python -m py_compile examples/huang2013/run_huang2013_profile_extraction.py examples/huang2013/run_huang2013_qa_afterburner.py examples/huang2013/run_huang2013_campaign.py`
+- `uv run python examples/huang2013/run_huang2013_campaign.py --help`
+- `uv run python examples/huang2013/run_huang2013_profile_extraction.py --help`
+- `uv run python examples/huang2013/run_huang2013_qa_afterburner.py --help`
+- Dry-run resume test:
+  - `python examples/huang2013/run_huang2013_campaign.py --huang-root outputs/tmp_phase12 --galaxies GA GB --mock-ids 1 --continue-from GB --dry-run --summary-dir outputs/tmp_phase12/summary_dry`
+- Timeout smoke test:
+  - `python examples/huang2013/run_huang2013_campaign.py --huang-root outputs/tmp_phase12 --galaxies GA --mock-ids 1 --method both --max-runtime-seconds 1 --save-log --verbose --summary-dir outputs/tmp_phase12/summary_timeout`
+- Update semantics smoke test:
+  - first run: `python examples/huang2013/run_huang2013_campaign.py --huang-root outputs/tmp_phase12 --galaxies GB --mock-ids 1 --method isoster --summary-dir outputs/tmp_phase12/summary_update_first`
+  - second run (skip existing): `python examples/huang2013/run_huang2013_campaign.py --huang-root outputs/tmp_phase12 --galaxies GB --mock-ids 1 --method isoster --summary-dir outputs/tmp_phase12/summary_update_second`
+  - third run (`--update`): `python examples/huang2013/run_huang2013_campaign.py --huang-root outputs/tmp_phase12 --galaxies GB --mock-ids 1 --method isoster --update --summary-dir outputs/tmp_phase12/summary_update_third`

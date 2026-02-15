@@ -43,3 +43,7 @@
 - Do not run concurrent benchmark gate commands when collecting timing evidence; resource contention can inflate runtimes and produce invalid comparisons.
 - For this repository's current gate stability, a more tolerant default (`jitter_sigma=3.0`, `jitter_floor=0.002s`) is a practical baseline for avoiding false efficiency failures while preserving regression detection.
 - For recurring benchmark-gate knobs, keep a versioned project defaults JSON and let CLI options override it; this reduces command noise and keeps policy reproducible.
+- For large campaign runs across many inputs, run extraction and QA stages so that per-method/per-case failures are recorded in manifests instead of raising; batch orchestration should continue and emit aggregate failure statistics at the end.
+- For QA afterburner pipelines, use extraction-manifest method status as the source of truth; do not attempt method/comparison QA for methods marked failed, even if stale profile files exist.
+- When serializing timeout results from `subprocess.TimeoutExpired`, normalize `stdout`/`stderr` values to text first because they may be bytes and can break JSON log writing.
+- For long-running batch jobs, default to skip-existing behavior with explicit `--update` reruns to avoid wasting compute after partial completion.

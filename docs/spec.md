@@ -75,6 +75,19 @@ Each isophote row includes geometry/intensity fields and optional blocks dependi
 - Regular mode passes `previous_geometry` during outward/inward growth, so central regularization can apply when enabled.
 - Inward growth starts only when the first fitted isophote has an acceptable stop code (`0` or `1`).
 
+## Huang2013 Campaign Workflow
+
+The external Huang2013 mock-comparison workflow under `examples/huang2013/` is a two-stage pipeline:
+
+1. Profile extraction (`run_huang2013_profile_extraction.py`) with per-method status captured in `*_profiles_manifest.json` (success/failed without aborting the case).
+2. QA afterburner (`run_huang2013_qa_afterburner.py`) that tolerates missing method products and emits `*_qa_manifest.json` with skip/failure metadata.
+
+For full-sample execution, `run_huang2013_campaign.py` iterates galaxies/mock IDs, continues across case failures, and writes campaign-level summary JSON/Markdown with aggregate method failure counts.
+
+Campaign controls include verbose stage telemetry (`--verbose`), per-stage logs (`--save-log`), per-stage timeout guard (`--max-runtime-seconds`, default 900), resume pointers (`--continue-from`, `--continue-from-case`), and skip-existing/rerun control (`--update`).
+
+QA afterburner uses extraction-manifest method status as a guard and skips method QA/comparison for methods with non-success extraction status.
+
 ## Verification and Artifacts
 
 - Tests: `tests/`
