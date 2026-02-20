@@ -484,3 +484,9 @@ Action:
   - first run: `python examples/huang2013/run_huang2013_campaign.py --huang-root outputs/tmp_phase12 --galaxies GB --mock-ids 1 --method isoster --summary-dir outputs/tmp_phase12/summary_update_first`
   - second run (skip existing): `python examples/huang2013/run_huang2013_campaign.py --huang-root outputs/tmp_phase12 --galaxies GB --mock-ids 1 --method isoster --summary-dir outputs/tmp_phase12/summary_update_second`
   - third run (`--update`): `python examples/huang2013/run_huang2013_campaign.py --huang-root outputs/tmp_phase12 --galaxies GB --mock-ids 1 --method isoster --update --summary-dir outputs/tmp_phase12/summary_update_third`
+
+## Clean Context Handoff (Phase 12)
+
+- Snapshot handoff file:
+  - `docs/journal/2026-02-15-phase12-clean-context-handoff.md`
+- Includes branch/commit state, completed scope, verification evidence, and exact resume commands.
