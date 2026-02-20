@@ -34,6 +34,71 @@ def _build_method_paths(base_dir: Path) -> dict[str, Path]:
     }
 
 
+def _build_arguments(**overrides) -> SimpleNamespace:
+    """Build extraction arguments namespace with sensible defaults for tests."""
+    arguments = {
+        "update": False,
+        "sma0": None,
+        "minsma": 1.0,
+        "astep": 0.1,
+        "photutils_nclip": 2,
+        "photutils_sclip": 3.0,
+        "photutils_integrmode": "bilinear",
+        "verbose": False,
+        "save_log": False,
+        "use_eccentric_anomaly": False,
+        "isoster_config_json": None,
+        "cog_subpixels": 9,
+    }
+    arguments.update(overrides)
+    return SimpleNamespace(**arguments)
+
+
+def _build_valid_isophotes() -> list[dict[str, float]]:
+    """Build minimal valid isophote rows for profile-table success paths."""
+    return [
+        {
+            "sma": 3.0,
+            "intens": 2.0,
+            "intens_err": 0.2,
+            "eps": 0.2,
+            "pa": float(np.deg2rad(30.0)),
+            "x0": 10.0,
+            "y0": 10.0,
+            "x0_err": 0.1,
+            "y0_err": 0.1,
+            "stop_code": 0,
+            "tflux_e": 10.0,
+        },
+        {
+            "sma": 4.0,
+            "intens": 1.8,
+            "intens_err": 0.2,
+            "eps": 0.2,
+            "pa": float(np.deg2rad(30.0)),
+            "x0": 10.0,
+            "y0": 10.0,
+            "x0_err": 0.1,
+            "y0_err": 0.1,
+            "stop_code": 0,
+            "tflux_e": 12.0,
+        },
+        {
+            "sma": 5.0,
+            "intens": 1.5,
+            "intens_err": 0.2,
+            "eps": 0.2,
+            "pa": float(np.deg2rad(30.0)),
+            "x0": 10.0,
+            "y0": 10.0,
+            "x0_err": 0.1,
+            "y0_err": 0.1,
+            "stop_code": 0,
+            "tflux_e": 14.0,
+        },
+    ]
+
+
 def test_reusable_success_requires_minimum_isophote_count(tmp_path: Path) -> None:
     """Reusable-success checks must reject low isophote-count summaries."""
     paths = _build_method_paths(tmp_path)
@@ -213,6 +278,153 @@ def test_negative_error_value_fails_extraction_with_warning(tmp_path: Path, monk
     assert isinstance(payload["warnings"], list)
     assert payload["warnings"]
     assert "negative error values" in payload["warnings"][0]
+
+
+def test_retry_policy_applies_sma0_and_astep_increments_for_photutils(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Photutils retries should increment sma0 and astep with fixed step sizes."""
+    output_dir = tmp_path / "output"
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    attempted_configs: list[dict[str, float]] = []
+    attempt_state = {"count": 0}
+
+    def fake_runtime_wrapper(function_to_run, image, fit_config):  # noqa: ANN001
+        attempted_configs.append(dict(fit_config))
+        attempt_state["count"] += 1
+        if attempt_state["count"] < 3:
+            raise RuntimeError(f"simulated photutils failure {attempt_state['count']}")
+        return _build_valid_isophotes(), {"wall_time_seconds": 0.01, "cpu_time_seconds": 0.01}, "runtime-profile\n"
+
+    monkeypatch.setattr(profile_extraction, "run_with_runtime_profile", fake_runtime_wrapper)
+
+    result = profile_extraction.run_single_method(
+        method_name="photutils",
+        image=np.ones((20, 20), dtype=float),
+        base_geometry={"x0": 10.0, "y0": 10.0, "eps": 0.2, "pa_deg": 30.0, "sma0": 3.0},
+        arguments=_build_arguments(),
+        redshift=0.2,
+        pixel_scale_arcsec=0.168,
+        zeropoint_mag=27.0,
+        max_sma=15.0,
+        maxgerr=0.5,
+        output_dir=output_dir,
+        prefix="ESO185-G054_mock3",
+        config_tag="baseline",
+    )
+
+    assert result["status"] == "success"
+    assert result["attempt_count"] == 3
+    assert len(attempted_configs) == 3
+    assert [config["sma0"] for config in attempted_configs] == pytest.approx([3.0, 5.0, 7.0])
+    assert [config["astep"] for config in attempted_configs] == pytest.approx([0.10, 0.12, 0.14])
+    assert [config["maxsma"] for config in attempted_configs] == pytest.approx([15.0, 15.0, 15.0])
+
+    run_json_path = output_dir / "ESO185-G054_mock3_photutils_baseline_run.json"
+    payload = json.loads(run_json_path.read_text())
+    assert payload["status"] == "success"
+    assert payload["attempt_count"] == 3
+    assert len(payload["fit_retry_log"]) == 3
+    assert [entry["status"] for entry in payload["fit_retry_log"]] == ["failed", "failed", "success"]
+
+
+def test_retry_policy_applies_sma0_and_astep_increments_for_isoster(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Isoster retries should follow the same fixed config increments as photutils."""
+    output_dir = tmp_path / "output"
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    attempted_configs: list[dict[str, float]] = []
+    attempt_state = {"count": 0}
+
+    def fake_runtime_wrapper(function_to_run, image, fit_config):  # noqa: ANN001
+        attempted_configs.append(dict(fit_config))
+        attempt_state["count"] += 1
+        if attempt_state["count"] < 3:
+            raise RuntimeError(f"simulated isoster failure {attempt_state['count']}")
+        validated_config = dict(fit_config)
+        return (
+            _build_valid_isophotes(),
+            validated_config,
+        ), {"wall_time_seconds": 0.01, "cpu_time_seconds": 0.01}, "runtime-profile\n"
+
+    monkeypatch.setattr(profile_extraction, "run_with_runtime_profile", fake_runtime_wrapper)
+
+    result = profile_extraction.run_single_method(
+        method_name="isoster",
+        image=np.ones((20, 20), dtype=float),
+        base_geometry={"x0": 10.0, "y0": 10.0, "eps": 0.2, "pa_deg": 30.0, "sma0": 6.0},
+        arguments=_build_arguments(),
+        redshift=0.2,
+        pixel_scale_arcsec=0.168,
+        zeropoint_mag=27.0,
+        max_sma=15.0,
+        maxgerr=0.5,
+        output_dir=output_dir,
+        prefix="ESO185-G054_mock3",
+        config_tag="baseline",
+    )
+
+    assert result["status"] == "success"
+    assert result["attempt_count"] == 3
+    assert len(attempted_configs) == 3
+    assert [config["sma0"] for config in attempted_configs] == pytest.approx([6.0, 8.0, 10.0])
+    assert [config["astep"] for config in attempted_configs] == pytest.approx([0.10, 0.12, 0.14])
+    assert [config["maxsma"] for config in attempted_configs] == pytest.approx([15.0, 15.0, 15.0])
+
+    run_json_path = output_dir / "ESO185-G054_mock3_isoster_baseline_run.json"
+    payload = json.loads(run_json_path.read_text())
+    assert payload["status"] == "success"
+    assert payload["attempt_count"] == 3
+    assert len(payload["fit_retry_log"]) == 3
+    assert [entry["status"] for entry in payload["fit_retry_log"]] == ["failed", "failed", "success"]
+
+
+def test_retry_policy_exhaustion_records_all_attempts(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Retry metadata should capture all attempts when extraction never recovers."""
+    output_dir = tmp_path / "output"
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    attempted_configs: list[dict[str, float]] = []
+
+    def fake_runtime_wrapper(function_to_run, image, fit_config):  # noqa: ANN001
+        attempted_configs.append(dict(fit_config))
+        return [], {"wall_time_seconds": 0.01, "cpu_time_seconds": 0.01}, "runtime-profile\n"
+
+    monkeypatch.setattr(profile_extraction, "run_with_runtime_profile", fake_runtime_wrapper)
+
+    with pytest.raises(RuntimeError, match="failed after 5 attempts"):
+        profile_extraction.run_single_method(
+            method_name="photutils",
+            image=np.ones((20, 20), dtype=float),
+            base_geometry={"x0": 10.0, "y0": 10.0, "eps": 0.2, "pa_deg": 30.0, "sma0": 3.0},
+            arguments=_build_arguments(),
+            redshift=0.2,
+            pixel_scale_arcsec=0.168,
+            zeropoint_mag=27.0,
+            max_sma=15.0,
+            maxgerr=0.5,
+            output_dir=output_dir,
+            prefix="ESO185-G054_mock3",
+            config_tag="baseline",
+        )
+
+    assert len(attempted_configs) == profile_extraction.MAX_FIT_ATTEMPTS
+    assert [config["sma0"] for config in attempted_configs] == pytest.approx([3.0, 5.0, 7.0, 9.0, 11.0])
+    assert [config["astep"] for config in attempted_configs] == pytest.approx([0.10, 0.12, 0.14, 0.16, 0.18])
+    assert [config["maxsma"] for config in attempted_configs] == pytest.approx([15.0, 15.0, 15.0, 15.0, 15.0])
+
+    run_json_path = output_dir / "ESO185-G054_mock3_photutils_baseline_run.json"
+    payload = json.loads(run_json_path.read_text())
+    assert payload["status"] == "failed"
+    assert payload["attempt_count"] == profile_extraction.MAX_FIT_ATTEMPTS
+    assert len(payload["fit_retry_log"]) == profile_extraction.MAX_FIT_ATTEMPTS
+    assert all(entry["status"] == "failed" for entry in payload["fit_retry_log"])
+    assert all(entry["failure_reason"] == "insufficient_profile_table" for entry in payload["fit_retry_log"])
 
 
 def test_prepare_profile_table_masks_sb_for_nonpositive_intensity() -> None:

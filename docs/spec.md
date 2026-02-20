@@ -82,6 +82,14 @@ The external Huang2013 mock-comparison workflow under `examples/huang2013/` is a
 1. Profile extraction (`run_huang2013_profile_extraction.py`) with per-method status captured in `*_profiles_manifest.json` (success/failed without aborting the case).
 2. QA afterburner (`run_huang2013_qa_afterburner.py`) that tolerates missing method products and emits `*_qa_manifest.json` with skip/failure metadata.
 
+Extraction retries are method-local and shared across photutils/isoster with fixed policy:
+
+- Maximum attempts: 5
+- `sma0` increment: +2.0 pixels per retry attempt
+- `astep` increment: +0.02 per retry attempt
+- `maxsma`: fixed across attempts (no fallback shrink)
+- Retry metadata (`fit_retry_log`, `attempt_count`, `max_attempts`) is persisted in per-method run JSON.
+
 For full-sample execution, `run_huang2013_campaign.py` iterates galaxies/mock IDs, continues across case failures, and writes campaign-level summary JSON/Markdown with aggregate method failure counts.
 
 Campaign controls include verbose stage telemetry (`--verbose`), per-stage logs (`--save-log`), per-stage timeout guard (`--max-runtime-seconds`, default 900), resume pointers (`--continue-from`, `--continue-from-case`), and skip-existing/rerun control (`--update`).

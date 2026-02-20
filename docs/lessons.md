@@ -52,3 +52,4 @@
 
 - For Huang2013 mock headers, apply a fixed `PA - 90 deg` initialization correction in the Huang2013 helper layer to align with image-space PA used by fitting libraries.
 - For initialization from model headers, `RE_PX1` can be too small at high redshift/noisy mocks; keep a conservative fallback default (`6 px`) and a minimum clamp (`>= 3 px`) to avoid degenerate startup ellipses.
+- For Huang2013 extraction retries, keep retry policy explicit and symmetric across methods: fixed attempt cap, deterministic `sma0`/`astep` increments, unchanged `maxsma`, and persisted per-attempt metadata for post-run diagnosis.

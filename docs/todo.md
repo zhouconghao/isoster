@@ -490,3 +490,30 @@ Action:
 - Snapshot handoff file:
   - `docs/journal/2026-02-15-phase12-clean-context-handoff.md`
 - Includes branch/commit state, completed scope, verification evidence, and exact resume commands.
+
+## Phase 13 Plan (Huang2013 Retry Policy Alignment)
+
+| Item | Status | Notes |
+|---|---|---|
+| 1. Apply unified 5-attempt retry ladder to both photutils and isoster extraction | [x] | Implemented in `run_huang2013_profile_extraction.py`: `sma0 += 2.0` and `astep += 0.02` per attempt; `maxsma` unchanged. |
+| 2. Persist retry metadata and attempts-used in run payloads | [x] | Success/failure run JSON now includes `attempt_count`, `max_attempts`, and expanded `fit_retry_log` attempt metadata. |
+| 3. Add unit tests with mocked failed attempts for both methods | [x] | Added retry progression and max-attempt exhaustion tests in `tests/unit/test_huang2013_campaign_fault_tolerance.py`. |
+| 4. Run targeted Huang2013 fault-tolerance tests | [x] | `uv run pytest tests/unit/test_huang2013_campaign_fault_tolerance.py -q` -> `11 passed in 1.34s`. |
+| 5. Run requested ESO185-G054 campaign verification command | [x] | Completed with summary at `outputs/huang2013_campaign_eso185_g054/huang2013_campaign_summary.json`. |
+
+### Phase 13 Review Notes
+
+- Extraction retry behavior is now consistent for both methods and retries on:
+  - fit exceptions,
+  - negative-error validation failures,
+  - insufficient profile table (`isophote_count < 3`).
+- `fit_retry_log` entries now include per-attempt config values (`sma0`, `astep`, `maxsma`) and failure reasons.
+- Campaign verification outcome for ESO185-G054:
+  - photutils: `success=3`, `failed=1` (mock1 exhausted all 5 attempts with `ValueError: cannot convert float NaN to integer`)
+  - isoster: `success=4`, `failed=0`
+
+#### Phase 13 Verification Commands
+
+- `uv run ruff check examples/huang2013/run_huang2013_profile_extraction.py tests/unit/test_huang2013_campaign_fault_tolerance.py`
+- `uv run pytest tests/unit/test_huang2013_campaign_fault_tolerance.py -q`
+- `uv run python examples/huang2013/run_huang2013_campaign.py --huang-root /Users/mac/work/hsc/huang2013 --galaxies ESO185-G054 --mock-ids 1 2 3 4 --method both --config-tag baseline --update --verbose --save-log --max-runtime-seconds 900 --summary-dir outputs/huang2013_campaign_eso185_g054`

@@ -42,6 +42,9 @@ from run_huang2013_real_mock_demo import (
 )
 
 MIN_SUCCESS_ISOPHOTE_COUNT = 3
+MAX_FIT_ATTEMPTS = 5
+SMA0_RETRY_INCREMENT_PIX = 2.0
+ASTEP_RETRY_INCREMENT = 0.02
 
 
 def parse_arguments() -> argparse.Namespace:
@@ -224,6 +227,19 @@ def write_method_log(log_path: Path, lines: list[str], enabled: bool) -> None:
     log_path.write_text("\n".join(lines) + "\n")
 
 
+def build_retry_attempt_config(base_fit_config: dict[str, Any], attempt_index: int) -> dict[str, Any]:
+    """Build per-attempt fit config using fixed Huang2013 retry increments."""
+    if attempt_index < 1:
+        raise ValueError(f"attempt_index must be >= 1, got {attempt_index}")
+
+    attempt_config = dict(base_fit_config)
+    retry_offset = attempt_index - 1
+    attempt_config["sma0"] = float(base_fit_config["sma0"] + SMA0_RETRY_INCREMENT_PIX * retry_offset)
+    attempt_config["astep"] = float(base_fit_config["astep"] + ASTEP_RETRY_INCREMENT * retry_offset)
+    attempt_config["maxsma"] = float(base_fit_config["maxsma"])
+    return attempt_config
+
+
 def write_failed_run_payload(
     run_json_path: Path,
     prefix: str,
@@ -248,6 +264,8 @@ def write_failed_run_payload(
         "fit_config": fit_config,
         "table_summary": table_summary,
         "fit_retry_log": fit_retry_log,
+        "attempt_count": len(fit_retry_log),
+        "max_attempts": MAX_FIT_ATTEMPTS,
         "error": error_message,
         "warnings": warning_messages if warning_messages else [],
         "outputs": {
@@ -310,9 +328,8 @@ def run_single_method(
         }
 
     fit_retry_log: list[dict[str, Any]] = []
-
     if method_name == "photutils":
-        base_photutils_config = {
+        base_fit_config = {
             "x0": base_geometry["x0"],
             "y0": base_geometry["y0"],
             "eps": base_geometry["eps"],
@@ -326,81 +343,8 @@ def run_single_method(
             "sclip": float(arguments.photutils_sclip),
             "integrmode": arguments.photutils_integrmode,
         }
-
-        candidate_maxsma: list[float] = []
-        for scale_factor in [1.0, 0.85, 0.7, 0.55, 0.45, 0.35, 0.25, 0.18, 0.12, 0.08, 0.05]:
-            candidate_value = float(max_sma * scale_factor)
-            candidate_value = max(candidate_value, float(arguments.minsma) + 2.0)
-            if not candidate_maxsma or abs(candidate_value - candidate_maxsma[-1]) > 1e-6:
-                candidate_maxsma.append(candidate_value)
-
-        last_error_message = None
-        isophotes = None
-        runtime_info = None
-        runtime_profile_text = ""
-        fit_config = None
-
-        for attempt_index, candidate in enumerate(candidate_maxsma, start=1):
-            photutils_config = dict(base_photutils_config)
-            photutils_config["maxsma"] = candidate
-            if arguments.verbose:
-                print(f"[EXTRACT] START method=photutils attempt={attempt_index} maxsma={candidate:.3f}")
-
-            try:
-                isophotes, runtime_info, runtime_profile_text = run_with_runtime_profile(
-                    run_photutils_fit,
-                    image,
-                    photutils_config,
-                )
-                fit_config = photutils_config
-                fit_retry_log.append(
-                    {
-                        "attempt": attempt_index,
-                        "maxsma": candidate,
-                        "status": "success",
-                    }
-                )
-                if arguments.verbose:
-                    print(f"[EXTRACT] END method=photutils attempt={attempt_index} status=success")
-                break
-            except Exception as error:
-                last_error_message = f"{type(error).__name__}: {error}"
-                fit_retry_log.append(
-                    {
-                        "attempt": attempt_index,
-                        "maxsma": candidate,
-                        "status": "failed",
-                        "error": last_error_message,
-                    }
-                )
-                if arguments.verbose:
-                    print(f"[EXTRACT] END method=photutils attempt={attempt_index} status=failed error={last_error_message}")
-
-        if isophotes is None or runtime_info is None or fit_config is None:
-            failure_message = (
-                "photutils fitting failed after maxsma retry sequence: "
-                f"{last_error_message}"
-            )
-            write_failed_run_payload(
-                run_json_path=paths["run_json"],
-                prefix=prefix,
-                method_name=method_name,
-                config_tag=config_tag,
-                fit_config=fit_config,
-                fit_retry_log=fit_retry_log,
-                runtime_info=runtime_info,
-                table_summary=None,
-                outputs=paths,
-                error_message=failure_message,
-            )
-            log_lines.append("status=failed")
-            log_lines.append(f"error={failure_message}")
-            log_lines.append(f"fit_retry_log={json.dumps(fit_retry_log, sort_keys=True)}")
-            write_method_log(paths["method_log"], log_lines, arguments.save_log)
-            raise RuntimeError(failure_message)
-
     else:
-        isoster_config = {
+        base_fit_config = {
             "x0": base_geometry["x0"],
             "y0": base_geometry["y0"],
             "eps": base_geometry["eps"],
@@ -425,104 +369,209 @@ def run_single_method(
             "permissive_geometry": False,
             "use_central_regularization": False,
         }
-
         if arguments.isoster_config_json is not None:
             overrides = json.loads(arguments.isoster_config_json.read_text())
             if "pa_deg" in overrides and "pa" not in overrides:
                 overrides["pa"] = float(np.deg2rad(float(overrides.pop("pa_deg"))))
-            isoster_config.update(overrides)
+            base_fit_config.update(overrides)
 
+    successful_profile_table: Any | None = None
+    successful_runtime_info: dict[str, Any] | None = None
+    successful_runtime_profile_text = ""
+    successful_fit_config: dict[str, Any] | None = None
+    successful_table_summary: dict[str, Any] | None = None
+
+    last_runtime_info: dict[str, Any] | None = None
+    last_table_summary: dict[str, Any] | None = None
+    last_fit_config: dict[str, Any] | None = None
+    last_warning_messages: list[str] = []
+    last_validation_payload: dict[str, Any] | None = None
+    last_error_message = "fit did not start"
+
+    for attempt_index in range(1, MAX_FIT_ATTEMPTS + 1):
+        attempt_config = build_retry_attempt_config(base_fit_config, attempt_index)
         if arguments.verbose:
-            print("[EXTRACT] START method=isoster")
+            print(
+                f"[EXTRACT] START method={method_name} attempt={attempt_index} "
+                f"sma0={attempt_config['sma0']:.3f} astep={attempt_config['astep']:.3f} "
+                f"maxsma={attempt_config['maxsma']:.3f}"
+            )
 
-        fit_output, runtime_info, runtime_profile_text = run_with_runtime_profile(
-            run_isoster_fit,
-            image,
-            isoster_config,
-        )
-        isophotes = fit_output[0]
-        fit_config = fit_output[1]
-        fit_retry_log.append({"attempt": 1, "status": "success"})
+        try:
+            if method_name == "photutils":
+                isophotes, runtime_info, runtime_profile_text = run_with_runtime_profile(
+                    run_photutils_fit,
+                    image,
+                    attempt_config,
+                )
+                fit_config = attempt_config
+            else:
+                fit_output, runtime_info, runtime_profile_text = run_with_runtime_profile(
+                    run_isoster_fit,
+                    image,
+                    attempt_config,
+                )
+                isophotes = fit_output[0]
+                fit_config = fit_output[1]
+        except Exception as error:
+            last_error_message = f"{type(error).__name__}: {error}"
+            fit_retry_log.append(
+                {
+                    "attempt": attempt_index,
+                    "status": "failed",
+                    "failure_reason": "fit_exception",
+                    "sma0": attempt_config["sma0"],
+                    "astep": attempt_config["astep"],
+                    "maxsma": attempt_config["maxsma"],
+                    "error": last_error_message,
+                }
+            )
+            if arguments.verbose:
+                print(
+                    f"[EXTRACT] END method={method_name} attempt={attempt_index} "
+                    f"status=failed error={last_error_message}"
+                )
+            continue
 
-        if arguments.verbose:
-            print("[EXTRACT] END method=isoster status=success")
-
-    profile_table = prepare_profile_table(
-        isophotes=isophotes,
-        image=image,
-        redshift=redshift,
-        pixel_scale_arcsec=pixel_scale_arcsec,
-        zeropoint_mag=zeropoint_mag,
-        cog_subpixels=int(arguments.cog_subpixels),
-        method_name=method_name,
-    )
-
-    table_summary = summarize_table(profile_table)
-    negative_error_entries = summarize_negative_error_values(profile_table)
-    if negative_error_entries:
-        negative_error_summary = format_negative_error_summary(negative_error_entries)
-        warning_message = (
-            f"{method_name} extraction found negative error values: {negative_error_summary}"
-        )
-        failure_message = f"{method_name} extraction failed error-column validation: {negative_error_summary}"
-        write_failed_run_payload(
-            run_json_path=paths["run_json"],
-            prefix=prefix,
+        profile_table = prepare_profile_table(
+            isophotes=isophotes,
+            image=image,
+            redshift=redshift,
+            pixel_scale_arcsec=pixel_scale_arcsec,
+            zeropoint_mag=zeropoint_mag,
+            cog_subpixels=int(arguments.cog_subpixels),
             method_name=method_name,
-            config_tag=config_tag,
-            fit_config=fit_config,
-            fit_retry_log=fit_retry_log,
-            runtime_info=runtime_info,
-            table_summary=table_summary,
-            outputs=paths,
-            error_message=failure_message,
-            warning_messages=[warning_message],
-            validation={"negative_error_entries": negative_error_entries},
         )
-        log_lines.append(f"warning={warning_message}")
-        log_lines.append("status=failed")
-        log_lines.append(f"error={failure_message}")
-        log_lines.append(f"fit_retry_log={json.dumps(fit_retry_log, sort_keys=True)}")
-        write_method_log(paths["method_log"], log_lines, arguments.save_log)
-        raise RuntimeError(failure_message)
+        table_summary = summarize_table(profile_table)
+        isophote_count = int(table_summary.get("isophote_count", 0))
 
-    isophote_count = int(table_summary.get("isophote_count", 0))
-    if isophote_count < MIN_SUCCESS_ISOPHOTE_COUNT:
+        negative_error_entries = summarize_negative_error_values(profile_table)
+        if negative_error_entries:
+            negative_error_summary = format_negative_error_summary(negative_error_entries)
+            warning_message = f"{method_name} extraction found negative error values: {negative_error_summary}"
+            last_error_message = f"{method_name} extraction failed error-column validation: {negative_error_summary}"
+            last_runtime_info = runtime_info
+            last_table_summary = table_summary
+            last_fit_config = fit_config
+            last_warning_messages = [warning_message]
+            last_validation_payload = {"negative_error_entries": negative_error_entries}
+
+            fit_retry_log.append(
+                {
+                    "attempt": attempt_index,
+                    "status": "failed",
+                    "failure_reason": "negative_error_validation",
+                    "sma0": attempt_config["sma0"],
+                    "astep": attempt_config["astep"],
+                    "maxsma": attempt_config["maxsma"],
+                    "isophote_count": isophote_count,
+                    "error": last_error_message,
+                    "warning": warning_message,
+                }
+            )
+            if arguments.verbose:
+                print(
+                    f"[EXTRACT] END method={method_name} attempt={attempt_index} "
+                    f"status=failed error={last_error_message}"
+                )
+            continue
+
+        if isophote_count < MIN_SUCCESS_ISOPHOTE_COUNT:
+            last_error_message = (
+                f"{method_name} extraction produced insufficient profile table "
+                f"(isophote_count={isophote_count}, min_required={MIN_SUCCESS_ISOPHOTE_COUNT})"
+            )
+            last_runtime_info = runtime_info
+            last_table_summary = table_summary
+            last_fit_config = fit_config
+            last_warning_messages = []
+            last_validation_payload = None
+
+            fit_retry_log.append(
+                {
+                    "attempt": attempt_index,
+                    "status": "failed",
+                    "failure_reason": "insufficient_profile_table",
+                    "sma0": attempt_config["sma0"],
+                    "astep": attempt_config["astep"],
+                    "maxsma": attempt_config["maxsma"],
+                    "isophote_count": isophote_count,
+                    "error": last_error_message,
+                }
+            )
+            if arguments.verbose:
+                print(
+                    f"[EXTRACT] END method={method_name} attempt={attempt_index} "
+                    f"status=failed error={last_error_message}"
+                )
+            continue
+
+        successful_profile_table = profile_table
+        successful_runtime_info = runtime_info
+        successful_runtime_profile_text = runtime_profile_text
+        successful_fit_config = fit_config
+        successful_table_summary = table_summary
+        fit_retry_log.append(
+            {
+                "attempt": attempt_index,
+                "status": "success",
+                "sma0": attempt_config["sma0"],
+                "astep": attempt_config["astep"],
+                "maxsma": attempt_config["maxsma"],
+                "isophote_count": isophote_count,
+            }
+        )
+        if arguments.verbose:
+            print(f"[EXTRACT] END method={method_name} attempt={attempt_index} status=success")
+        break
+
+    if (
+        successful_profile_table is None
+        or successful_runtime_info is None
+        or successful_fit_config is None
+        or successful_table_summary is None
+    ):
         failure_message = (
-            f"{method_name} extraction produced insufficient profile table "
-            f"(isophote_count={isophote_count}, min_required={MIN_SUCCESS_ISOPHOTE_COUNT})"
+            f"{method_name} extraction failed after {MAX_FIT_ATTEMPTS} attempts: "
+            f"{last_error_message}"
         )
         write_failed_run_payload(
             run_json_path=paths["run_json"],
             prefix=prefix,
             method_name=method_name,
             config_tag=config_tag,
-            fit_config=fit_config,
+            fit_config=last_fit_config,
             fit_retry_log=fit_retry_log,
-            runtime_info=runtime_info,
-            table_summary=table_summary,
+            runtime_info=last_runtime_info,
+            table_summary=last_table_summary,
             outputs=paths,
             error_message=failure_message,
+            warning_messages=last_warning_messages,
+            validation=last_validation_payload,
         )
+        log_lines.extend([f"warning={warning}" for warning in last_warning_messages])
         log_lines.append("status=failed")
         log_lines.append(f"error={failure_message}")
+        log_lines.append(f"attempt_count={len(fit_retry_log)}")
         log_lines.append(f"fit_retry_log={json.dumps(fit_retry_log, sort_keys=True)}")
         write_method_log(paths["method_log"], log_lines, arguments.save_log)
         raise RuntimeError(failure_message)
 
-    profile_table.write(paths["profile_fits"], overwrite=True)
-    profile_table.write(paths["profile_ecsv"], format="ascii.ecsv", overwrite=True)
-    paths["runtime_profile"].write_text(runtime_profile_text)
+    successful_profile_table.write(paths["profile_fits"], overwrite=True)
+    successful_profile_table.write(paths["profile_ecsv"], format="ascii.ecsv", overwrite=True)
+    paths["runtime_profile"].write_text(successful_runtime_profile_text)
 
     run_payload = {
         "prefix": prefix,
         "method": method_name,
         "config_tag": config_tag,
         "status": "success",
-        "runtime": runtime_info,
-        "fit_config": fit_config,
-        "table_summary": table_summary,
+        "runtime": successful_runtime_info,
+        "fit_config": successful_fit_config,
+        "table_summary": successful_table_summary,
         "fit_retry_log": fit_retry_log,
+        "attempt_count": len(fit_retry_log),
+        "max_attempts": MAX_FIT_ATTEMPTS,
         "outputs": {
             "profile_fits": str(paths["profile_fits"]),
             "profile_ecsv": str(paths["profile_ecsv"]),
@@ -532,22 +581,24 @@ def run_single_method(
     dump_json(paths["run_json"], run_payload)
 
     log_lines.append("status=success")
-    log_lines.append(f"runtime_wall_seconds={runtime_info['wall_time_seconds']:.6f}")
-    log_lines.append(f"runtime_cpu_seconds={runtime_info['cpu_time_seconds']:.6f}")
+    log_lines.append(f"runtime_wall_seconds={successful_runtime_info['wall_time_seconds']:.6f}")
+    log_lines.append(f"runtime_cpu_seconds={successful_runtime_info['cpu_time_seconds']:.6f}")
+    log_lines.append(f"attempt_count={len(fit_retry_log)}")
     log_lines.append(f"fit_retry_log={json.dumps(fit_retry_log, sort_keys=True)}")
     write_method_log(paths["method_log"], log_lines, arguments.save_log)
 
     return {
         "method": method_name,
         "status": "success",
-        "runtime": runtime_info,
+        "runtime": successful_runtime_info,
         "run_json": str(paths["run_json"]),
         "profile_fits": str(paths["profile_fits"]),
         "profile_ecsv": str(paths["profile_ecsv"]),
         "runtime_profile": str(paths["runtime_profile"]),
-        "fit_config": fit_config,
+        "fit_config": successful_fit_config,
         "fit_retry_log": fit_retry_log,
         "table_summary": run_payload["table_summary"],
+        "attempt_count": len(fit_retry_log),
         "skipped_existing": False,
     }
 
