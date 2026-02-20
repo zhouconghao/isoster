@@ -21,6 +21,7 @@ ISOSTER (ISOphote on STERoid) is an accelerated Python library for elliptical is
 ## Testing and Benchmark Directives (2026-02-11)
 
 - The canonical basic real-data dataset is `examples/data/m51/M51.fits`; the basic real-data test should be named `m51_test`.
+- For Huang2013 workflows, use a fixed default initial SMA of `6.0` pixels (`sma0`) instead of deriving it from `RE_PX1`.
 - For future high-fidelity mock generation, use `/Users/mac/Dropbox/work/project/otters/isophote_test/mockgal.py` (libprofit-based) when PSF convolution and realistic background-noise controls are required.
 - For `mockgal.py` benchmark/test workflows, force `--engine libprofit` and do not rely on astropy fallback rendering.
 - For noiseless single-Sersic validation without PSF convolution, compare against an analytic 1-D Sersic truth using accurate `b_n` evaluation (for example, `scipy.special.gammaincinv`) rather than low-accuracy approximations.

@@ -47,3 +47,8 @@
 - For QA afterburner pipelines, use extraction-manifest method status as the source of truth; do not attempt method/comparison QA for methods marked failed, even if stale profile files exist.
 - When serializing timeout results from `subprocess.TimeoutExpired`, normalize `stdout`/`stderr` values to text first because they may be bytes and can break JSON log writing.
 - For long-running batch jobs, default to skip-existing behavior with explicit `--update` reruns to avoid wasting compute after partial completion.
+
+## 2026-02-20
+
+- For Huang2013 mock headers, apply a fixed `PA - 90 deg` initialization correction in the Huang2013 helper layer to align with image-space PA used by fitting libraries.
+- For initialization from model headers, `RE_PX1` can be too small at high redshift/noisy mocks; keep a conservative fallback default (`6 px`) and a minimum clamp (`>= 3 px`) to avoid degenerate startup ellipses.

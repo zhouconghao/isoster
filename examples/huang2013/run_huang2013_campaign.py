@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Any
 
 DEFAULT_CONFIG_TAG = "baseline"
+MIN_SUCCESS_ISOPHOTE_COUNT = 3
 
 
 def sanitize_label(label: str) -> str:
@@ -227,6 +228,14 @@ def is_reusable_success(paths: dict[str, Path]) -> bool:
 
     payload_status = payload.get("status")
     if payload_status is not None and payload_status != "success":
+        return False
+
+    table_summary = payload.get("table_summary", {})
+    if not isinstance(table_summary, dict):
+        return False
+
+    isophote_count = table_summary.get("isophote_count")
+    if not isinstance(isophote_count, int) or isophote_count < MIN_SUCCESS_ISOPHOTE_COUNT:
         return False
 
     return True

@@ -43,6 +43,8 @@ Current baseline decisions:
 - Pixel scale source: FITS header (`PIXSCALE`)
 - `isoster` default: `use_eccentric_anomaly=False`
 - True CoG aperture setting: `subpixels=9`
+- Initial PA convention correction (Huang2013-specific): `PA_init = PA_header - 90 deg`
+- Initial SMA default: fixed `6.0` pixels (then clamped to at least `3.0`)
 - Output location: the target galaxy folder under `/Users/mac/work/hsc/huang2013`
 
 ## Quick Start

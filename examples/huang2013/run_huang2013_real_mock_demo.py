@@ -45,6 +45,8 @@ DEFAULT_PIXEL_SCALE_ARCSEC = 0.176
 DEFAULT_ZEROPOINT = 27.0
 DEFAULT_REDSHIFT = 0.05
 DEFAULT_CONFIG_TAG = "baseline"
+HUANG2013_PA_OFFSET_DEG = -90.0
+DEFAULT_INITIAL_SMA_PIX = 6.0
 
 STOP_CODE_STYLES = {
     0: {"color": "#1f77b4", "marker": "o", "label": "stop=0"},
@@ -292,7 +294,11 @@ def infer_initial_geometry(header: fits.Header, image_shape: tuple[int, int]) ->
         eps_initial = float(get_header_value(header, "ELLIP1", 0.2))
         pa_initial = float(get_header_value(header, "PA1", 0.0))
 
-    sma_initial = float(get_header_value(header, "RE_PX1", 8.0))
+    # Huang2013 mocks use a PA convention offset from the image-space convention
+    # expected by photutils/isoster initialization in this workflow.
+    pa_initial = float(pa_initial + HUANG2013_PA_OFFSET_DEG)
+
+    sma_initial = float(DEFAULT_INITIAL_SMA_PIX)
     sma_initial = max(sma_initial, 3.0)
 
     return {
@@ -427,6 +433,46 @@ def ensure_numeric_column(table: Table, column_name: str, default_value: float =
         table[column_name] = np.full(len(table), default_value, dtype=float)
 
 
+def is_error_column_name(column_name: str) -> bool:
+    """Return True when a profile-table column represents an uncertainty/error."""
+    normalized_name = column_name.lower()
+    return (
+        normalized_name.endswith("_err")
+        or normalized_name.endswith("_error")
+        or "_err_" in normalized_name
+    )
+
+
+def summarize_negative_error_values(profile_table: Table) -> list[dict[str, Any]]:
+    """Summarize columns containing negative error values."""
+    negative_entries: list[dict[str, Any]] = []
+    for column_name in profile_table.colnames:
+        if not is_error_column_name(column_name):
+            continue
+
+        try:
+            column_values = np.asarray(profile_table[column_name], dtype=float)
+        except (TypeError, ValueError):
+            continue
+
+        negative_mask = column_values < 0.0
+        if not np.any(negative_mask):
+            continue
+
+        negative_indices = np.flatnonzero(negative_mask)
+        minimum_value = float(np.nanmin(column_values[negative_mask]))
+        negative_entries.append(
+            {
+                "column": column_name,
+                "count": int(negative_mask.sum()),
+                "minimum": minimum_value,
+                "first_index": int(negative_indices[0]),
+            }
+        )
+
+    return negative_entries
+
+
 def compute_true_curve_of_growth(
     image: np.ndarray,
     profile_table: Table,
@@ -503,9 +549,17 @@ def prepare_profile_table(
     y0_offset = np.asarray(table["y0"], dtype=float) - center_y
     centroid_offset = np.hypot(x0_offset, y0_offset)
 
+    surface_brightness = np.full(len(table), np.nan, dtype=float)
+    surface_brightness_error = np.full(len(table), np.nan, dtype=float)
+    valid_intensity = np.isfinite(intensity) & (intensity > 0.0)
+
     with np.errstate(divide="ignore", invalid="ignore"):
-        surface_brightness = zeropoint_mag - 2.5 * np.log10(intensity / (pixel_scale_arcsec**2))
-        surface_brightness_error = (2.5 / np.log(10.0)) * (intensity_error / intensity)
+        surface_brightness[valid_intensity] = (
+            zeropoint_mag - 2.5 * np.log10(intensity[valid_intensity] / (pixel_scale_arcsec**2))
+        )
+        surface_brightness_error[valid_intensity] = (
+            (2.5 / np.log(10.0)) * (intensity_error[valid_intensity] / intensity[valid_intensity])
+        )
 
     table["axis_ratio"] = axis_ratio
     table["sma_arcsec"] = sma_arcsec
@@ -739,10 +793,12 @@ def plot_profile_by_stop_code(
         face_color = style["color"] if marker_face == "filled" else "none"
 
         if y_errors is not None:
+            sanitized_errors = np.asarray(y_errors[mask], dtype=float)
+            sanitized_errors[sanitized_errors < 0.0] = np.nan
             axis.errorbar(
                 x_values[mask],
                 y_values[mask],
-                yerr=y_errors[mask],
+                yerr=sanitized_errors,
                 fmt=style["marker"],
                 markersize=4.5,
                 color=style["color"],
@@ -1277,10 +1333,23 @@ def build_comparison_qa_figure(
     sb_error_photutils = np.asarray(photutils_table["sb_err_mag"], dtype=float)
     sb_error_isoster = np.asarray(isoster_table["sb_err_mag"], dtype=float)
 
+    valid_photutils_sb = (
+        valid_photutils
+        & np.isfinite(sb_photutils)
+        & np.isfinite(sb_error_photutils)
+        & (sb_error_photutils >= 0.0)
+    )
+    valid_isoster_sb = (
+        valid_isoster
+        & np.isfinite(sb_isoster)
+        & np.isfinite(sb_error_isoster)
+        & (sb_error_isoster >= 0.0)
+    )
+
     axis_sb.errorbar(
-        x_photutils[valid_photutils],
-        sb_photutils[valid_photutils],
-        yerr=sb_error_photutils[valid_photutils],
+        x_photutils[valid_photutils_sb],
+        sb_photutils[valid_photutils_sb],
+        yerr=sb_error_photutils[valid_photutils_sb],
         fmt="o",
         mfc="none",
         mec="black",
@@ -1292,9 +1361,9 @@ def build_comparison_qa_figure(
         label="photutils",
     )
     axis_sb.errorbar(
-        x_isoster[valid_isoster],
-        sb_isoster[valid_isoster],
-        yerr=sb_error_isoster[valid_isoster],
+        x_isoster[valid_isoster_sb],
+        sb_isoster[valid_isoster_sb],
+        yerr=sb_error_isoster[valid_isoster_sb],
         fmt="^",
         mfc="black",
         mec="black",
@@ -1641,6 +1710,18 @@ def write_markdown_report(
             "- Max |relative surface-brightness difference| [%]: "
             f"`{comparison_summary['max_abs_relative_sb_percent']:.6g}`"
         )
+        lines.append("")
+
+    warning_entries = run_metadata.get("warnings", [])
+    if isinstance(warning_entries, list) and warning_entries:
+        lines.append("## Warnings")
+        lines.append("")
+        for warning_entry in warning_entries:
+            if isinstance(warning_entry, dict):
+                message = warning_entry.get("message", str(warning_entry))
+            else:
+                message = str(warning_entry)
+            lines.append(f"- {message}")
         lines.append("")
 
     report_path.write_text("\n".join(lines) + "\n")

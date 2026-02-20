@@ -37,8 +37,11 @@ from run_huang2013_real_mock_demo import (
     run_photutils_fit,
     run_with_runtime_profile,
     sanitize_label,
+    summarize_negative_error_values,
     summarize_table,
 )
+
+MIN_SUCCESS_ISOPHOTE_COUNT = 3
 
 
 def parse_arguments() -> argparse.Namespace:
@@ -187,6 +190,14 @@ def is_reusable_success(paths: dict[str, Path]) -> bool:
     if payload_status is not None and payload_status != "success":
         return False
 
+    table_summary = payload.get("table_summary", {})
+    if not isinstance(table_summary, dict):
+        return False
+
+    isophote_count = table_summary.get("isophote_count")
+    if not isinstance(isophote_count, int) or isophote_count < MIN_SUCCESS_ISOPHOTE_COUNT:
+        return False
+
     return True
 
 
@@ -211,6 +222,56 @@ def write_method_log(log_path: Path, lines: list[str], enabled: bool) -> None:
     if not enabled:
         return
     log_path.write_text("\n".join(lines) + "\n")
+
+
+def write_failed_run_payload(
+    run_json_path: Path,
+    prefix: str,
+    method_name: str,
+    config_tag: str,
+    fit_config: dict[str, Any] | None,
+    fit_retry_log: list[dict[str, Any]],
+    runtime_info: dict[str, Any] | None,
+    table_summary: dict[str, Any] | None,
+    outputs: dict[str, Path],
+    error_message: str,
+    warning_messages: list[str] | None = None,
+    validation: dict[str, Any] | None = None,
+) -> None:
+    """Persist failed per-method run payload for downstream status checks."""
+    payload = {
+        "prefix": prefix,
+        "method": method_name,
+        "config_tag": config_tag,
+        "status": "failed",
+        "runtime": runtime_info,
+        "fit_config": fit_config,
+        "table_summary": table_summary,
+        "fit_retry_log": fit_retry_log,
+        "error": error_message,
+        "warnings": warning_messages if warning_messages else [],
+        "outputs": {
+            "profile_fits": str(outputs["profile_fits"]),
+            "profile_ecsv": str(outputs["profile_ecsv"]),
+            "runtime_profile": str(outputs["runtime_profile"]),
+        },
+    }
+    if validation is not None:
+        payload["validation"] = validation
+    dump_json(run_json_path, payload)
+
+
+def format_negative_error_summary(negative_error_entries: list[dict[str, Any]]) -> str:
+    """Format concise summary text for negative-error validation failures."""
+    formatted_entries = []
+    for entry in negative_error_entries:
+        formatted_entries.append(
+            (
+                f"{entry['column']}(count={entry['count']},"
+                f"min={entry['minimum']:.6g},first_index={entry['first_index']})"
+            )
+        )
+    return "; ".join(formatted_entries)
 
 
 def run_single_method(
@@ -316,14 +377,27 @@ def run_single_method(
                     print(f"[EXTRACT] END method=photutils attempt={attempt_index} status=failed error={last_error_message}")
 
         if isophotes is None or runtime_info is None or fit_config is None:
-            log_lines.append("status=failed")
-            log_lines.append(f"error={last_error_message}")
-            log_lines.append(f"fit_retry_log={json.dumps(fit_retry_log, sort_keys=True)}")
-            write_method_log(paths["method_log"], log_lines, arguments.save_log)
-            raise RuntimeError(
+            failure_message = (
                 "photutils fitting failed after maxsma retry sequence: "
                 f"{last_error_message}"
             )
+            write_failed_run_payload(
+                run_json_path=paths["run_json"],
+                prefix=prefix,
+                method_name=method_name,
+                config_tag=config_tag,
+                fit_config=fit_config,
+                fit_retry_log=fit_retry_log,
+                runtime_info=runtime_info,
+                table_summary=None,
+                outputs=paths,
+                error_message=failure_message,
+            )
+            log_lines.append("status=failed")
+            log_lines.append(f"error={failure_message}")
+            log_lines.append(f"fit_retry_log={json.dumps(fit_retry_log, sort_keys=True)}")
+            write_method_log(paths["method_log"], log_lines, arguments.save_log)
+            raise RuntimeError(failure_message)
 
     else:
         isoster_config = {
@@ -383,6 +457,59 @@ def run_single_method(
         method_name=method_name,
     )
 
+    table_summary = summarize_table(profile_table)
+    negative_error_entries = summarize_negative_error_values(profile_table)
+    if negative_error_entries:
+        negative_error_summary = format_negative_error_summary(negative_error_entries)
+        warning_message = (
+            f"{method_name} extraction found negative error values: {negative_error_summary}"
+        )
+        failure_message = f"{method_name} extraction failed error-column validation: {negative_error_summary}"
+        write_failed_run_payload(
+            run_json_path=paths["run_json"],
+            prefix=prefix,
+            method_name=method_name,
+            config_tag=config_tag,
+            fit_config=fit_config,
+            fit_retry_log=fit_retry_log,
+            runtime_info=runtime_info,
+            table_summary=table_summary,
+            outputs=paths,
+            error_message=failure_message,
+            warning_messages=[warning_message],
+            validation={"negative_error_entries": negative_error_entries},
+        )
+        log_lines.append(f"warning={warning_message}")
+        log_lines.append("status=failed")
+        log_lines.append(f"error={failure_message}")
+        log_lines.append(f"fit_retry_log={json.dumps(fit_retry_log, sort_keys=True)}")
+        write_method_log(paths["method_log"], log_lines, arguments.save_log)
+        raise RuntimeError(failure_message)
+
+    isophote_count = int(table_summary.get("isophote_count", 0))
+    if isophote_count < MIN_SUCCESS_ISOPHOTE_COUNT:
+        failure_message = (
+            f"{method_name} extraction produced insufficient profile table "
+            f"(isophote_count={isophote_count}, min_required={MIN_SUCCESS_ISOPHOTE_COUNT})"
+        )
+        write_failed_run_payload(
+            run_json_path=paths["run_json"],
+            prefix=prefix,
+            method_name=method_name,
+            config_tag=config_tag,
+            fit_config=fit_config,
+            fit_retry_log=fit_retry_log,
+            runtime_info=runtime_info,
+            table_summary=table_summary,
+            outputs=paths,
+            error_message=failure_message,
+        )
+        log_lines.append("status=failed")
+        log_lines.append(f"error={failure_message}")
+        log_lines.append(f"fit_retry_log={json.dumps(fit_retry_log, sort_keys=True)}")
+        write_method_log(paths["method_log"], log_lines, arguments.save_log)
+        raise RuntimeError(failure_message)
+
     profile_table.write(paths["profile_fits"], overwrite=True)
     profile_table.write(paths["profile_ecsv"], format="ascii.ecsv", overwrite=True)
     paths["runtime_profile"].write_text(runtime_profile_text)
@@ -394,7 +521,7 @@ def run_single_method(
         "status": "success",
         "runtime": runtime_info,
         "fit_config": fit_config,
-        "table_summary": summarize_table(profile_table),
+        "table_summary": table_summary,
         "fit_retry_log": fit_retry_log,
         "outputs": {
             "profile_fits": str(paths["profile_fits"]),
@@ -499,10 +626,16 @@ def main() -> None:
                 print(f"[EXTRACT] END method={method_name} status={status_text}")
         except Exception as error:
             error_message = f"{type(error).__name__}: {error}"
+            failed_run_path = method_artifact_paths(output_dir, prefix, method_name, config_tag)["run_json"]
+            failed_payload = load_existing_manifest(failed_run_path)
+            run_warnings = failed_payload.get("warnings", []) if isinstance(failed_payload, dict) else []
+            if not isinstance(run_warnings, list):
+                run_warnings = []
             method_runs[method_name] = {
                 "method": method_name,
                 "status": "failed",
                 "error": error_message,
+                "warnings": run_warnings,
             }
             if arguments.verbose:
                 print(f"[EXTRACT] END method={method_name} status=failed error={error_message}")
@@ -524,6 +657,19 @@ def main() -> None:
     failed_methods = sorted(
         [name for name, payload in method_runs.items() if payload.get("status") == "failed"]
     )
+    warning_entries: list[dict[str, Any]] = []
+    for method_name, method_payload in method_runs.items():
+        method_warnings = method_payload.get("warnings", [])
+        if not isinstance(method_warnings, list):
+            continue
+        for warning_message in method_warnings:
+            warning_entries.append(
+                {
+                    "method": method_name,
+                    "severity": "warning",
+                    "message": str(warning_message),
+                }
+            )
 
     manifest_payload = {
         "prefix": prefix,
@@ -540,8 +686,10 @@ def main() -> None:
             "requested_methods": methods_to_run,
             "successful_methods": successful_methods,
             "failed_methods": failed_methods,
+            "warning_count": len(warning_entries),
         },
         "method_runs": method_runs,
+        "warnings": warning_entries,
     }
     dump_json(manifest_path, manifest_payload)
 
@@ -551,6 +699,8 @@ def main() -> None:
     print(f"Successful methods: {successful_methods if successful_methods else 'none'}")
     if failed_methods:
         print(f"Failed methods: {failed_methods}")
+    if warning_entries:
+        print(f"Warnings: {len(warning_entries)}")
 
 
 if __name__ == "__main__":
