@@ -249,3 +249,75 @@ def test_fit_image_treats_stop_code_2_as_unacceptable(monkeypatch):
 
     assert call_count['n'] == 1
     assert [iso['sma'] for iso in results['isophotes']] == [0.0]
+
+
+def test_fit_image_raises_on_negative_error_in_regular_mode(monkeypatch):
+    """Regular fitting mode should fail if any output error field is negative."""
+    image = np.ones((40, 40), dtype=float)
+    config = IsosterConfig(
+        x0=20.0,
+        y0=20.0,
+        sma0=10.0,
+        minsma=10.0,
+        maxsma=10.0,
+        astep=2.0,
+        linear_growth=True,
+    )
+
+    def fake_fit_isophote(image_arg, mask_arg, sma, start_geometry, cfg_arg,
+                          going_inwards=False, previous_geometry=None):
+        iso = _build_mock_isophote(sma=sma, stop_code=0)
+        iso['x0_err'] = -0.01
+        return iso
+
+    monkeypatch.setattr("isoster.driver.fit_isophote", fake_fit_isophote)
+
+    with pytest.raises(ValueError, match="negative error value"):
+        fit_image(image, mask=None, config=config)
+
+
+def test_fit_image_raises_on_negative_error_in_forced_mode(monkeypatch):
+    """Forced mode should fail if extracted photometry contains negative errors."""
+    image = np.ones((40, 40), dtype=float)
+    config = IsosterConfig(
+        forced=True,
+        forced_sma=[6.0],
+        x0=20.0,
+        y0=20.0,
+        eps=0.2,
+        pa=0.0,
+    )
+
+    def fake_extract_forced_photometry(*args, **kwargs):  # noqa: ANN002, ANN003
+        iso = _build_mock_isophote(sma=6.0, stop_code=0)
+        iso['intens_err'] = -0.2
+        return iso
+
+    monkeypatch.setattr("isoster.fitting.extract_forced_photometry", fake_extract_forced_photometry)
+
+    with pytest.raises(ValueError, match="negative error value"):
+        fit_image(image, mask=None, config=config)
+
+
+def test_fit_image_raises_on_negative_error_in_template_forced_mode(monkeypatch):
+    """Template-forced mode should fail if extracted photometry has negative errors."""
+    image = np.ones((40, 40), dtype=float)
+    config = IsosterConfig()
+    template_isophotes = [
+        {'x0': 20.0, 'y0': 20.0, 'eps': 0.2, 'pa': 0.0, 'sma': 6.0},
+    ]
+
+    def fake_extract_forced_photometry(*args, **kwargs):  # noqa: ANN002, ANN003
+        iso = _build_mock_isophote(sma=6.0, stop_code=0)
+        iso['pa_err'] = -0.05
+        return iso
+
+    monkeypatch.setattr("isoster.fitting.extract_forced_photometry", fake_extract_forced_photometry)
+
+    with pytest.raises(ValueError, match="negative error value"):
+        fit_image(
+            image,
+            mask=None,
+            config=config,
+            template_isophotes=template_isophotes,
+        )

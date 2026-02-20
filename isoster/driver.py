@@ -10,6 +10,49 @@ def _is_acceptable_stop_code(stop_code):
     return stop_code in ACCEPTABLE_STOP_CODES
 
 
+def _is_error_field(field_name):
+    """Return True when the field represents an uncertainty/error quantity."""
+    return field_name.endswith('_err') or field_name.endswith('_error')
+
+
+def _validate_non_negative_error_fields(isophotes):
+    """Ensure all finite error values in fitted isophotes are non-negative."""
+    if not isophotes:
+        return
+
+    error_fields = {
+        key
+        for iso in isophotes
+        if isinstance(iso, dict)
+        for key in iso.keys()
+        if _is_error_field(key)
+    }
+    if not error_fields:
+        return
+
+    for iso_index, iso in enumerate(isophotes):
+        if not isinstance(iso, dict):
+            continue
+        for field_name in error_fields:
+            if field_name not in iso:
+                continue
+            try:
+                numeric_value = float(iso[field_name])
+            except (TypeError, ValueError):
+                continue
+            if np.isfinite(numeric_value) and numeric_value < 0.0:
+                raise ValueError(
+                    "isoster produced negative error value "
+                    f"(field={field_name}, index={iso_index}, value={numeric_value})"
+                )
+
+
+def _build_fit_result(isophotes, config):
+    """Package fit results with mandatory post-run sanity validation."""
+    _validate_non_negative_error_fields(isophotes)
+    return {'isophotes': isophotes, 'config': config}
+
+
 def fit_central_pixel(image, mask, x0, y0, debug=False):
     """
     Fit the central pixel (SMA=0).
@@ -107,7 +150,7 @@ def fit_image(image, mask=None, config=None, template_isophotes=None):
             )
             isophotes.append(iso)
         
-        return {'isophotes': isophotes, 'config': cfg}
+        return _build_fit_result(isophotes, cfg)
     
     # Regular fitting mode
     h, w = image.shape
@@ -217,7 +260,7 @@ def fit_image(image, mask=None, config=None, template_isophotes=None):
         add_cog_to_isophotes(final_list, cog_results)
             
     # Return as dict matching legacy structure + config object
-    return {'isophotes': final_list, 'config': cfg}
+    return _build_fit_result(final_list, cfg)
 
 
 def _fit_image_template_forced(image, mask, config, template_isophotes):
@@ -285,4 +328,4 @@ def _fit_image_template_forced(image, mask, config, template_isophotes):
             )
         isophotes.append(iso)
 
-    return {'isophotes': isophotes, 'config': config}
+    return _build_fit_result(isophotes, config)
