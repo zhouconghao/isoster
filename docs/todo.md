@@ -517,3 +517,81 @@ Action:
 - `uv run ruff check examples/huang2013/run_huang2013_profile_extraction.py tests/unit/test_huang2013_campaign_fault_tolerance.py`
 - `uv run pytest tests/unit/test_huang2013_campaign_fault_tolerance.py -q`
 - `uv run python examples/huang2013/run_huang2013_campaign.py --huang-root /Users/mac/work/hsc/huang2013 --galaxies ESO185-G054 --mock-ids 1 2 3 4 --method both --config-tag baseline --update --verbose --save-log --max-runtime-seconds 900 --summary-dir outputs/huang2013_campaign_eso185_g054`
+
+## Phase 14 Plan (QA Figure Readability Tweaks)
+
+| Item | Status | Notes |
+|---|---|---|
+| 1. Remove overlapping comparison-panel title | [x] | Removed right-panel title for relative SB difference in comparison QA figure. |
+| 2. Fix SB y-limits to use finite valid profile values only | [x] | Method/comparison SB ranges now use finite SB values (ignore NaN/Inf and error bars), with margin. |
+| 3. Improve non-zero stop-code visual separation in method QA | [x] | Added dark per-stop colors for monochrome mode and enforced open markers for `stop != 0`. |
+| 4. Adjust comparison centroid legend placement/readability | [x] | Legend now uses `loc=\"best\"` and slightly larger fontsize. |
+| 5. Replace fixed axis-ratio y-limits with data-driven limits | [x] | Method/comparison axis-ratio panels now use finite data range + margin, clipped to `[0, 1]`. |
+| 6. Regenerate ESO185-G054 QA without rerunning extraction | [x] | Rebuilt QA via `run_huang2013_qa_afterburner.py` for mock1-4 only. |
+
+### Phase 14 Review Notes
+
+- Updated file:
+  - `examples/huang2013/run_huang2013_real_mock_demo.py`
+- Auxiliary robustness fix:
+  - `examples/huang2013/run_huang2013_qa_afterburner.py` now tolerates non-dict `runtime` payloads in failed run JSON.
+- QA regeneration explicitly used afterburner only; extraction was not invoked.
+- Sandbox required escalated permissions to write regenerated artifacts under `/Users/mac/work/hsc/huang2013/...`.
+
+#### Phase 14 Verification Commands
+
+- `uv run ruff check examples/huang2013/run_huang2013_real_mock_demo.py examples/huang2013/run_huang2013_qa_afterburner.py`
+- `.venv/bin/python examples/huang2013/run_huang2013_qa_afterburner.py --huang-root /Users/mac/work/hsc/huang2013 --galaxy ESO185-G054 --mock-id 1 --method both --config-tag baseline --output-dir /Users/mac/work/hsc/huang2013/ESO185-G054 --profiles-manifest /Users/mac/work/hsc/huang2013/ESO185-G054/ESO185-G054_mock1_profiles_manifest.json --verbose`
+- `.venv/bin/python examples/huang2013/run_huang2013_qa_afterburner.py --huang-root /Users/mac/work/hsc/huang2013 --galaxy ESO185-G054 --mock-id 2 --method both --config-tag baseline --output-dir /Users/mac/work/hsc/huang2013/ESO185-G054 --profiles-manifest /Users/mac/work/hsc/huang2013/ESO185-G054/ESO185-G054_mock2_profiles_manifest.json --verbose`
+- `.venv/bin/python examples/huang2013/run_huang2013_qa_afterburner.py --huang-root /Users/mac/work/hsc/huang2013 --galaxy ESO185-G054 --mock-id 3 --method both --config-tag baseline --output-dir /Users/mac/work/hsc/huang2013/ESO185-G054 --profiles-manifest /Users/mac/work/hsc/huang2013/ESO185-G054/ESO185-G054_mock3_profiles_manifest.json --verbose`
+- `.venv/bin/python examples/huang2013/run_huang2013_qa_afterburner.py --huang-root /Users/mac/work/hsc/huang2013 --galaxy ESO185-G054 --mock-id 4 --method both --config-tag baseline --output-dir /Users/mac/work/hsc/huang2013/ESO185-G054 --profiles-manifest /Users/mac/work/hsc/huang2013/ESO185-G054/ESO185-G054_mock4_profiles_manifest.json --verbose`
+- `.venv/bin/python examples/huang2013/run_huang2013_qa_afterburner.py --huang-root /Users/mac/work/hsc/huang2013 --galaxy ESO185-G054 --mock-id 1 --method both --config-tag baseline --output-dir /Users/mac/work/hsc/huang2013/ESO185-G054 --profiles-manifest /Users/mac/work/hsc/huang2013/ESO185-G054/ESO185-G054_mock1_profiles_manifest.json --ignore-extraction-status --verbose`
+
+## Phase 14 Follow-Up Plan (Outlier-Limit + Legend Order)
+
+| Item | Status | Notes |
+|---|---|---|
+| 1. Visually inspect regenerated QA PNGs and identify exact remaining readability issues | [x] | Remaining issues were outlier-dominated y-limits in comparison `dI/I`, centroid, and PA panels, plus non-intuitive stop-code legend ordering. |
+| 2. Apply minimal plotting edits in shared QA renderer | [x] | Added robust percentile y-limits for comparison `dI/I`, centroid, PA; sorted stop-code legend with `stop=0` first. |
+| 3. Re-run afterburner only for affected mocks | [x] | Regenerated mock2-4 (comparison + method figures) without rerunning extraction. |
+
+### Phase 14 Follow-Up Review Notes
+
+- Updated file:
+  - `examples/huang2013/run_huang2013_real_mock_demo.py`
+- Rerun scope:
+  - `ESO185-G054` mock2-4 only (mock1 unchanged by these specific tweaks).
+- Visual result:
+  - Comparison panels now keep central trends readable under outer outliers; method legends now list `stop=0` first.
+
+#### Phase 14 Follow-Up Verification Commands
+
+- `uv run ruff check examples/huang2013/run_huang2013_real_mock_demo.py examples/huang2013/run_huang2013_qa_afterburner.py`
+- `MPLCONFIGDIR=/tmp/mplconfig uv run python examples/huang2013/run_huang2013_qa_afterburner.py --huang-root /Users/mac/work/hsc/huang2013 --galaxy ESO185-G054 --mock-id 2 --method both --config-tag baseline --output-dir /Users/mac/work/hsc/huang2013/ESO185-G054 --profiles-manifest /Users/mac/work/hsc/huang2013/ESO185-G054/ESO185-G054_mock2_profiles_manifest.json --verbose`
+- `MPLCONFIGDIR=/tmp/mplconfig uv run python examples/huang2013/run_huang2013_qa_afterburner.py --huang-root /Users/mac/work/hsc/huang2013 --galaxy ESO185-G054 --mock-id 3 --method both --config-tag baseline --output-dir /Users/mac/work/hsc/huang2013/ESO185-G054 --profiles-manifest /Users/mac/work/hsc/huang2013/ESO185-G054/ESO185-G054_mock3_profiles_manifest.json --verbose`
+- `MPLCONFIGDIR=/tmp/mplconfig uv run python examples/huang2013/run_huang2013_qa_afterburner.py --huang-root /Users/mac/work/hsc/huang2013 --galaxy ESO185-G054 --mock-id 4 --method both --config-tag baseline --output-dir /Users/mac/work/hsc/huang2013/ESO185-G054 --profiles-manifest /Users/mac/work/hsc/huang2013/ESO185-G054/ESO185-G054_mock4_profiles_manifest.json --verbose`
+
+## Phase 14 Follow-Up 2 Plan (X-Range Margin + Stop 4/5 Contrast)
+
+| Item | Status | Notes |
+|---|---|---|
+| 1. Add right-edge x-axis margin for shared 1-D profile panels | [x] | Added helper and applied to both method/comparison QA shared x-limits. |
+| 2. Improve `stop=4/5` style contrast against black/circle defaults | [x] | Added explicit marker/color mappings for stop 4 and 5 in standard and monochrome styles. |
+| 3. Re-run full ESO185-G054 QA afterburner | [x] | Regenerated mock1-4 (method + comparison), all stages successful. |
+
+### Phase 14 Follow-Up 2 Review Notes
+
+- Updated file:
+  - `examples/huang2013/run_huang2013_real_mock_demo.py`
+- Visual checks:
+  - right edge now has slight x-margin on all 1-D panels,
+  - `stop=4` now uses brown `P`,
+  - `stop=5` now uses teal `v`.
+
+#### Phase 14 Follow-Up 2 Verification Commands
+
+- `uv run ruff check examples/huang2013/run_huang2013_real_mock_demo.py examples/huang2013/run_huang2013_qa_afterburner.py`
+- `MPLCONFIGDIR=/tmp/mplconfig uv run python examples/huang2013/run_huang2013_qa_afterburner.py --huang-root /Users/mac/work/hsc/huang2013 --galaxy ESO185-G054 --mock-id 1 --method both --config-tag baseline --output-dir /Users/mac/work/hsc/huang2013/ESO185-G054 --profiles-manifest /Users/mac/work/hsc/huang2013/ESO185-G054/ESO185-G054_mock1_profiles_manifest.json --ignore-extraction-status --verbose`
+- `MPLCONFIGDIR=/tmp/mplconfig uv run python examples/huang2013/run_huang2013_qa_afterburner.py --huang-root /Users/mac/work/hsc/huang2013 --galaxy ESO185-G054 --mock-id 2 --method both --config-tag baseline --output-dir /Users/mac/work/hsc/huang2013/ESO185-G054 --profiles-manifest /Users/mac/work/hsc/huang2013/ESO185-G054/ESO185-G054_mock2_profiles_manifest.json --ignore-extraction-status --verbose`
+- `MPLCONFIGDIR=/tmp/mplconfig uv run python examples/huang2013/run_huang2013_qa_afterburner.py --huang-root /Users/mac/work/hsc/huang2013 --galaxy ESO185-G054 --mock-id 3 --method both --config-tag baseline --output-dir /Users/mac/work/hsc/huang2013/ESO185-G054 --profiles-manifest /Users/mac/work/hsc/huang2013/ESO185-G054/ESO185-G054_mock3_profiles_manifest.json --ignore-extraction-status --verbose`
+- `MPLCONFIGDIR=/tmp/mplconfig uv run python examples/huang2013/run_huang2013_qa_afterburner.py --huang-root /Users/mac/work/hsc/huang2013 --galaxy ESO185-G054 --mock-id 4 --method both --config-tag baseline --output-dir /Users/mac/work/hsc/huang2013/ESO185-G054 --profiles-manifest /Users/mac/work/hsc/huang2013/ESO185-G054/ESO185-G054_mock4_profiles_manifest.json --ignore-extraction-status --verbose`

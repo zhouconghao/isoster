@@ -128,6 +128,8 @@ def load_runtime_from_run_json(run_json_path: Path | None) -> dict[str, float]:
         return default_runtime
 
     runtime = payload.get("runtime", {})
+    if not isinstance(runtime, dict):
+        runtime = {}
     return {
         "wall_time_seconds": float(runtime.get("wall_time_seconds", float("nan"))),
         "cpu_time_seconds": float(runtime.get("cpu_time_seconds", float("nan"))),

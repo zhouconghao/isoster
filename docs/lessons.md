@@ -53,3 +53,9 @@
 - For Huang2013 mock headers, apply a fixed `PA - 90 deg` initialization correction in the Huang2013 helper layer to align with image-space PA used by fitting libraries.
 - For initialization from model headers, `RE_PX1` can be too small at high redshift/noisy mocks; keep a conservative fallback default (`6 px`) and a minimum clamp (`>= 3 px`) to avoid degenerate startup ellipses.
 - For Huang2013 extraction retries, keep retry policy explicit and symmetric across methods: fixed attempt cap, deterministic `sma0`/`astep` increments, unchanged `maxsma`, and persisted per-attempt metadata for post-run diagnosis.
+- For Huang2013 QA profile panels, compute y-axis limits from finite profile values (not error bars), and use data-driven axis-ratio limits with margins instead of fixed `[0, 1]` spans.
+- For stop-code readability in dense QA panels, keep nominal `stop=0` filled but render `stop!=0` with open markers and distinct dark colors to avoid ambiguity in monochrome-like styling.
+- QA afterburners that consume extraction run JSON should tolerate `runtime: null` payloads from failed runs; runtime parsing must be type-checked before `.get(...)`.
+- For comparison QA panels, apply robust percentile y-limits for `dI/I`, centroid, and PA panels so a handful of outer outliers do not flatten the main trend; keep stop-code ordering with `stop=0` first in legends for quick scanning.
+- Keep explicit style mappings for non-core photutils stop codes (for example `stop=4`, `stop=5`) to avoid fallback black/open-circle ambiguity in monochrome QA plots.
+- For shared 1-D QA x-axes, add a small right-edge margin beyond the last valid isophote point to prevent visual crowding against the panel boundary.

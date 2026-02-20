@@ -53,6 +53,8 @@ STOP_CODE_STYLES = {
     1: {"color": "#ff7f0e", "marker": "s", "label": "stop=1"},
     2: {"color": "#2ca02c", "marker": "^", "label": "stop=2"},
     3: {"color": "#d62728", "marker": "D", "label": "stop=3"},
+    4: {"color": "#8c564b", "marker": "P", "label": "stop=4"},
+    5: {"color": "#17becf", "marker": "v", "label": "stop=5"},
     -1: {"color": "#9467bd", "marker": "X", "label": "stop=-1"},
 }
 
@@ -61,7 +63,19 @@ MONOCHROME_STOP_MARKERS = {
     1: "s",
     2: "^",
     3: "D",
+    4: "P",
+    5: "v",
     -1: "X",
+}
+
+MONOCHROME_STOP_COLORS = {
+    0: "#111111",
+    1: "#1f3b73",
+    2: "#1b5e20",
+    3: "#7f1d1d",
+    4: "#8b5a2b",
+    5: "#006d77",
+    -1: "#4b2e83",
 }
 
 
@@ -232,7 +246,8 @@ def style_for_stop_code(stop_code: int, monochrome: bool = False) -> dict[str, s
     """Return plotting style for stop code."""
     if monochrome:
         marker = MONOCHROME_STOP_MARKERS.get(stop_code, "o")
-        return {"color": "black", "marker": marker, "label": f"stop={stop_code}"}
+        color = MONOCHROME_STOP_COLORS.get(stop_code, "#374151")
+        return {"color": color, "marker": marker, "label": f"stop={stop_code}"}
     if stop_code in STOP_CODE_STYLES:
         return STOP_CODE_STYLES[stop_code]
     return {"color": "#7f7f7f", "marker": "o", "label": f"stop={stop_code}"}
@@ -679,6 +694,72 @@ def robust_limits(values: np.ndarray, lower_percentile: float = 5.0, upper_perce
     return low, high
 
 
+def set_axis_limits_from_finite_values(
+    axis,
+    values: np.ndarray,
+    invert: bool = False,
+    margin_fraction: float = 0.08,
+    min_margin: float = 0.05,
+    lower_clip: float | None = None,
+    upper_clip: float | None = None,
+) -> None:
+    """Set y-axis limits from finite data values with a comfortable margin."""
+    finite_values = np.asarray(values, dtype=float)
+    finite_values = finite_values[np.isfinite(finite_values)]
+    if finite_values.size == 0:
+        return
+
+    value_low = float(np.nanmin(finite_values))
+    value_high = float(np.nanmax(finite_values))
+    if value_high <= value_low:
+        margin = max(min_margin, 0.05 * max(abs(value_low), 1.0))
+    else:
+        margin = max(min_margin, margin_fraction * (value_high - value_low))
+
+    limit_low = value_low - margin
+    limit_high = value_high + margin
+    if lower_clip is not None:
+        limit_low = max(limit_low, lower_clip)
+    if upper_clip is not None:
+        limit_high = min(limit_high, upper_clip)
+
+    if limit_high <= limit_low:
+        midpoint = 0.5 * (value_low + value_high)
+        half_width = max(min_margin, 0.02)
+        limit_low = midpoint - half_width
+        limit_high = midpoint + half_width
+        if lower_clip is not None:
+            limit_low = max(limit_low, lower_clip)
+        if upper_clip is not None:
+            limit_high = min(limit_high, upper_clip)
+        if limit_high <= limit_low:
+            return
+
+    if invert:
+        axis.set_ylim(limit_high, limit_low)
+    else:
+        axis.set_ylim(limit_low, limit_high)
+
+
+def set_x_limits_with_right_margin(
+    axis,
+    x_values: np.ndarray,
+    min_margin: float = 0.02,
+    margin_fraction: float = 0.03,
+) -> None:
+    """Set x-axis limits with a small right-edge margin for readability."""
+    finite_values = np.asarray(x_values, dtype=float)
+    finite_values = finite_values[np.isfinite(finite_values)]
+    if finite_values.size == 0:
+        return
+
+    x_low = float(np.nanmin(finite_values))
+    x_high = float(np.nanmax(finite_values))
+    width = max(x_high - x_low, 0.0)
+    right_margin = max(min_margin, margin_fraction * max(width, 1.0))
+    axis.set_xlim(x_low, x_high + right_margin)
+
+
 def configure_qa_plot_style() -> None:
     """Apply shared plotting style for QA figures."""
     latex_available = platform.system() != "Windows" and shutil.which("latex") is not None
@@ -784,13 +865,19 @@ def plot_profile_by_stop_code(
     monochrome: bool = False,
 ) -> None:
     """Scatter/errorbar profile points split by stop codes."""
-    unique_stop_codes = sorted({int(code) for code in stop_codes[np.isfinite(stop_codes)]})
+    unique_stop_codes = sorted(
+        {int(code) for code in stop_codes[np.isfinite(stop_codes)]},
+        key=lambda code: (0, 0) if code == 0 else (1, code) if code > 0 else (2, abs(code)),
+    )
     for stop_code in unique_stop_codes:
         mask = stop_codes == stop_code
         if not np.any(mask):
             continue
         style = style_for_stop_code(stop_code, monochrome=monochrome)
-        face_color = style["color"] if marker_face == "filled" else "none"
+        if monochrome and stop_code != 0:
+            face_color = "none"
+        else:
+            face_color = style["color"] if marker_face == "filled" else "none"
 
         if y_errors is not None:
             sanitized_errors = np.asarray(y_errors[mask], dtype=float)
@@ -1000,10 +1087,15 @@ def build_method_qa_figure(
     axis_surface_brightness.set_title("Surface brightness profile")
 
     sb_values = np.asarray(profile_table["sb_mag_arcsec2"], dtype=float)
-    sb_valid_for_limits = plot_mask & (stop_codes == 0)
+    sb_valid_for_limits = plot_mask & np.isfinite(sb_values)
     if np.any(sb_valid_for_limits):
-        sb_low, sb_high = robust_limits(sb_values[sb_valid_for_limits], 3, 97)
-        axis_surface_brightness.set_ylim(sb_high + 0.15, sb_low - 0.15)
+        set_axis_limits_from_finite_values(
+            axis_surface_brightness,
+            sb_values[sb_valid_for_limits],
+            invert=True,
+            margin_fraction=0.06,
+            min_margin=0.2,
+        )
 
     x0_error = np.full(len(profile_table), np.nan, dtype=float)
     y0_error = np.full(len(profile_table), np.nan, dtype=float)
@@ -1061,7 +1153,16 @@ def build_method_qa_figure(
     )
     axis_axis_ratio.set_ylabel("axis ratio")
     axis_axis_ratio.grid(alpha=0.25)
-    axis_axis_ratio.set_ylim(0.0, 1.05)
+    axis_ratio_for_limits = axis_ratio[valid_radius_mask & np.isfinite(axis_ratio)]
+    set_axis_limits_from_finite_values(
+        axis_axis_ratio,
+        axis_ratio_for_limits,
+        invert=False,
+        margin_fraction=0.08,
+        min_margin=0.03,
+        lower_clip=0.0,
+        upper_clip=1.0,
+    )
 
     pa_norm = np.asarray(profile_table["pa_deg_norm"], dtype=float)
     pa_error_degrees = np.full(len(profile_table), np.nan, dtype=float)
@@ -1116,7 +1217,7 @@ def build_method_qa_figure(
 
     if np.any(valid_radius_mask):
         x_valid = x_values[valid_radius_mask]
-        axis_cog.set_xlim(np.nanmin(x_valid), np.nanmax(x_valid))
+        set_x_limits_with_right_margin(axis_cog, x_valid)
 
     for axis in [axis_surface_brightness, axis_centroid, axis_axis_ratio, axis_position_angle]:
         axis.tick_params(labelbottom=False)
@@ -1380,6 +1481,20 @@ def build_comparison_qa_figure(
     axis_sb.grid(alpha=0.25)
     axis_sb.legend(loc="upper right", fontsize=14)
 
+    sb_values_for_limits = np.concatenate(
+        [
+            sb_photutils[valid_photutils & np.isfinite(sb_photutils)],
+            sb_isoster[valid_isoster & np.isfinite(sb_isoster)],
+        ]
+    )
+    set_axis_limits_from_finite_values(
+        axis_sb,
+        sb_values_for_limits,
+        invert=True,
+        margin_fraction=0.06,
+        min_margin=0.2,
+    )
+
     intensity_photutils = np.asarray(photutils_table["intens"], dtype=float)
     intensity_isoster = np.asarray(isoster_table["intens"], dtype=float)
     intensity_photutils_interp = interpolate_column(sma_photutils, intensity_photutils, sma_isoster)
@@ -1399,8 +1514,16 @@ def build_comparison_qa_figure(
         alpha=0.85,
     )
     axis_sb_relative.set_ylabel(latex_safe_text("dI/I_phot [%]"))
-    axis_sb_relative.set_title("Relative surface-brightness difference")
     axis_sb_relative.grid(alpha=0.25)
+    relative_values_for_limits = relative_sb_intensity_diff[valid_relative & np.isfinite(relative_sb_intensity_diff)]
+    if relative_values_for_limits.size > 1:
+        relative_low, relative_high = robust_limits(relative_values_for_limits, 3, 97)
+        relative_amplitude = max(abs(relative_low), abs(relative_high))
+        relative_margin = max(0.8, 0.12 * max(relative_amplitude, 1.0))
+        axis_sb_relative.set_ylim(
+            -(relative_amplitude + relative_margin),
+            relative_amplitude + relative_margin,
+        )
 
     x0_phot = np.asarray(photutils_table["x0_offset_pix"], dtype=float)
     y0_phot = np.asarray(photutils_table["y0_offset_pix"], dtype=float)
@@ -1471,7 +1594,19 @@ def build_comparison_qa_figure(
     axis_centroid.axhline(0.0, color="black", linestyle="--", linewidth=0.8, alpha=0.7)
     axis_centroid.set_ylabel("center offset [pix]")
     axis_centroid.grid(alpha=0.25)
-    axis_centroid.legend(loc="upper right", fontsize=9, ncol=2)
+    axis_centroid.legend(loc="best", fontsize=10, ncol=2)
+    centroid_values_for_limits = np.concatenate(
+        [
+            x0_phot[valid_photutils & np.isfinite(x0_phot)],
+            y0_phot[valid_photutils & np.isfinite(y0_phot)],
+            x0_iso[valid_isoster & np.isfinite(x0_iso)],
+            y0_iso[valid_isoster & np.isfinite(y0_iso)],
+        ]
+    )
+    if centroid_values_for_limits.size > 1:
+        centroid_low, centroid_high = robust_limits(centroid_values_for_limits, 3, 97)
+        centroid_margin = max(0.5, 0.12 * (centroid_high - centroid_low + 1e-6))
+        axis_centroid.set_ylim(centroid_low - centroid_margin, centroid_high + centroid_margin)
 
     axis_ratio_photutils = np.asarray(photutils_table["axis_ratio"], dtype=float)
     axis_ratio_isoster = np.asarray(isoster_table["axis_ratio"], dtype=float)
@@ -1504,8 +1639,22 @@ def build_comparison_qa_figure(
         alpha=0.85,
     )
     axis_axis_ratio.set_ylabel("axis ratio")
-    axis_axis_ratio.set_ylim(0.0, 1.05)
     axis_axis_ratio.grid(alpha=0.25)
+    axis_ratio_for_limits = np.concatenate(
+        [
+            axis_ratio_photutils[valid_photutils & np.isfinite(axis_ratio_photutils)],
+            axis_ratio_isoster[valid_isoster & np.isfinite(axis_ratio_isoster)],
+        ]
+    )
+    set_axis_limits_from_finite_values(
+        axis_axis_ratio,
+        axis_ratio_for_limits,
+        invert=False,
+        margin_fraction=0.08,
+        min_margin=0.03,
+        lower_clip=0.0,
+        upper_clip=1.0,
+    )
 
     pa_photutils = np.asarray(photutils_table["pa_deg_norm"], dtype=float)
     pa_isoster = np.asarray(isoster_table["pa_deg_norm"], dtype=float)
@@ -1529,6 +1678,16 @@ def build_comparison_qa_figure(
     )
     axis_pa.set_ylabel("PA [deg]")
     axis_pa.grid(alpha=0.25)
+    pa_values_for_limits = np.concatenate(
+        [
+            pa_photutils[valid_photutils & np.isfinite(pa_photutils)],
+            pa_isoster[valid_isoster & np.isfinite(pa_isoster)],
+        ]
+    )
+    if pa_values_for_limits.size > 1:
+        pa_low, pa_high = robust_limits(pa_values_for_limits, 3, 97)
+        pa_margin = max(3.0, 0.08 * (pa_high - pa_low + 1e-6))
+        axis_pa.set_ylim(pa_low - pa_margin, pa_high + pa_margin)
 
     cog_photutils = np.asarray(photutils_table["method_cog_flux"], dtype=float)
     cog_isoster = np.asarray(isoster_table["method_cog_flux"], dtype=float)
@@ -1585,7 +1744,7 @@ def build_comparison_qa_figure(
     if np.any(valid_isoster):
         x_limits.extend([np.nanmin(x_isoster[valid_isoster]), np.nanmax(x_isoster[valid_isoster])])
     if x_limits:
-        axis_cog.set_xlim(min(x_limits), max(x_limits))
+        set_x_limits_with_right_margin(axis_cog, np.asarray(x_limits, dtype=float))
 
     for axis in [axis_sb, axis_sb_relative, axis_centroid, axis_axis_ratio, axis_pa]:
         axis.tick_params(labelbottom=False)
