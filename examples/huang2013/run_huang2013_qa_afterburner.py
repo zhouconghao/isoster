@@ -29,6 +29,7 @@ from run_huang2013_real_mock_demo import (
     compute_sha256,
     dump_json,
     get_header_value,
+    harmonize_method_cog_columns,
     read_mock_image,
     sanitize_label,
     summarize_table,
@@ -401,6 +402,7 @@ def main() -> None:
 
         try:
             profile_table = Table.read(profile_fits_path)
+            harmonize_method_cog_columns(profile_table, method_name=method_name)
             is_valid_table, invalid_reason = validate_profile_table_for_qa(profile_table)
             if not is_valid_table:
                 method_skips.append(
@@ -414,7 +416,11 @@ def main() -> None:
                     print(f"[QA] SKIP method={method_name} reason={invalid_reason}")
                 continue
 
-            model_image = build_model_image(image.shape, profile_table)
+            model_image = build_model_image(
+                image.shape,
+                profile_table,
+                method_name=method_name,
+            )
             runtime_info = load_runtime_from_run_json(run_json_path)
 
             qa_path = output_dir / f"{prefix}_{method_name}_{method_tag}_qa.png"

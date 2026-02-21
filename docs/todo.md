@@ -595,3 +595,53 @@ Action:
 - `MPLCONFIGDIR=/tmp/mplconfig uv run python examples/huang2013/run_huang2013_qa_afterburner.py --huang-root /Users/mac/work/hsc/huang2013 --galaxy ESO185-G054 --mock-id 2 --method both --config-tag baseline --output-dir /Users/mac/work/hsc/huang2013/ESO185-G054 --profiles-manifest /Users/mac/work/hsc/huang2013/ESO185-G054/ESO185-G054_mock2_profiles_manifest.json --ignore-extraction-status --verbose`
 - `MPLCONFIGDIR=/tmp/mplconfig uv run python examples/huang2013/run_huang2013_qa_afterburner.py --huang-root /Users/mac/work/hsc/huang2013 --galaxy ESO185-G054 --mock-id 3 --method both --config-tag baseline --output-dir /Users/mac/work/hsc/huang2013/ESO185-G054 --profiles-manifest /Users/mac/work/hsc/huang2013/ESO185-G054/ESO185-G054_mock3_profiles_manifest.json --ignore-extraction-status --verbose`
 - `MPLCONFIGDIR=/tmp/mplconfig uv run python examples/huang2013/run_huang2013_qa_afterburner.py --huang-root /Users/mac/work/hsc/huang2013 --galaxy ESO185-G054 --mock-id 4 --method both --config-tag baseline --output-dir /Users/mac/work/hsc/huang2013/ESO185-G054 --profiles-manifest /Users/mac/work/hsc/huang2013/ESO185-G054/ESO185-G054_mock4_profiles_manifest.json --ignore-extraction-status --verbose`
+
+## Phase 15 Plan (Method-Specific 2-D Model Builder)
+
+| Item | Status | Notes |
+|---|---|---|
+| 1. Audit current photutils model path and options | [x] | Confirmed photutils fit uses `Ellipse.fit_image(...)`, but 2-D model path previously used `isoster.build_isoster_model(...)` for both methods. |
+| 2. Switch to method-specific model generation | [x] | Added photutils-native reconstruction via `photutils.isophote.build_ellipse_model` while keeping `isoster.build_isoster_model` for isoster profiles. |
+| 3. Regenerate only ESO185-G054 mock3 photutils QA into local outputs | [x] | Created `outputs/huang2013_mock3_photutils_model_pass1/ESO185-G054_mock3_photutils_baseline_qa.png` via afterburner. |
+
+### Phase 15 Verification Commands
+
+- `uv run ruff check examples/huang2013/run_huang2013_real_mock_demo.py examples/huang2013/run_huang2013_qa_afterburner.py`
+- `MPLCONFIGDIR=/tmp/mplconfig uv run python examples/huang2013/run_huang2013_qa_afterburner.py --galaxy ESO185-G054 --mock-id 3 --input-fits /Users/mac/work/hsc/huang2013/ESO185-G054/ESO185-G054_mock3.fits --method photutils --config-tag baseline --output-dir outputs/huang2013_mock3_photutils_model_pass1 --photutils-profile-fits /Users/mac/work/hsc/huang2013/ESO185-G054/ESO185-G054_mock3_photutils_baseline_profile.fits --photutils-run-json /Users/mac/work/hsc/huang2013/ESO185-G054/ESO185-G054_mock3_photutils_baseline_run.json --skip-comparison --ignore-extraction-status --verbose`
+
+## Phase 16 Plan (isoster CoG Point Completeness in QA)
+
+| Item | Status | Notes |
+|---|---|---|
+| 1. Diagnose missing CoG points in ESO185-G054 mock3 isoster QA | [x] | Found `method_cog_flux` tied to `tflux_e`, which has NaNs on 16 rows despite finite SB/intensity; isoster `cog` column is finite for all rows. |
+| 2. Ensure CoG plotting uses best available method CoG source with fallback | [x] | Added `harmonize_method_cog_columns()` with source priority: `method_cog_flux -> cog -> tflux_e -> true_cog_flux`; recomputes `cog_rel_diff`. |
+| 3. Apply harmonization in both extraction prep and afterburner read path | [x] | Integrated in `prepare_profile_table()` and after `Table.read(...)` in afterburner/main profile-load path. |
+| 4. Regenerate only ESO185-G054 mock3 isoster QA in local outputs | [x] | Generated `outputs/huang2013_mock3_isoster_cog_fix/ESO185-G054_mock3_isoster_baseline_qa.png`; CoG finite coverage restored from 42/58 to 58/58. |
+
+### Phase 16 Verification Commands
+
+- `uv run ruff check examples/huang2013/run_huang2013_real_mock_demo.py examples/huang2013/run_huang2013_qa_afterburner.py`
+- `MPLCONFIGDIR=/tmp/mplconfig uv run python examples/huang2013/run_huang2013_qa_afterburner.py --galaxy ESO185-G054 --mock-id 3 --input-fits /Users/mac/work/hsc/huang2013/ESO185-G054/ESO185-G054_mock3.fits --method isoster --config-tag baseline --output-dir outputs/huang2013_mock3_isoster_cog_fix --isoster-profile-fits /Users/mac/work/hsc/huang2013/ESO185-G054/ESO185-G054_mock3_isoster_baseline_profile.fits --isoster-run-json /Users/mac/work/hsc/huang2013/ESO185-G054/ESO185-G054_mock3_isoster_baseline_run.json --skip-comparison --ignore-extraction-status --verbose`
+
+## Phase 17 Plan (mock3 CoG NaN Root Cause + Canonical Source Policy)
+
+| Item | Status | Notes |
+|---|---|---|
+| 1. Trace `tflux_e` NaN generation path for `ESO185-G054_mock3` isoster rows | [x] | Reproduced on current code; affected `stop_code=0` rows have `niter == maxit`, so convergence block is not entered and `full_photometry` is never executed, leaving default `tflux_e=np.nan`. |
+| 2. Set canonical QA CoG source policy for isoster tables | [x] | `harmonize_method_cog_columns(..., method_name=\"isoster\")` now prioritizes `cog` before `tflux_e`/fallback sources to keep one-to-one CoG completeness with finite isoster rows. |
+| 3. Add regression test for CoG completeness contract | [x] | Added unit test that enforces finite `method_cog_flux` when `cog` is finite and `tflux_e` is sparse/NaN for isoster harmonization. |
+
+### Phase 17 Review Notes
+
+- Updated files:
+  - `examples/huang2013/run_huang2013_real_mock_demo.py`
+  - `examples/huang2013/run_huang2013_qa_afterburner.py`
+  - `tests/unit/test_huang2013_campaign_fault_tolerance.py`
+- CoG policy:
+  - isoster priority: `cog -> method_cog_flux -> tflux_e -> true_cog_flux`
+  - photutils priority: `tflux_e -> method_cog_flux -> cog -> true_cog_flux`
+
+### Phase 17 Verification Commands
+
+- `uv run pytest tests/unit/test_huang2013_campaign_fault_tolerance.py -q`
+- `uv run ruff check examples/huang2013/run_huang2013_real_mock_demo.py examples/huang2013/run_huang2013_qa_afterburner.py`

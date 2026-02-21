@@ -37,7 +37,7 @@ from matplotlib import gridspec
 from matplotlib.lines import Line2D
 from matplotlib.patches import Ellipse as mpl_ellipse
 from photutils.aperture import EllipticalAperture, aperture_photometry
-from photutils.isophote import Ellipse, EllipseGeometry
+from photutils.isophote import Ellipse, EllipseGeometry, build_ellipse_model
 
 
 DEFAULT_HUANG_ROOT = Path("/Users/mac/work/hsc/huang2013")
@@ -522,6 +522,40 @@ def compute_true_curve_of_growth(
     return curve_of_growth
 
 
+def harmonize_method_cog_columns(profile_table: Table, method_name: str | None = None) -> None:
+    """Populate method CoG column using method-aware source priority."""
+    if len(profile_table) == 0:
+        return
+
+    resolved_method_name = None
+    if isinstance(method_name, str) and method_name:
+        resolved_method_name = method_name.strip().lower()
+    elif isinstance(profile_table.meta.get("METHOD"), str):
+        resolved_method_name = profile_table.meta["METHOD"].strip().lower()
+
+    if resolved_method_name == "isoster":
+        source_priority = ["cog", "method_cog_flux", "tflux_e", "true_cog_flux"]
+    elif resolved_method_name == "photutils":
+        source_priority = ["tflux_e", "method_cog_flux", "cog", "true_cog_flux"]
+    else:
+        source_priority = ["method_cog_flux", "cog", "tflux_e", "true_cog_flux"]
+
+    merged_method_cog = np.full(len(profile_table), np.nan, dtype=float)
+    for column_name in source_priority:
+        if column_name not in profile_table.colnames:
+            continue
+        source_values = np.asarray(profile_table[column_name], dtype=float)
+        fill_mask = ~np.isfinite(merged_method_cog) & np.isfinite(source_values)
+        merged_method_cog[fill_mask] = source_values[fill_mask]
+
+    profile_table["method_cog_flux"] = merged_method_cog
+
+    if "true_cog_flux" in profile_table.colnames:
+        true_cog_flux = np.asarray(profile_table["true_cog_flux"], dtype=float)
+        with np.errstate(divide="ignore", invalid="ignore"):
+            profile_table["cog_rel_diff"] = (merged_method_cog - true_cog_flux) / true_cog_flux
+
+
 def prepare_profile_table(
     isophotes: list[dict[str, Any]],
     image: np.ndarray,
@@ -591,11 +625,7 @@ def prepare_profile_table(
     true_curve_of_growth = compute_true_curve_of_growth(image, table, subpixels=cog_subpixels)
     table["true_cog_flux"] = true_curve_of_growth
 
-    fitted_curve_of_growth = np.asarray(table["tflux_e"], dtype=float)
-    table["method_cog_flux"] = fitted_curve_of_growth
-
-    with np.errstate(divide="ignore", invalid="ignore"):
-        table["cog_rel_diff"] = (fitted_curve_of_growth - true_curve_of_growth) / true_curve_of_growth
+    harmonize_method_cog_columns(table, method_name=method_name)
 
     table.meta["METHOD"] = method_name
     table.meta["REDSHIFT"] = redshift
@@ -622,8 +652,103 @@ def table_to_isophote_dicts(profile_table: Table) -> list[dict[str, Any]]:
     return isophotes
 
 
-def build_model_image(image_shape: tuple[int, int], profile_table: Table) -> np.ndarray:
-    """Reconstruct 2D model image from saved isophote profile table."""
+class _PhotutilsModelSmaNode:
+    """Minimal node object exposing `sma` for photutils model builder."""
+
+    def __init__(self, sma_value: float) -> None:
+        self.sma = float(sma_value)
+
+
+class _PhotutilsModelIsolistAdapter:
+    """Duck-typed adapter matching the `build_ellipse_model` access pattern."""
+
+    def __init__(self, model_columns: dict[str, np.ndarray]) -> None:
+        self.sma = model_columns["sma"]
+        self.intens = model_columns["intens"]
+        self.eps = model_columns["eps"]
+        self.pa = model_columns["pa"]
+        self.x0 = model_columns["x0"]
+        self.y0 = model_columns["y0"]
+        self.grad = model_columns["grad"]
+        self.a3 = model_columns["a3"]
+        self.b3 = model_columns["b3"]
+        self.a4 = model_columns["a4"]
+        self.b4 = model_columns["b4"]
+        self._nodes = [_PhotutilsModelSmaNode(value) for value in self.sma]
+
+    def __len__(self) -> int:
+        return len(self._nodes)
+
+    def __getitem__(self, index: int) -> _PhotutilsModelSmaNode:
+        return self._nodes[index]
+
+
+def extract_photutils_model_columns(profile_table: Table) -> dict[str, np.ndarray]:
+    """Extract and sanitize profile columns required by `build_ellipse_model`."""
+    required_columns = ["sma", "intens", "eps", "pa", "x0", "y0", "grad"]
+    missing_columns = [name for name in required_columns if name not in profile_table.colnames]
+    if missing_columns:
+        missing_text = ", ".join(missing_columns)
+        raise ValueError(f"Missing photutils model columns: {missing_text}")
+
+    model_columns: dict[str, np.ndarray] = {}
+    for column_name in required_columns:
+        model_columns[column_name] = np.asarray(profile_table[column_name], dtype=float)
+
+    for harmonic_name in ["a3", "b3", "a4", "b4"]:
+        if harmonic_name in profile_table.colnames:
+            model_columns[harmonic_name] = np.asarray(profile_table[harmonic_name], dtype=float)
+        else:
+            model_columns[harmonic_name] = np.zeros(len(profile_table), dtype=float)
+
+    valid_mask = model_columns["sma"] > 0.0
+    for column_name in model_columns:
+        valid_mask &= np.isfinite(model_columns[column_name])
+
+    if int(np.sum(valid_mask)) < 6:
+        raise ValueError("Insufficient valid photutils rows for 2-D model reconstruction")
+
+    sort_indices = np.argsort(model_columns["sma"][valid_mask])
+    for column_name in model_columns:
+        model_columns[column_name] = model_columns[column_name][valid_mask][sort_indices]
+
+    unique_sma_values, unique_indices = np.unique(model_columns["sma"], return_index=True)
+    for column_name in model_columns:
+        model_columns[column_name] = model_columns[column_name][unique_indices]
+    model_columns["sma"] = unique_sma_values
+
+    if model_columns["sma"].size < 6:
+        raise ValueError("Insufficient unique photutils SMA rows for 2-D model reconstruction")
+
+    return model_columns
+
+
+def build_photutils_model_image(
+    image_shape: tuple[int, int],
+    profile_table: Table,
+) -> np.ndarray:
+    """Build 2-D model using photutils' native `build_ellipse_model`."""
+    model_columns = extract_photutils_model_columns(profile_table)
+    isolist_adapter = _PhotutilsModelIsolistAdapter(model_columns)
+    return build_ellipse_model(
+        image_shape,
+        isolist_adapter,
+        fill=0.0,
+        high_harmonics=True,
+        sma_interval=0.1,
+    )
+
+
+def build_model_image(
+    image_shape: tuple[int, int],
+    profile_table: Table,
+    method_name: str,
+) -> np.ndarray:
+    """Reconstruct 2-D model image using the method-specific builder."""
+    normalized_method = method_name.strip().lower()
+    if normalized_method == "photutils":
+        return build_photutils_model_image(image_shape, profile_table)
+
     isophotes = table_to_isophote_dicts(profile_table)
     return isoster.build_isoster_model(
         image_shape,
@@ -2028,7 +2153,11 @@ def main() -> None:
             method_name=method_name,
         )
 
-        model_image = build_model_image(image.shape, profile_table)
+        model_image = build_model_image(
+            image.shape,
+            profile_table,
+            method_name=method_name,
+        )
         build_method_qa_figure(
             image=image,
             profile_table=profile_table,
@@ -2082,11 +2211,13 @@ def main() -> None:
     if "photutils" not in method_profile_paths and args.photutils_profile_fits is not None:
         method_profile_paths["photutils"] = args.photutils_profile_fits
         method_tables["photutils"] = Table.read(args.photutils_profile_fits)
+        harmonize_method_cog_columns(method_tables["photutils"], method_name="photutils")
         method_runtime["photutils"] = {"wall_time_seconds": np.nan, "cpu_time_seconds": np.nan}
 
     if "isoster" not in method_profile_paths and args.isoster_profile_fits is not None:
         method_profile_paths["isoster"] = args.isoster_profile_fits
         method_tables["isoster"] = Table.read(args.isoster_profile_fits)
+        harmonize_method_cog_columns(method_tables["isoster"], method_name="isoster")
         method_runtime["isoster"] = {"wall_time_seconds": np.nan, "cpu_time_seconds": np.nan}
 
     comparison_summary = None
@@ -2095,8 +2226,16 @@ def main() -> None:
     if not args.skip_comparison and "photutils" in method_tables and "isoster" in method_tables:
         comparison_figure_path = output_dir / f"{prefix}_compare_{config_tag}_qa.png"
 
-        photutils_model = build_model_image(image.shape, method_tables["photutils"])
-        isoster_model = build_model_image(image.shape, method_tables["isoster"])
+        photutils_model = build_model_image(
+            image.shape,
+            method_tables["photutils"],
+            method_name="photutils",
+        )
+        isoster_model = build_model_image(
+            image.shape,
+            method_tables["isoster"],
+            method_name="isoster",
+        )
 
         comparison_summary = build_comparison_qa_figure(
             image=image,

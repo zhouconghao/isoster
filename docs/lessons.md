@@ -59,3 +59,10 @@
 - For comparison QA panels, apply robust percentile y-limits for `dI/I`, centroid, and PA panels so a handful of outer outliers do not flatten the main trend; keep stop-code ordering with `stop=0` first in legends for quick scanning.
 - Keep explicit style mappings for non-core photutils stop codes (for example `stop=4`, `stop=5`) to avoid fallback black/open-circle ambiguity in monochrome QA plots.
 - For shared 1-D QA x-axes, add a small right-edge margin beyond the last valid isophote point to prevent visual crowding against the panel boundary.
+- In multi-method QA pipelines, 2-D model reconstruction must be method-specific: photutils profiles should use `photutils.isophote.build_ellipse_model`, while isoster profiles should use `isoster.build_isoster_model`.
+- For isoster CoG QA, do not rely only on `tflux_e`; use `cog` (from `compute_cog`) when available, then fallback to `tflux_e`, then to geometric aperture CoG so valid CoG points stay aligned one-to-one with finite SB/intensity rows.
+
+## 2026-02-21
+
+- In `fit_isophote`, rows can keep `stop_code=0` while `niter` reaches `maxit`; when this happens, convergence-only work (including `full_photometry`) may not run, so `tflux_e` can remain `NaN` despite finite fitted intensity.
+- For Huang2013 QA tables, CoG harmonization should be method-aware: prefer `cog` for `isoster` and prefer `tflux_e` for `photutils` to keep method semantics explicit and CoG coverage complete.

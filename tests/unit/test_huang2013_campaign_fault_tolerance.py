@@ -469,6 +469,21 @@ def test_prepare_profile_table_masks_sb_for_nonpositive_intensity() -> None:
     assert np.isnan(float(profile_table["sb_err_mag"][1]))
 
 
+def test_harmonize_method_cog_columns_prefers_isoster_cog_for_completeness() -> None:
+    """Isoster CoG harmonization should prefer `cog` over sparse `tflux_e` values."""
+    profile_table = Table()
+    profile_table["intens"] = np.array([1.0, 0.8, 0.6], dtype=float)
+    profile_table["cog"] = np.array([10.0, 20.0, 30.0], dtype=float)
+    profile_table["tflux_e"] = np.array([10.0, np.nan, np.nan], dtype=float)
+    profile_table["true_cog_flux"] = np.array([9.0, 19.0, 29.0], dtype=float)
+
+    real_mock_demo.harmonize_method_cog_columns(profile_table, method_name="isoster")
+
+    method_cog_flux = np.asarray(profile_table["method_cog_flux"], dtype=float)
+    assert np.all(np.isfinite(method_cog_flux))
+    assert np.allclose(method_cog_flux, np.asarray(profile_table["cog"], dtype=float))
+
+
 def test_validate_profile_table_for_qa_rejects_empty_and_missing_columns() -> None:
     """QA validation must reject empty and malformed tables before plotting."""
     empty_table = Table()
