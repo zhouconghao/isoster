@@ -17,6 +17,16 @@ from pathlib import Path
 import numpy as np
 from astropy.table import Table
 
+from huang2013_campaign_contract import (
+    build_case_prefix,
+    build_case_output_dir,
+    build_method_artifact_paths,
+    build_method_stem,
+    build_profiles_manifest_path,
+    build_qa_manifest_path,
+    load_method_statuses_from_profiles_manifest,
+    read_json_dict_if_exists,
+)
 from run_huang2013_real_mock_demo import (
     DEFAULT_CONFIG_TAG,
     DEFAULT_PIXEL_SCALE_ARCSEC,
@@ -63,7 +73,7 @@ def parse_arguments() -> argparse.Namespace:
         "--output-dir",
         type=Path,
         default=None,
-        help="Directory containing profile outputs and destination for QA products.",
+        help="Directory containing profile outputs and destination for QA products. Default: <huang-root>/<GALAXY>/<TEST>/.",
     )
 
     parser.add_argument(
@@ -146,15 +156,16 @@ def resolve_method_paths(
     explicit_run_json: Path | None,
 ) -> tuple[Path, Path | None]:
     """Resolve profile FITS and run JSON path for a method."""
+    method_paths = build_method_artifact_paths(output_dir, prefix, method_name, tag)
     if explicit_profile_fits is not None:
         profile_fits = explicit_profile_fits
     else:
-        profile_fits = output_dir / f"{prefix}_{method_name}_{tag}_profile.fits"
+        profile_fits = method_paths["profile_fits"]
 
     if explicit_run_json is not None:
         run_json = explicit_run_json
     else:
-        run_json = output_dir / f"{prefix}_{method_name}_{tag}_run.json"
+        run_json = method_paths["run_json"]
         if not run_json.exists():
             run_json = None
 
@@ -163,26 +174,7 @@ def resolve_method_paths(
 
 def load_extraction_method_statuses(manifest_path: Path | None) -> dict[str, str]:
     """Load extraction method status mapping from profiles manifest."""
-    if manifest_path is None or not manifest_path.exists():
-        return {}
-
-    try:
-        payload = json.loads(manifest_path.read_text())
-    except json.JSONDecodeError:
-        return {}
-
-    method_runs = payload.get("method_runs", {})
-    if not isinstance(method_runs, dict):
-        return {}
-
-    statuses: dict[str, str] = {}
-    for method_name, method_payload in method_runs.items():
-        if isinstance(method_payload, dict):
-            status_value = method_payload.get("status")
-            if isinstance(status_value, str):
-                statuses[method_name] = status_value
-
-    return statuses
+    return load_method_statuses_from_profiles_manifest(manifest_path)
 
 
 def validate_profile_table_for_qa(profile_table: Table) -> tuple[bool, str | None]:
@@ -201,15 +193,7 @@ def validate_profile_table_for_qa(profile_table: Table) -> tuple[bool, str | Non
 
 def read_json_if_exists(file_path: Path | None) -> dict | None:
     """Read JSON dictionary payload when available and valid."""
-    if file_path is None or not file_path.exists():
-        return None
-
-    try:
-        payload = json.loads(file_path.read_text())
-    except json.JSONDecodeError:
-        return None
-
-    return payload if isinstance(payload, dict) else None
+    return read_json_dict_if_exists(file_path)
 
 
 def build_comparison_isophote_count_warning(
@@ -280,6 +264,19 @@ def collect_artifact_availability_warnings(artifact_entries: list[dict[str, str]
     return warnings
 
 
+def prepare_case_output_dir(output_dir: Path, verbose: bool, prefix: str) -> None:
+    """Ensure case output directory exists and emit create/skip telemetry."""
+    if output_dir.exists():
+        if not output_dir.is_dir():
+            raise NotADirectoryError(f"Case output path exists but is not a directory: {output_dir}")
+        if verbose:
+            print(f"[QA] SKIP stage={prefix}:mkdir reason=output_dir_exists path={output_dir}")
+        return
+    output_dir.mkdir(parents=True, exist_ok=True)
+    if verbose:
+        print(f"[QA] END stage={prefix}:mkdir status=created path={output_dir}")
+
+
 def main() -> None:
     """Run the QA afterburner."""
     arguments = parse_arguments()
@@ -288,8 +285,10 @@ def main() -> None:
     if not input_fits.exists():
         raise FileNotFoundError(f"Input FITS does not exist: {input_fits}")
 
-    output_dir = arguments.output_dir if arguments.output_dir is not None else input_fits.parent
-    output_dir.mkdir(parents=True, exist_ok=True)
+    prefix = build_case_prefix(arguments.galaxy, arguments.mock_id)
+    default_output_dir = build_case_output_dir(arguments.huang_root, arguments.galaxy, arguments.mock_id)
+    output_dir = arguments.output_dir if arguments.output_dir is not None else default_output_dir
+    prepare_case_output_dir(output_dir, arguments.verbose, prefix)
 
     image, header = read_mock_image(input_fits)
 
@@ -308,13 +307,11 @@ def main() -> None:
         arguments.psf_fwhm if arguments.psf_fwhm is not None else get_header_value(header, "PSFFWHM", np.nan)
     )
 
-    prefix = f"{arguments.galaxy}_mock{arguments.mock_id}"
-
     shared_tag = sanitize_label(arguments.config_tag)
     photutils_tag = sanitize_label(arguments.photutils_tag) if arguments.photutils_tag is not None else shared_tag
     isoster_tag = sanitize_label(arguments.isoster_tag) if arguments.isoster_tag is not None else shared_tag
 
-    inferred_profiles_manifest = output_dir / f"{prefix}_profiles_manifest.json"
+    inferred_profiles_manifest = build_profiles_manifest_path(output_dir, prefix)
     profiles_manifest_path = arguments.profiles_manifest if arguments.profiles_manifest is not None else inferred_profiles_manifest
     extraction_status_by_method = load_extraction_method_statuses(profiles_manifest_path)
 
@@ -348,24 +345,25 @@ def main() -> None:
             continue
 
         method_tag = photutils_tag if method_name == "photutils" else isoster_tag
-        method_stem = f"{prefix}_{method_name}_{method_tag}"
+        method_stem = build_method_stem(prefix, method_name, method_tag)
+        method_paths = build_method_artifact_paths(output_dir, prefix, method_name, method_tag)
         expected_artifact_entries.extend(
             [
                 {
                     "artifact_role": f"{method_name}_profile_fits",
-                    "artifact_path": str(output_dir / f"{method_stem}_profile.fits"),
+                    "artifact_path": str(method_paths["profile_fits"]),
                 },
                 {
                     "artifact_role": f"{method_name}_profile_ecsv",
-                    "artifact_path": str(output_dir / f"{method_stem}_profile.ecsv"),
+                    "artifact_path": str(method_paths["profile_ecsv"]),
                 },
                 {
                     "artifact_role": f"{method_name}_runtime_profile",
-                    "artifact_path": str(output_dir / f"{method_stem}_runtime-profile.txt"),
+                    "artifact_path": str(method_paths["runtime_profile"]),
                 },
                 {
                     "artifact_role": f"{method_name}_run_json",
-                    "artifact_path": str(output_dir / f"{method_stem}_run.json"),
+                    "artifact_path": str(method_paths["run_json"]),
                 },
                 {
                     "artifact_role": f"{method_name}_qa_figure",
@@ -519,7 +517,7 @@ def main() -> None:
     manifest_suffix = ""
     if photutils_tag != isoster_tag:
         manifest_suffix = f"_{photutils_tag}_vs_{isoster_tag}"
-    manifest_path = output_dir / f"{prefix}_qa_manifest{manifest_suffix}.json"
+    manifest_path = build_qa_manifest_path(output_dir, prefix, manifest_suffix)
 
     for method_name, method_payload in method_outputs.items():
         for field_name in ["profile_fits", "run_json", "qa_figure"]:

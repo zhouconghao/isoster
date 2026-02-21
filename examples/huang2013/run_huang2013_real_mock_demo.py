@@ -32,6 +32,7 @@ from astropy import units as units
 from astropy.cosmology import Planck18
 from astropy.io import fits
 from astropy.table import Table
+from huang2013_campaign_contract import build_case_output_dir, build_case_prefix
 from isoster.cog import compute_cog
 from isoster.config import IsosterConfig
 from matplotlib import gridspec
@@ -103,7 +104,7 @@ def parse_arguments() -> argparse.Namespace:
         "--output-dir",
         type=Path,
         default=None,
-        help="Output directory. Defaults to the same galaxy folder as input FITS.",
+        help="Output directory. Default: <huang-root>/<GALAXY>/<TEST>/.",
     )
     parser.add_argument(
         "--method",
@@ -2071,7 +2072,11 @@ def main() -> None:
     if not input_fits.exists():
         raise FileNotFoundError(f"Input FITS does not exist: {input_fits}")
 
-    output_dir = args.output_dir if args.output_dir is not None else input_fits.parent
+    output_dir = (
+        args.output_dir
+        if args.output_dir is not None
+        else build_case_output_dir(args.huang_root, args.galaxy, args.mock_id)
+    )
     output_dir.mkdir(parents=True, exist_ok=True)
 
     image, header = read_mock_image(input_fits)
@@ -2093,7 +2098,7 @@ def main() -> None:
         maxgerr = 1.0 if inferred["eps"] > 0.55 else 0.5
 
     config_tag = sanitize_label(args.config_tag)
-    prefix = f"{args.galaxy}_mock{args.mock_id}"
+    prefix = build_case_prefix(args.galaxy, args.mock_id)
 
     run_metadata: dict[str, Any] = {
         "prefix": prefix,

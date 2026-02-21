@@ -97,6 +97,40 @@ Campaign controls include verbose stage telemetry (`--verbose`), per-stage logs 
 
 QA afterburner uses extraction-manifest method status as a guard and skips method QA/comparison for methods with non-success extraction status.
 
+Default output layout is case-scoped:
+
+- input FITS: `<huang-root>/<GALAXY>/<GALAXY>_mock<ID>.fits`
+- generated artifacts: `<huang-root>/<GALAXY>/mock<ID>/...`
+
+### Reorganization Boundaries (Planned, Compatibility-Preserving)
+
+Target module boundaries for the campaign reorganization are:
+
+1. CLI wrappers (stable user entry points):
+   - `run_huang2013_campaign.py`
+   - `run_huang2013_profile_extraction.py`
+   - `run_huang2013_qa_afterburner.py`
+2. Shared workflow contract module:
+   - `huang2013_campaign_contract.py` for canonical case prefix, artifact/manifest path conventions, and manifest status parsing.
+3. Future orchestration modules (next slices):
+   - campaign case planner/executor and stage command builder split out of the CLI wrapper.
+
+This boundary keeps extraction and QA behavior unchanged while reducing naming/path drift between stages.
+
+### Manifest Compatibility Contract
+
+Manifest compatibility is preserved with additive-only schema evolution:
+
+- Filenames remain unchanged:
+  - extraction: `*_profiles_manifest.json`
+  - QA: `*_qa_manifest.json` (plus existing tag suffix variant)
+- Existing stable fields remain unchanged:
+  - extraction: `method_runs`, `run_summary`, `warnings`
+  - QA: `method_outputs`, `method_skips`, `method_failures`, `comparison_qa`, `warnings`, `run_metadata`
+- Cross-stage status contract remains:
+  - QA/campaign decisions read `method_runs.<method>.status` from extraction manifest.
+- New fields may be added, but existing field names/types above must remain backward compatible.
+
 ## Verification and Artifacts
 
 - Tests: `tests/`

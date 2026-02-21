@@ -9,6 +9,86 @@ Phases 1-6 are complete and archived, including docs reorganization, uv workflow
 - Detailed Phase 1-6 progress summary: `docs/journal/2026-02-13-phase1-6-progress-summary.md`
 - Phase 7 kickoff plan note: `docs/journal/2026-02-13-phase7-doc-audit-and-code-review-plan.md`
 
+## Phase 13 Plan (Huang2013 Campaign Reorganization)
+
+Plan file: `docs/todo.md`
+
+| Item | Status | Notes |
+|---|---|---|
+| 1. Propose campaign module boundaries and manifest contract updates | [x] | Added to `docs/spec.md` under Huang2013 workflow section. |
+| 2. Add phased reorg checklist and checkpoints | [x] | This section is the active execution checklist for the reorg slice. |
+| 3. Implement first refactor slice: shared contract helper + campaign/QA wiring | [x] | Added `examples/huang2013/huang2013_campaign_contract.py`; campaign and QA scripts now use canonical helper paths/loaders. |
+| 4. Add/adjust targeted regression tests for contract slice | [x] | Added helper-contract tests in `tests/unit/test_huang2013_campaign_fault_tolerance.py`. |
+| 5. Run targeted verification commands and record evidence | [x] | Verified with targeted unit test and one-case campaign execution (details below). |
+
+### Phase 13 Review Notes (In Progress)
+
+- Goal: reorganize workflow boundaries while preserving current extraction/QA behavior and manifest compatibility.
+- Scope of this slice:
+  - no manifest filename changes
+  - no schema-breaking field changes
+  - no extraction retry/CoG behavior changes
+- Verification evidence:
+  - `uv run pytest tests/unit/test_huang2013_campaign_fault_tolerance.py -q`
+    - Result: `15 passed in 1.26s`
+  - `MPLCONFIGDIR=/tmp/mplconfig uv run python examples/huang2013/run_huang2013_campaign.py --huang-root /Users/mac/work/hsc/huang2013 --output-root /Users/mac/work/hsc/huang2013 --galaxies ESO185-G054 --method both --config-tag baseline --limit 1 --verbose --save-log --update`
+    - Result: extraction success for both methods and QA success for `ESO185-G054_mock1`.
+    - Summary artifacts: `outputs/huang2013_campaign/huang2013_campaign_summary.json`, `outputs/huang2013_campaign/huang2013_campaign_summary.md`
+
+## Phase 14 Plan (Huang2013 Cleanup Utility)
+
+Plan file: `docs/todo.md`
+
+| Item | Status | Notes |
+|---|---|---|
+| 1. Add cleanup script under `examples/huang2013` with three scopes | [x] | Added `clean_huang2013_outputs.py` for single-test, single-galaxy, and all-galaxies cleanup modes. |
+| 2. Preserve mock input FITS and galaxy mosaic PNG exactly as requested | [x] | Preserves `<GALAXY>_<TEST>.fits` and `<GALAXY>_mosaic.png`; removes generated files only. |
+| 3. Add dry-run safety and summary output | [x] | Added `--dry-run`, `--verbose`, and per-run summary counters. |
+| 4. Document usage in Huang2013 README | [x] | Added `Cleanup Utility` section with command examples. |
+| 5. Run synthetic verification (non-destructive to real data) | [x] | Verified all three modes in temp root; preserve rules held and generated artifacts were removed as expected. |
+
+### Phase 14 Review Notes (In Progress)
+
+- Goal: prepare for major campaign runs by quickly clearing stale generated artifacts without touching mock image inputs.
+- Verification evidence:
+  - `uv run python -m py_compile examples/huang2013/clean_huang2013_outputs.py`
+    - Result: success.
+  - Synthetic dataset validation under a temporary root:
+    - single-test dry-run and apply (`--galaxy ESO185-G054 --test-name mock1`)
+    - single-galaxy all-tests apply (`--galaxy ESO185-G054`)
+    - all-galaxies apply (`--all-galaxies`)
+    - Result: removed generated files while preserving `<GALAXY>_<TEST>.fits` and `<GALAXY>_mosaic.png`.
+  - Follow-up compatibility update:
+    - cleanup now supports both legacy flat outputs and nested `<GALAXY>/mock<ID>/` outputs, including empty test-directory removal.
+
+## Phase 15 Plan (Per-Test Output Folder Layout)
+
+Plan file: `docs/todo.md`
+
+| Item | Status | Notes |
+|---|---|---|
+| 1. Change default output layout to `<GALAXY>/<TEST>/` for campaign/extraction/QA scripts | [x] | Updated path resolution to `mock<ID>` subfolders while keeping FITS inputs in `<GALAXY>/`. |
+| 2. Ensure per-test output folder creation happens before execution and skips when existing | [x] | Added create-or-skip telemetry in campaign/extraction/QA (`mkdir` stage messages). |
+| 3. Keep manifest and artifact naming compatibility inside new folder layout | [x] | Prefix/file names unchanged; only parent output directory changed. |
+| 4. Update docs for new default layout and usage expectations | [x] | Updated `docs/spec.md` and `examples/huang2013/README.md`. |
+| 5. Run targeted verification + one real ESO185-G054 mock1 isoster run | [x] | Verified with unit tests, real extraction run, and QA afterburner run using default `<GALAXY>/<TEST>/` output path. |
+
+### Phase 15 Review Notes (In Progress)
+
+- Goal: isolate each test run outputs under `<GALAXY>/<TEST>/` to simplify pre-run cleanup and result management.
+- Verification evidence:
+  - `uv run pytest tests/unit/test_huang2013_campaign_fault_tolerance.py -q`
+    - Result: `15 passed in 2.01s`.
+  - Real extraction run:
+    - `MPLCONFIGDIR=/tmp/mplconfig uv run python examples/huang2013/run_huang2013_profile_extraction.py --huang-root /Users/mac/work/hsc/huang2013 --galaxy ESO185-G054 --mock-id 1 --method isoster --config-tag baseline --verbose --save-log --update`
+    - Result: output directory created at `/Users/mac/work/hsc/huang2013/ESO185-G054/mock1` and manifest written there.
+  - Real QA run:
+    - `MPLCONFIGDIR=/tmp/mplconfig uv run python examples/huang2013/run_huang2013_qa_afterburner.py --huang-root /Users/mac/work/hsc/huang2013 --galaxy ESO185-G054 --mock-id 1 --method isoster --config-tag baseline --verbose --skip-comparison`
+    - Result: output directory reuse logged as skip-existing; QA manifest written to `/Users/mac/work/hsc/huang2013/ESO185-G054/mock1/`.
+  - Real campaign run (single case smoke):
+    - `MPLCONFIGDIR=/tmp/mplconfig uv run python examples/huang2013/run_huang2013_campaign.py --huang-root /Users/mac/work/hsc/huang2013 --output-root /Users/mac/work/hsc/huang2013 --galaxies ESO185-G054 --mock-ids 1 --method isoster --config-tag baseline --limit 1 --verbose --save-log --update`
+    - Result: campaign `mkdir` stage logged as skip-existing for `/Users/mac/work/hsc/huang2013/ESO185-G054/mock1`, then extraction + QA succeeded.
+
 ## Phase 7 Checklist
 
 | Item | Status | Notes |

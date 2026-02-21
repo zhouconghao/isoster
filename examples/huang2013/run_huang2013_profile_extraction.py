@@ -21,6 +21,7 @@ from typing import Any
 
 import numpy as np
 
+from huang2013_campaign_contract import build_case_output_dir, build_case_prefix
 from run_huang2013_real_mock_demo import (
     DEFAULT_CONFIG_TAG,
     DEFAULT_PIXEL_SCALE_ARCSEC,
@@ -72,7 +73,7 @@ def parse_arguments() -> argparse.Namespace:
         "--output-dir",
         type=Path,
         default=None,
-        help="Output directory for extracted profiles. Defaults to FITS folder.",
+        help="Output directory for extracted profiles. Default: <huang-root>/<GALAXY>/<TEST>/.",
     )
 
     parser.add_argument(
@@ -226,6 +227,19 @@ def write_method_log(log_path: Path, lines: list[str], enabled: bool) -> None:
     if not enabled:
         return
     log_path.write_text("\n".join(lines) + "\n")
+
+
+def prepare_case_output_dir(output_dir: Path, verbose: bool, prefix: str) -> None:
+    """Ensure case output directory exists and emit create/skip telemetry."""
+    if output_dir.exists():
+        if not output_dir.is_dir():
+            raise NotADirectoryError(f"Case output path exists but is not a directory: {output_dir}")
+        if verbose:
+            print(f"[EXTRACT] SKIP stage={prefix}:mkdir reason=output_dir_exists path={output_dir}")
+        return
+    output_dir.mkdir(parents=True, exist_ok=True)
+    if verbose:
+        print(f"[EXTRACT] END stage={prefix}:mkdir status=created path={output_dir}")
 
 
 def build_retry_attempt_config(base_fit_config: dict[str, Any], attempt_index: int) -> dict[str, Any]:
@@ -612,8 +626,10 @@ def main() -> None:
     if not input_fits.exists():
         raise FileNotFoundError(f"Input FITS does not exist: {input_fits}")
 
-    output_dir = arguments.output_dir if arguments.output_dir is not None else input_fits.parent
-    output_dir.mkdir(parents=True, exist_ok=True)
+    prefix = build_case_prefix(arguments.galaxy, arguments.mock_id)
+    default_output_dir = build_case_output_dir(arguments.huang_root, arguments.galaxy, arguments.mock_id)
+    output_dir = arguments.output_dir if arguments.output_dir is not None else default_output_dir
+    prepare_case_output_dir(output_dir, arguments.verbose, prefix)
 
     image, header = read_mock_image(input_fits)
     base_geometry = infer_initial_geometry(header, image.shape)
@@ -643,7 +659,6 @@ def main() -> None:
     if maxgerr is None:
         maxgerr = 1.0 if base_geometry["eps"] > 0.55 else 0.5
 
-    prefix = f"{arguments.galaxy}_mock{arguments.mock_id}"
     config_tag = sanitize_label(arguments.config_tag)
 
     methods_to_run = [arguments.method] if arguments.method in {"photutils", "isoster"} else ["photutils", "isoster"]

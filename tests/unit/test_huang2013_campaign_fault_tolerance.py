@@ -19,6 +19,7 @@ if str(HUANG2013_DIR) not in sys.path:
     sys.path.insert(0, str(HUANG2013_DIR))
 
 import run_huang2013_campaign as campaign  # noqa: E402
+import huang2013_campaign_contract as campaign_contract  # noqa: E402
 import run_huang2013_profile_extraction as profile_extraction  # noqa: E402
 import run_huang2013_qa_afterburner as qa_afterburner  # noqa: E402
 import run_huang2013_real_mock_demo as real_mock_demo  # noqa: E402
@@ -120,6 +121,54 @@ def test_reusable_success_requires_minimum_isophote_count(tmp_path: Path) -> Non
     paths["run_json"].write_text(json.dumps(success_payload))
     assert profile_extraction.is_reusable_success(paths) is True
     assert campaign.is_reusable_success(paths) is True
+
+
+def test_campaign_contract_builds_canonical_paths() -> None:
+    """Shared campaign contract must preserve existing filename conventions."""
+    output_dir = Path("/tmp/huang")
+    assert campaign_contract.build_test_name(3) == "mock3"
+    assert campaign_contract.build_case_prefix("ESO185-G054", 3) == "ESO185-G054_mock3"
+    assert campaign_contract.build_case_output_dir(output_dir, "ESO185-G054", 3) == (
+        output_dir / "ESO185-G054" / "mock3"
+    )
+
+    paths = campaign_contract.build_method_artifact_paths(
+        output_dir=output_dir,
+        prefix="ESO185-G054_mock3",
+        method_name="photutils",
+        config_tag="baseline",
+    )
+
+    assert paths["profile_fits"] == output_dir / "ESO185-G054_mock3_photutils_baseline_profile.fits"
+    assert paths["profile_ecsv"] == output_dir / "ESO185-G054_mock3_photutils_baseline_profile.ecsv"
+    assert paths["runtime_profile"] == output_dir / "ESO185-G054_mock3_photutils_baseline_runtime-profile.txt"
+    assert paths["run_json"] == output_dir / "ESO185-G054_mock3_photutils_baseline_run.json"
+
+    assert campaign_contract.build_profiles_manifest_path(output_dir, "ESO185-G054_mock3") == (
+        output_dir / "ESO185-G054_mock3_profiles_manifest.json"
+    )
+    assert campaign_contract.build_qa_manifest_path(output_dir, "ESO185-G054_mock3") == (
+        output_dir / "ESO185-G054_mock3_qa_manifest.json"
+    )
+
+
+def test_campaign_contract_loads_only_string_method_statuses(tmp_path: Path) -> None:
+    """Manifest status loader should ignore malformed status values."""
+    manifest_path = tmp_path / "mock_profiles_manifest.json"
+    manifest_payload = {
+        "method_runs": {
+            "photutils": {"status": "success"},
+            "isoster": {"status": "failed"},
+            "other": {"status": 1},
+            "missing": {},
+        }
+    }
+    manifest_path.write_text(json.dumps(manifest_payload))
+
+    assert campaign_contract.load_method_statuses_from_profiles_manifest(manifest_path) == {
+        "photutils": "success",
+        "isoster": "failed",
+    }
 
 
 def test_empty_photutils_profile_is_marked_failed(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

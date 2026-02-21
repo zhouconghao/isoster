@@ -3,6 +3,7 @@
 This folder hosts the **current** Huang2013 workflow for external mock images stored in:
 
 - `/Users/mac/work/hsc/huang2013/<GALAXY>/<GALAXY>_mock<ID>.fits`
+- output artifacts are written to `/Users/mac/work/hsc/huang2013/<GALAXY>/mock<ID>/`
 
 The workflow is split into two stages:
 
@@ -16,6 +17,7 @@ The workflow is split into two stages:
 - [Quick Start](#quick-start)
 - [Full Campaign (All Galaxies x 4 Mocks)](#full-campaign-all-galaxies-x-4-mocks)
 - [Long-Run Controls](#long-run-controls)
+- [Cleanup Utility](#cleanup-utility)
 - [Reproduce IC2597 QA Figures](#reproduce-ic2597-qa-figures)
 - [Customize the Plots](#customize-the-plots)
 - [Artifact Naming](#artifact-naming)
@@ -33,6 +35,8 @@ The workflow is split into two stages:
   - Writes campaign summary JSON/Markdown with method-level failure statistics.
 - `run_huang2013_real_mock_demo.py`
   - Shared helper implementation used by the two scripts above.
+- `clean_huang2013_outputs.py`
+  - Cleans generated artifacts while preserving mock FITS inputs and mosaic images.
 - `real-huang2013-requirements.md`
   - Requirements memory for this campaign.
 
@@ -45,7 +49,7 @@ Current baseline decisions:
 - True CoG aperture setting: `subpixels=9`
 - Initial PA convention correction (Huang2013-specific): `PA_init = PA_header - 90 deg`
 - Initial SMA default: fixed `6.0` pixels (then clamped to at least `3.0`)
-- Output location: the target galaxy folder under `/Users/mac/work/hsc/huang2013`
+- Output location: per-test folder `<GALAXY>/mock<ID>/` under `/Users/mac/work/hsc/huang2013`
 
 ## Quick Start
 
@@ -67,7 +71,7 @@ python examples/huang2013/run_huang2013_qa_afterburner.py \
   --mock-id 1 \
   --method both \
   --config-tag baseline \
-  --output-dir /Users/mac/work/hsc/huang2013/IC2597
+  --output-dir /Users/mac/work/hsc/huang2013/IC2597/mock1
 ```
 
 ## Full Campaign (All Galaxies x 4 Mocks)
@@ -121,6 +125,41 @@ Extraction/QA status handshake:
 - `run_huang2013_qa_afterburner.py` now checks extraction status from `<PREFIX>_profiles_manifest.json`.
 - If a method has extraction status `failed`, that method QA and two-method comparison QA are skipped automatically.
 
+## Cleanup Utility
+
+Clean a single test in one galaxy:
+
+```bash
+uv run python examples/huang2013/clean_huang2013_outputs.py \
+  --huang-root /Users/mac/work/hsc/huang2013 \
+  --galaxy ESO185-G054 \
+  --test-name mock1
+```
+
+Clean all test outputs for one galaxy:
+
+```bash
+uv run python examples/huang2013/clean_huang2013_outputs.py \
+  --huang-root /Users/mac/work/hsc/huang2013 \
+  --galaxy ESO185-G054
+```
+
+Clean all galaxies:
+
+```bash
+uv run python examples/huang2013/clean_huang2013_outputs.py \
+  --huang-root /Users/mac/work/hsc/huang2013 \
+  --all-galaxies
+```
+
+Safety:
+
+- Add `--dry-run` to preview file removals.
+- Preserved files in each galaxy folder:
+  - `<GALAXY>_<TEST>.fits`
+  - `<GALAXY>_mosaic.png`
+- Cleanup supports both legacy flat outputs and new `<GALAXY>/mock<ID>/` output folders.
+
 ## Reproduce IC2597 QA Figures
 
 If profiles already exist in `~/work/hsc/huang2013/IC2597`, you only need the afterburner:
@@ -131,7 +170,7 @@ python examples/huang2013/run_huang2013_qa_afterburner.py \
   --mock-id 1 \
   --method both \
   --config-tag baseline \
-  --output-dir /Users/mac/work/hsc/huang2013/IC2597
+  --output-dir /Users/mac/work/hsc/huang2013/IC2597/mock1
 ```
 
 Useful variants:
@@ -140,12 +179,12 @@ Useful variants:
 # Regenerate only photutils QA
 python examples/huang2013/run_huang2013_qa_afterburner.py \
   --galaxy IC2597 --mock-id 1 --method photutils --config-tag baseline \
-  --output-dir /Users/mac/work/hsc/huang2013/IC2597
+  --output-dir /Users/mac/work/hsc/huang2013/IC2597/mock1
 
 # Skip comparison panel generation
 python examples/huang2013/run_huang2013_qa_afterburner.py \
   --galaxy IC2597 --mock-id 1 --method both --config-tag baseline \
-  --skip-comparison --output-dir /Users/mac/work/hsc/huang2013/IC2597
+  --skip-comparison --output-dir /Users/mac/work/hsc/huang2013/IC2597/mock1
 ```
 
 ## Customize the Plots
@@ -161,6 +200,8 @@ After editing plot logic, rerun only `run_huang2013_qa_afterburner.py`; no refit
 ## Artifact Naming
 
 Prefix: `<GALAXY>_mock<ID>`
+
+Default artifact directory: `<GALAXY>/mock<ID>/`
 
 Method products:
 

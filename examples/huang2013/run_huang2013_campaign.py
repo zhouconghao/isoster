@@ -17,6 +17,15 @@ import time
 from pathlib import Path
 from typing import Any
 
+from huang2013_campaign_contract import (
+    build_case_prefix,
+    build_case_output_dir,
+    build_method_artifact_paths,
+    build_profiles_manifest_path,
+    build_qa_manifest_path,
+    read_json_dict_if_exists,
+)
+
 DEFAULT_CONFIG_TAG = "baseline"
 MIN_SUCCESS_ISOPHOTE_COUNT = 3
 
@@ -52,7 +61,7 @@ def parse_arguments() -> argparse.Namespace:
         "--output-root",
         type=Path,
         default=None,
-        help="Optional output root for per-galaxy artifacts. Default: write into each galaxy folder under --huang-root.",
+        help="Optional output root for per-test artifacts. Default: write to <huang-root>/<GALAXY>/<TEST>/.",
     )
     parser.add_argument(
         "--summary-dir",
@@ -115,15 +124,7 @@ def build_requested_methods(method_option: str) -> list[str]:
 
 def read_json_if_exists(path: Path) -> dict[str, Any] | None:
     """Load JSON payload if available and valid."""
-    if not path.exists():
-        return None
-
-    try:
-        payload = json.loads(path.read_text())
-    except json.JSONDecodeError:
-        return None
-
-    return payload if isinstance(payload, dict) else None
+    return read_json_dict_if_exists(path)
 
 
 def write_stage_log(log_path: Path, payload: dict[str, Any], enabled: bool) -> None:
@@ -204,16 +205,23 @@ def execute_command(
     return payload
 
 
+def prepare_case_output_dir(output_dir: Path, verbose: bool, prefix: str) -> None:
+    """Ensure case output directory exists and emit create/skip telemetry."""
+    if output_dir.exists():
+        if not output_dir.is_dir():
+            raise NotADirectoryError(f"Case output path exists but is not a directory: {output_dir}")
+        if verbose:
+            print(f"[CAMPAIGN] SKIP stage={prefix}:mkdir reason=output_dir_exists path={output_dir}")
+        return
+    output_dir.mkdir(parents=True, exist_ok=True)
+    if verbose:
+        print(f"[CAMPAIGN] END stage={prefix}:mkdir status=created path={output_dir}")
+
+
 def method_artifact_paths(output_dir: Path, prefix: str, method_name: str, config_tag: str) -> dict[str, Path]:
     """Return expected method artifact paths."""
     sanitized_tag = sanitize_label(config_tag)
-    stem = f"{prefix}_{method_name}_{sanitized_tag}"
-    return {
-        "profile_fits": output_dir / f"{stem}_profile.fits",
-        "profile_ecsv": output_dir / f"{stem}_profile.ecsv",
-        "runtime_profile": output_dir / f"{stem}_runtime-profile.txt",
-        "run_json": output_dir / f"{stem}_run.json",
-    }
+    return build_method_artifact_paths(output_dir, prefix, method_name, sanitized_tag)
 
 
 def is_reusable_success(paths: dict[str, Path]) -> bool:
@@ -371,14 +379,12 @@ def main() -> None:
     comparison_qa_generated = 0
 
     for galaxy_name, mock_id in requested_cases:
-        prefix = f"{galaxy_name}_mock{mock_id}"
+        prefix = build_case_prefix(galaxy_name, mock_id)
         input_fits = arguments.huang_root / galaxy_name / f"{prefix}.fits"
-        output_dir = (
-            arguments.output_root / galaxy_name
-            if arguments.output_root is not None
-            else arguments.huang_root / galaxy_name
-        )
-        output_dir.mkdir(parents=True, exist_ok=True)
+        output_base_root = arguments.output_root if arguments.output_root is not None else arguments.huang_root
+        output_dir = build_case_output_dir(output_base_root, galaxy_name, mock_id)
+        profiles_manifest_path = build_profiles_manifest_path(output_dir, prefix)
+        qa_manifest_path = build_qa_manifest_path(output_dir, prefix)
 
         case_payload: dict[str, Any] = {
             "galaxy": galaxy_name,
@@ -405,6 +411,8 @@ def main() -> None:
             case_payload["status"] = "dry_run"
             results_by_case.append(case_payload)
             continue
+
+        prepare_case_output_dir(output_dir, arguments.verbose, prefix)
 
         # Extraction stage per method
         for method_name in requested_methods:
@@ -465,7 +473,6 @@ def main() -> None:
                 extraction_invocation_failures += 1
                 continue
 
-            profiles_manifest_path = output_dir / f"{prefix}_profiles_manifest.json"
             profiles_manifest = read_json_if_exists(profiles_manifest_path)
             if profiles_manifest is None:
                 method_counters[method_name]["unknown"] += 1
@@ -487,7 +494,6 @@ def main() -> None:
                 method_counters[method_name]["unknown"] += 1
 
         # QA stage
-        qa_manifest_path = output_dir / f"{prefix}_qa_manifest.json"
         qa_log_path = output_dir / f"{prefix}_qa.log"
 
         if not arguments.update and qa_manifest_path.exists():
@@ -519,7 +525,7 @@ def main() -> None:
                 "--isophote-overlay-step",
                 str(arguments.isophote_overlay_step),
                 "--profiles-manifest",
-                str(output_dir / f"{prefix}_profiles_manifest.json"),
+                str(profiles_manifest_path),
             ]
             if arguments.skip_comparison:
                 qa_command.append("--skip-comparison")
@@ -546,7 +552,7 @@ def main() -> None:
             comparison_qa_generated += 1
 
         case_payload["status"] = "processed"
-        case_payload["profiles_manifest"] = str(output_dir / f"{prefix}_profiles_manifest.json")
+        case_payload["profiles_manifest"] = str(profiles_manifest_path)
         case_payload["qa_manifest"] = str(qa_manifest_path)
         results_by_case.append(case_payload)
 
