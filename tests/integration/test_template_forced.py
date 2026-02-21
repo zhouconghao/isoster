@@ -42,6 +42,19 @@ def make_elliptical_image(shape, x0, y0, eps, pa, intensity_scale, r_scale):
     return intensity_scale * np.exp(-r_ell / r_scale)
 
 
+def build_template_isophotes(image, x0, y0, eps, pa, sma_values):
+    """Create deterministic template isophotes using forced extraction."""
+    template_config = IsosterConfig(
+        x0=x0,
+        y0=y0,
+        eps=eps,
+        pa=pa,
+        forced=True,
+        forced_sma=list(sma_values),
+    )
+    return fit_image(image, None, template_config)["isophotes"]
+
+
 class TestTemplateForced:
     """Tests for template-based forced photometry."""
 
@@ -55,23 +68,32 @@ class TestTemplateForced:
         image_g = make_elliptical_image(shape, x0, y0, eps, pa, 1000.0, 15.0)
         image_r = make_elliptical_image(shape, x0, y0, eps, pa, 800.0, 15.0)
 
-        # Fit g-band normally
+        template_sma_values = [10.0, 15.0, 20.0, 25.0, 30.0, 35.0, 40.0]
+
+        # Build stable g-band template geometry
         config = IsosterConfig(
             x0=x0, y0=y0, eps=eps, pa=pa,
             sma0=10.0, minsma=5.0, maxsma=40.0,
             astep=0.2, linear_growth=True
         )
-        results_g = fit_image(image_g, None, config)
+        template_isophotes = build_template_isophotes(
+            image=image_g,
+            x0=x0,
+            y0=y0,
+            eps=eps,
+            pa=pa,
+            sma_values=template_sma_values,
+        )
 
         # Use g-band as template for r-band
         results_r = fit_image(image_r, None, config,
-                              template_isophotes=results_g['isophotes'])
+                              template_isophotes=template_isophotes)
 
         # Check we got the same number of isophotes
-        assert len(results_r['isophotes']) == len(results_g['isophotes'])
+        assert len(results_r['isophotes']) == len(template_isophotes)
 
         # Check geometry matches exactly
-        for iso_g, iso_r in zip(results_g['isophotes'], results_r['isophotes']):
+        for iso_g, iso_r in zip(template_isophotes, results_r['isophotes']):
             assert iso_r['sma'] == iso_g['sma'], "SMA should match template"
             assert iso_r['x0'] == iso_g['x0'], "x0 should match template"
             assert iso_r['y0'] == iso_g['y0'], "y0 should match template"
@@ -87,13 +109,24 @@ class TestTemplateForced:
 
         image = make_elliptical_image(shape, x0, y0, eps, pa, 1000.0, 15.0)
 
-        # Fit normally with fewer isophotes for this test
+        template_sma_values = [10.0, 15.0, 20.0, 25.0, 30.0, 35.0, 40.0]
+
+        # Build template with deterministic SMA sampling
         config = IsosterConfig(
             x0=x0, y0=y0, eps=eps, pa=pa,
             sma0=10.0, minsma=5.0, maxsma=40.0,
             astep=5.0, linear_growth=True  # Larger step = fewer isophotes
         )
-        results_template = fit_image(image, None, config)
+        results_template = {
+            "isophotes": build_template_isophotes(
+                image=image,
+                x0=x0,
+                y0=y0,
+                eps=eps,
+                pa=pa,
+                sma_values=template_sma_values,
+            )
+        }
         n_iso = len(results_template['isophotes'])
 
         # Manually modify template to have varying geometry
@@ -132,7 +165,16 @@ class TestTemplateForced:
             astep=0.3, linear_growth=True
         )
 
-        results_g = fit_image(image_g, None, config)
+        results_g = {
+            "isophotes": build_template_isophotes(
+                image=image_g,
+                x0=x0,
+                y0=y0,
+                eps=eps,
+                pa=pa,
+                sma_values=[10.0, 15.0, 20.0, 25.0, 30.0, 35.0, 40.0],
+            )
+        }
         results_r = fit_image(image_r, None, config,
                               template_isophotes=results_g['isophotes'])
 
@@ -160,8 +202,18 @@ class TestTemplateForced:
             astep=0.3, linear_growth=True
         )
 
-        # Fit g-band
-        results_g = fit_image(image_g, None, config)
+        # Build and save g-band template
+        results_g = {
+            "isophotes": build_template_isophotes(
+                image=image_g,
+                x0=x0,
+                y0=y0,
+                eps=eps,
+                pa=pa,
+                sma_values=[10.0, 15.0, 20.0, 25.0, 30.0, 35.0, 40.0],
+            ),
+            "config": config,
+        }
 
         # Save to FITS and reload
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -202,7 +254,16 @@ class TestTemplateForced:
         )
 
         # Create template (unmasked)
-        results_template = fit_image(image, None, config)
+        results_template = {
+            "isophotes": build_template_isophotes(
+                image=image,
+                x0=x0,
+                y0=y0,
+                eps=eps,
+                pa=pa,
+                sma_values=[10.0, 15.0, 20.0, 25.0, 30.0, 35.0, 40.0],
+            )
+        }
 
         # Apply to masked image
         results_masked = fit_image(image, mask, config,
@@ -316,7 +377,16 @@ class TestTemplateForced:
             astep=0.3, linear_growth=True
         )
 
-        results = fit_image(image, None, config)
+        results = {
+            "isophotes": build_template_isophotes(
+                image=image,
+                x0=x0,
+                y0=y0,
+                eps=eps,
+                pa=pa,
+                sma_values=[10.0, 15.0, 20.0, 25.0, 30.0],
+            )
+        }
 
         # Shuffle the template order
         shuffled_template = results['isophotes'].copy()

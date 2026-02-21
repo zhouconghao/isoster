@@ -660,3 +660,16 @@ Action:
 
 - `uv run pytest tests/unit/test_driver.py tests/unit/test_public_api.py tests/unit/test_fitting.py -q`
 - `MPLCONFIGDIR=/tmp/mplconfig uv run python examples/huang2013/run_huang2013_real_mock_demo.py --galaxy ESO185-G054 --mock-id 3 --input-fits /Users/mac/work/hsc/huang2013/ESO185-G054/ESO185-G054_mock3.fits --method isoster --config-tag stopcode2-pass --output-dir outputs/huang2013_mock3_isoster_stopcode2 --skip-comparison`
+
+## Phase 19 Plan (Broader Regression + Integration Stop-Code Drift)
+
+| Item | Status | Notes |
+|---|---|---|
+| 1. Run broad regression command exactly as requested | [x] | `uv run pytest tests/ -q` now passes after adding `tests/__init__.py` for stable intra-test imports. |
+| 2. Review integration tests for stop-code drift | [x] | Updated integration assumptions to treat `{0,1,2}` as usable where selection logic required it. |
+| 3. Stabilize template-integration tests against fitter convergence variability | [x] | Template tests now build deterministic template isophotes via forced extraction, then validate template-forced behavior. |
+
+### Phase 19 Verification Commands
+
+- `uv run pytest tests/ -q`
+- `uv run pytest tests/integration/test_edge_cases.py tests/integration/test_template_forced.py -q`
