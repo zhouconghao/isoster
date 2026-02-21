@@ -66,3 +66,4 @@
 
 - In `fit_isophote`, rows can keep `stop_code=0` while `niter` reaches `maxit`; when this happens, convergence-only work (including `full_photometry`) may not run, so `tflux_e` can remain `NaN` despite finite fitted intensity.
 - For Huang2013 QA tables, CoG harmonization should be method-aware: prefer `cog` for `isoster` and prefer `tflux_e` for `photutils` to keep method semantics explicit and CoG coverage complete.
+- For photutils stop-code parity, max-iteration fallback in `isoster` should emit explicit `stop_code=2` and be treated as a usable (non-failure) row for growth propagation.

@@ -2,7 +2,7 @@ import numpy as np
 from .fitting import fit_isophote
 from .config import IsosterConfig
 
-ACCEPTABLE_STOP_CODES = {0, 1}
+ACCEPTABLE_STOP_CODES = {0, 1, 2}
 
 
 def _is_acceptable_stop_code(stop_code):

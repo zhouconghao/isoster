@@ -128,13 +128,14 @@ This section is the canonical stop-code reference for the current `isoster` impl
 |---|---|---|---|
 | `0` | Success | Converged fit, or successful forced extraction | Keep |
 | `1` | Too many flagged samples | `actual_points < total_points * fflag` | Inspect mask/clipping; treat cautiously |
+| `2` | Max-iteration fallback | Reached `maxit` without convergence criterion | Keep with caution; geometry is best-so-far |
 | `3` | Too few points | `< 6` valid points for harmonic fit | Discard this radius |
 | `-1` | Gradient failure | Gradient checks fail (or zero gradient) | Treat as boundary/failure |
 
 ### Notes by Path
 
-- Regular mode (`fit_isophote`) emits `0`, `1`, `3`, `-1`.
-- In regular `fit_image` growth, only stop codes `0` and `1` are treated as acceptable for outward/inward propagation.
+- Regular mode (`fit_isophote`) emits `0`, `1`, `2`, `3`, `-1`.
+- In regular `fit_image` growth, stop codes `0`, `1`, and `2` are treated as acceptable for outward/inward propagation.
 - `fit_central_pixel` emits `0` for unmasked center and `-1` for masked center.
 - Forced extraction (`extract_forced_photometry`) emits `0` or `3`.
 
@@ -151,7 +152,7 @@ A direct `gradient == 0` also produces `-1`.
 
 ```python
 good = [iso for iso in results["isophotes"] if iso["stop_code"] == 0]
-usable = [iso for iso in results["isophotes"] if iso["stop_code"] in {0, 1}]
+usable = [iso for iso in results["isophotes"] if iso["stop_code"] in {0, 1, 2}]
 failed = [iso for iso in results["isophotes"] if iso["stop_code"] < 0]
 ```
 

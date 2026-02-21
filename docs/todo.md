@@ -645,3 +645,18 @@ Action:
 
 - `uv run pytest tests/unit/test_huang2013_campaign_fault_tolerance.py -q`
 - `uv run ruff check examples/huang2013/run_huang2013_real_mock_demo.py examples/huang2013/run_huang2013_qa_afterburner.py`
+
+## Phase 18 Plan (Max-Iteration Stop Code Parity)
+
+| Item | Status | Notes |
+|---|---|---|
+| 1. Emit explicit max-iteration stop code in core fitter | [x] | `fit_isophote` now emits `stop_code=2` when `maxit` is reached without convergence. |
+| 2. Keep stop-code policy internally consistent | [x] | Driver acceptable stop codes updated to `{0,1,2}` and API/config/docs/tests aligned with emitted set. |
+| 3. Preserve aperture photometry on `stop_code=2` rows | [x] | Full photometry is now attached for max-iteration fallback using best geometry. |
+| 4. Add targeted regression for max-iteration labeling | [x] | Added unit test verifying `stop_code=2` and finite `tflux_e` on forced maxit exhaustion. |
+| 5. Re-run ESO185-G054 mock3 isoster extraction in `outputs/` | [x] | Generated new artifacts in `outputs/huang2013_mock3_isoster_stopcode2/` with stop-code summary `{-1:15, 0:42, 2:8}` and zero non-finite `tflux_e` among stop codes `0/2`. |
+
+### Phase 18 Verification Commands
+
+- `uv run pytest tests/unit/test_driver.py tests/unit/test_public_api.py tests/unit/test_fitting.py -q`
+- `MPLCONFIGDIR=/tmp/mplconfig uv run python examples/huang2013/run_huang2013_real_mock_demo.py --galaxy ESO185-G054 --mock-id 3 --input-fits /Users/mac/work/hsc/huang2013/ESO185-G054/ESO185-G054_mock3.fits --method isoster --config-tag stopcode2-pass --output-dir outputs/huang2013_mock3_isoster_stopcode2 --skip-comparison`

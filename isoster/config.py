@@ -12,6 +12,7 @@ class IsosterConfig(BaseModel):
     Fitting results include a 'stop_code' field indicating termination condition:
     - 0: Success (converged)
     - 1: Too many flagged pixels (>fflag threshold)
+    - 2: Maximum iteration count reached without convergence
     - 3: Too few points (<6)
     - -1: Gradient error (invalid or unreliable)
 

@@ -9,7 +9,7 @@ Regular mode in `fit_image` (`isoster/driver.py`) runs:
 1. Central pixel estimate (`fit_central_pixel`).
 2. First free-geometry isophote at `sma0` (`fit_isophote`).
 3. Outward growth until `maxsma`.
-4. Optional inward growth until `max(minsma, 0.5)`, but only when the first fitted isophote stop code is acceptable (`0` or `1`).
+4. Optional inward growth until `max(minsma, 0.5)`, but only when the first fitted isophote stop code is acceptable (`0`, `1`, or `2`).
 5. Optional CoG attachment (`compute_cog`) in regular mode.
 
 Mode selection priority is:
@@ -49,6 +49,7 @@ The returned structure is `IsophoteData(angles, phi, intens, radii)` where `angl
 7. Compute dominant harmonic amplitude and geometry correction target.
 8. Track the best geometry by minimal `effective_amp = abs(max_amp) + regularization_penalty`.
 9. Converge when `abs(max_amp) < conver * rms` and `i >= minit`.
+10. If iterations reach `maxit` without convergence, return best-so-far geometry with stop code `2`.
 
 On convergence, optional blocks are attached:
 
@@ -96,6 +97,7 @@ Current `isoster` fitting emits:
 
 - `0`: success
 - `1`: too many flagged points
+- `2`: max-iteration fallback (best-so-far geometry)
 - `3`: too few points
 - `-1`: gradient-related failure
 

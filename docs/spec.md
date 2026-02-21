@@ -50,6 +50,7 @@ Stop codes currently emitted by core `isoster` fitting paths are:
 
 - `0`: converged / successful forced extraction.
 - `1`: too many flagged/clipped samples for the current ellipse.
+- `2`: reached `maxit` without convergence; best-so-far geometry fallback.
 - `3`: too few points (`< 6`) for first/second harmonic fit.
 - `-1`: gradient-related failure.
 
@@ -73,7 +74,7 @@ Each isophote row includes geometry/intensity fields and optional blocks dependi
 - `template_isophotes` takes precedence over `forced=True`.
 - `compute_cog` is only run in regular mode in current `fit_image`; forced/template branches return before CoG attachment.
 - Regular mode passes `previous_geometry` during outward/inward growth, so central regularization can apply when enabled.
-- Inward growth starts only when the first fitted isophote has an acceptable stop code (`0` or `1`).
+- Inward growth starts only when the first fitted isophote has an acceptable stop code (`0`, `1`, or `2`).
 
 ## Huang2013 Campaign Workflow
 

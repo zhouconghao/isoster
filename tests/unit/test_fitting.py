@@ -5,6 +5,7 @@ import pytest
 from isoster.fitting import (fit_first_and_second_harmonics, sigma_clip,
                               compute_aperture_photometry, compute_parameter_errors,
                               compute_deviations, compute_central_regularization_penalty,
+                              fit_isophote,
                               fit_higher_harmonics_simultaneous)
 from isoster.config import IsosterConfig
 
@@ -50,6 +51,46 @@ class TestFitting(unittest.TestCase):
         self.assertAlmostEqual(tflux_c, npix_c)
         self.assertAlmostEqual(tflux_e, tflux_c)
         self.assertEqual(npix_e, npix_c)
+
+
+def test_fit_isophote_emits_stop_code_2_and_photometry_on_maxit_exhaustion():
+    """Max-iteration exits should report stop_code=2 and keep full-photometry populated."""
+    image_size = 80
+    y_coords, x_coords = np.mgrid[:image_size, :image_size]
+    center_x = image_size / 2.0
+    center_y = image_size / 2.0
+    radius = np.hypot(x_coords - center_x, y_coords - center_y)
+    image = np.exp(-radius / 8.0)
+
+    config = IsosterConfig(
+        x0=center_x,
+        y0=center_y,
+        eps=0.2,
+        pa=0.0,
+        sma0=8.0,
+        maxit=1,
+        minit=1,
+        conver=1e-8,
+        maxgerr=1.0,
+        full_photometry=True,
+        compute_errors=False,
+        compute_deviations=False,
+        sclip=3.0,
+        nclip=0,
+    )
+    start_geometry = {"x0": center_x, "y0": center_y, "eps": 0.2, "pa": 0.0}
+    result = fit_isophote(
+        image,
+        mask=None,
+        sma=8.0,
+        start_geometry=start_geometry,
+        config=config,
+    )
+
+    assert result["niter"] == 1
+    assert result["stop_code"] == 2
+    assert np.isfinite(result["tflux_e"])
+    assert result["npix_e"] > 0
 
 if __name__ == '__main__':
     unittest.main()
@@ -531,5 +572,4 @@ def test_fit_higher_harmonics_vs_sequential():
     print("✓ Simultaneous vs sequential comparison test passed")
     print(f"  3rd harmonic: sequential=({a3_seq:.4f}, {b3_seq:.4f}), simultaneous=({a3_sim:.4f}, {b3_sim:.4f})")
     print(f"  4th harmonic: sequential=({a4_seq:.4f}, {b4_seq:.4f}), simultaneous=({a4_sim:.4f}, {b4_sim:.4f})")
-
 

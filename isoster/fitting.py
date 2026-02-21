@@ -574,6 +574,25 @@ def compute_aperture_photometry(image, mask, x0, y0, sma, eps, pa):
     
     return tflux_e, tflux_c, npix_e, npix_c
 
+
+def _attach_full_photometry(isophote_result, image, mask):
+    """Populate aperture photometry fields in-place for a fitted isophote result."""
+    tflux_e, tflux_c, npix_e, npix_c = compute_aperture_photometry(
+        image,
+        mask,
+        isophote_result['x0'],
+        isophote_result['y0'],
+        isophote_result['sma'],
+        isophote_result['eps'],
+        isophote_result['pa'],
+    )
+    isophote_result.update({
+        'tflux_e': tflux_e,
+        'tflux_c': tflux_c,
+        'npix_e': npix_e,
+        'npix_c': npix_c,
+    })
+
 def fit_isophote(image, mask, sma, start_geometry, config, going_inwards=False, previous_geometry=None):
     """
     Fit a single isophote with quality control.
@@ -626,6 +645,7 @@ def fit_isophote(image, mask, sma, start_geometry, config, going_inwards=False, 
     
     x0, y0, eps, pa = start_geometry['x0'], start_geometry['y0'], start_geometry['eps'], start_geometry['pa']
     stop_code, niter, best_geometry = 0, 0, None
+    converged = False
     min_amplitude, previous_gradient, lexceed = np.inf, None, False
     
     for i in range(maxit):
@@ -755,6 +775,7 @@ def fit_isophote(image, mask, sma, start_geometry, config, going_inwards=False, 
             
         if abs(max_amp) < conver * rms and i >= minit:
             stop_code = 0  # STOP_CODE 0: Converged successfully
+            converged = True
             # Already updated best_geometry in min_amplitude check, but let's ensure deviations
             if compute_deviations_flag:
                 # Use 'angles' (ψ in EA mode, φ in regular mode) for harmonic fitting
@@ -782,11 +803,7 @@ def fit_isophote(image, mask, sma, start_geometry, config, going_inwards=False, 
             
             # 6. FULL PHOTOMETRY (If requested)
             if full_photometry:
-                tflux_e, tflux_c, npix_e, npix_c = compute_aperture_photometry(image, mask, x0, y0, sma, eps, pa)
-                best_geometry.update({
-                    'tflux_e': tflux_e, 'tflux_c': tflux_c,
-                    'npix_e': npix_e, 'npix_c': npix_c
-                })
+                _attach_full_photometry(best_geometry, image, mask)
             break
             
         # Update geometry
@@ -821,6 +838,11 @@ def fit_isophote(image, mask, sma, start_geometry, config, going_inwards=False, 
             best_geometry[f'a{n}_err'] = 0.0
             best_geometry[f'b{n}_err'] = 0.0
         if debug: best_geometry.update({'ndata': 0, 'nflag': 0, 'grad': np.nan, 'grad_error': np.nan, 'grad_r_error': np.nan})
-        
+
+    if niter >= maxit and stop_code == 0 and not converged:
+        stop_code = 2  # STOP_CODE 2: Reached max iterations without convergence
+        if full_photometry:
+            _attach_full_photometry(best_geometry, image, mask)
+
     best_geometry['stop_code'], best_geometry['niter'] = stop_code, niter
     return best_geometry

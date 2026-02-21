@@ -221,14 +221,14 @@ def test_fit_image_skips_inward_growth_when_first_isophote_fails(monkeypatch):
     assert [iso['sma'] for iso in results['isophotes']] == [0.0]
 
 
-def test_fit_image_treats_stop_code_2_as_unacceptable(monkeypatch):
-    """Compatibility stop code 2 should not be treated as acceptable in driver growth."""
+def test_fit_image_treats_stop_code_2_as_acceptable(monkeypatch):
+    """Stop code 2 should be treated as acceptable for regular growth propagation."""
     image = np.ones((40, 40), dtype=float)
     config = IsosterConfig(
         x0=20.0,
         y0=20.0,
         sma0=10.0,
-        minsma=0.0,
+        minsma=10.0,
         maxsma=14.0,
         astep=2.0,
         linear_growth=True,
@@ -239,16 +239,14 @@ def test_fit_image_treats_stop_code_2_as_unacceptable(monkeypatch):
     def fake_fit_isophote(image_arg, mask_arg, sma, start_geometry, cfg_arg,
                           going_inwards=False, previous_geometry=None):
         call_count['n'] += 1
-        if call_count['n'] > 1:
-            pytest.fail("growth should stop after first stop_code=2 isophote")
         return _build_mock_isophote(sma=sma, stop_code=2)
 
     monkeypatch.setattr("isoster.driver.fit_isophote", fake_fit_isophote)
 
     results = fit_image(image, mask=None, config=config)
 
-    assert call_count['n'] == 1
-    assert [iso['sma'] for iso in results['isophotes']] == [0.0]
+    assert call_count['n'] == 3
+    assert [iso['sma'] for iso in results['isophotes']] == [10.0, 12.0, 14.0]
 
 
 def test_fit_image_raises_on_negative_error_in_regular_mode(monkeypatch):
