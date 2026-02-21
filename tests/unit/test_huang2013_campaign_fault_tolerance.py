@@ -623,3 +623,189 @@ def test_infer_initial_geometry_uses_fixed_six_pixel_initial_sma() -> None:
     header["RE_PX1"] = 24.0
     geometry = real_mock_demo.infer_initial_geometry(header, image_shape=(100, 100))
     assert geometry["sma0"] == pytest.approx(6.0)
+
+
+def test_collect_problem_cases_tracks_extraction_and_qa_failures() -> None:
+    """Campaign summary helper should retain explicit failed/timeout case identities."""
+    results_by_case = [
+        {
+            "galaxy": "IC2006",
+            "mock_id": 1,
+            "prefix": "IC2006_mock1",
+            "output_dir": "/tmp/IC2006/mock1",
+            "method_stages": {
+                "photutils": {"status": "timeout"},
+                "isoster": {"status": "success"},
+            },
+            "qa_stage": {"status": "success"},
+        },
+        {
+            "galaxy": "IC4797",
+            "mock_id": 1,
+            "prefix": "IC4797_mock1",
+            "output_dir": "/tmp/IC4797/mock1",
+            "method_stages": {
+                "photutils": {"status": "failed"},
+                "isoster": {"status": "success"},
+            },
+            "qa_stage": {"status": "timeout"},
+        },
+        {
+            "galaxy": "IC4889",
+            "mock_id": 1,
+            "prefix": "IC4889_mock1",
+            "output_dir": "/tmp/IC4889/mock1",
+            "method_stages": {
+                "photutils": {"status": "success"},
+                "isoster": {"status": "failed"},
+            },
+            "qa_stage": {"status": "failed"},
+        },
+    ]
+
+    (
+        extraction_failed_cases,
+        extraction_timeout_cases,
+        qa_failed_cases,
+        qa_timeout_cases,
+    ) = campaign.collect_problem_cases(results_by_case, requested_methods=["photutils", "isoster"])
+
+    assert [entry["prefix"] for entry in extraction_timeout_cases["photutils"]] == ["IC2006_mock1"]
+    assert [entry["prefix"] for entry in extraction_failed_cases["photutils"]] == ["IC4797_mock1"]
+    assert [entry["prefix"] for entry in extraction_failed_cases["isoster"]] == ["IC4889_mock1"]
+    assert [entry["prefix"] for entry in qa_timeout_cases] == ["IC4797_mock1"]
+    assert [entry["prefix"] for entry in qa_failed_cases] == ["IC4889_mock1"]
+
+
+def test_write_markdown_summary_includes_explicit_problem_case_lists(tmp_path: Path) -> None:
+    """Markdown summary should include direct failed/timeout case labels."""
+    summary_payload = {
+        "galaxy_count": 20,
+        "requested_case_count": 80,
+        "processed_case_count": 80,
+        "missing_input_count": 0,
+        "extraction_invocation_failures": 1,
+        "extraction_timeouts": 3,
+        "qa_invocation_failures": 1,
+        "qa_timeouts": 1,
+        "comparison_qa_generated": 74,
+        "method_counters": {
+            "photutils": {
+                "success": 74,
+                "failed": 1,
+                "timeout": 3,
+                "skipped_existing": 0,
+                "unknown": 0,
+            },
+            "isoster": {
+                "success": 79,
+                "failed": 1,
+                "timeout": 0,
+                "skipped_existing": 0,
+                "unknown": 0,
+            },
+        },
+        "extraction_failed_cases": {
+            "photutils": [{"prefix": "IC4797_mock1"}],
+            "isoster": [{"prefix": "IC4889_mock1"}],
+        },
+        "extraction_timeout_cases": {
+            "photutils": [{"prefix": "IC2006_mock1"}, {"prefix": "IC4889_mock1"}],
+            "isoster": [],
+        },
+        "qa_failed_cases": [{"prefix": "IC4889_mock1"}],
+        "qa_timeout_cases": [{"prefix": "IC4797_mock1"}],
+    }
+
+    summary_markdown_path = tmp_path / "summary.md"
+    campaign.write_markdown_summary(summary_markdown_path, summary_payload)
+
+    summary_text = summary_markdown_path.read_text()
+    assert "Failed cases: `IC4797_mock1`" in summary_text
+    assert "Timeout cases: `IC2006_mock1, IC4889_mock1`" in summary_text
+    assert "QA failed cases: `IC4889_mock1`" in summary_text
+    assert "QA timeout cases: `IC4797_mock1`" in summary_text
+
+
+def test_collect_problem_cases_honors_counted_status_for_manifest_failures() -> None:
+    """Failed-case list should include manifest-failed methods even if stage returned success."""
+    results_by_case = [
+        {
+            "galaxy": "IC1633",
+            "mock_id": 1,
+            "prefix": "IC1633_mock1",
+            "output_dir": "/tmp/IC1633/mock1",
+            "profiles_manifest": "/tmp/IC1633/mock1/IC1633_mock1_profiles_manifest.json",
+            "method_stages": {
+                "photutils": {
+                    "status": "success",
+                    "manifest_status": "failed",
+                    "counted_status": "failed",
+                },
+                "isoster": {"status": "success", "counted_status": "success"},
+            },
+            "qa_stage": {"status": "success"},
+        }
+    ]
+
+    (
+        extraction_failed_cases,
+        extraction_timeout_cases,
+        qa_failed_cases,
+        qa_timeout_cases,
+    ) = campaign.collect_problem_cases(results_by_case, requested_methods=["photutils", "isoster"])
+
+    assert [entry["prefix"] for entry in extraction_failed_cases["photutils"]] == ["IC1633_mock1"]
+    assert extraction_timeout_cases["photutils"] == []
+    assert extraction_failed_cases["isoster"] == []
+    assert qa_failed_cases == []
+    assert qa_timeout_cases == []
+
+
+def test_extract_isoster_model_rows_filters_invalid_rows() -> None:
+    """isoster model-input extraction should drop non-finite rows before modeling."""
+    profile_table = Table()
+    profile_table["sma"] = np.array([1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0], dtype=float)
+    profile_table["intens"] = np.array([10.0, 9.0, np.nan, 7.0, 6.0, 5.0, 4.0], dtype=float)
+    profile_table["eps"] = np.full(7, 0.2, dtype=float)
+    profile_table["pa"] = np.full(7, 0.5, dtype=float)
+    profile_table["x0"] = np.full(7, 15.0, dtype=float)
+    profile_table["y0"] = np.full(7, 16.0, dtype=float)
+    profile_table["a3"] = np.zeros(7, dtype=float)
+    profile_table["b3"] = np.zeros(7, dtype=float)
+    profile_table["a4"] = np.zeros(7, dtype=float)
+    profile_table["b4"] = np.zeros(7, dtype=float)
+
+    isophote_rows, summary = real_mock_demo.extract_isoster_model_rows(profile_table, harmonic_orders=[3, 4])
+
+    assert summary["input_row_count"] == 7
+    assert summary["invalid_row_count"] == 1
+    assert summary["valid_row_count"] == 6
+    assert summary["unique_row_count"] == 6
+    assert len(isophote_rows) == 6
+    assert all(np.isfinite(row["intens"]) for row in isophote_rows)
+
+
+def test_build_model_image_isoster_replaces_nonfinite_with_zero() -> None:
+    """isoster model build should return finite image after invalid-row filtering."""
+    profile_table = Table()
+    profile_table["sma"] = np.array([1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0], dtype=float)
+    profile_table["intens"] = np.array([8.0, 7.0, np.nan, 5.0, 4.0, 3.0, 2.0], dtype=float)
+    profile_table["eps"] = np.full(7, 0.1, dtype=float)
+    profile_table["pa"] = np.full(7, 0.3, dtype=float)
+    profile_table["x0"] = np.full(7, 20.0, dtype=float)
+    profile_table["y0"] = np.full(7, 21.0, dtype=float)
+    profile_table["a3"] = np.zeros(7, dtype=float)
+    profile_table["b3"] = np.zeros(7, dtype=float)
+    profile_table["a4"] = np.zeros(7, dtype=float)
+    profile_table["b4"] = np.zeros(7, dtype=float)
+
+    with pytest.warns(RuntimeWarning, match="Filtered isoster model rows"):
+        model_image = real_mock_demo.build_model_image(
+            image_shape=(64, 64),
+            profile_table=profile_table,
+            method_name="isoster",
+        )
+
+    assert model_image.shape == (64, 64)
+    assert np.all(np.isfinite(model_image))

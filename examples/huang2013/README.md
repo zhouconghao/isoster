@@ -32,7 +32,7 @@ The workflow is split into two stages:
   - Writes per-method QA, comparison QA, markdown report, and QA manifest.
 - `run_huang2013_campaign.py`
   - Runs extraction + QA over all requested galaxies/mock IDs with fault tolerance.
-  - Writes campaign summary JSON/Markdown with method-level failure statistics.
+  - Writes campaign summary JSON/Markdown with method-level failure statistics and explicit failed/timeout case lists.
 - `run_huang2013_real_mock_demo.py`
   - Shared helper implementation used by the two scripts above.
 - `clean_huang2013_outputs.py`
@@ -94,13 +94,14 @@ Notes:
 - Final totals are written to:
   - `outputs/huang2013_campaign_full/huang2013_campaign_summary.json`
   - `outputs/huang2013_campaign_full/huang2013_campaign_summary.md`
+- The summary includes direct case labels for extraction failed/timeout and QA failed/timeout outcomes.
 
 ## Long-Run Controls
 
 Recommended options for large campaigns:
 
 - `--verbose`: prints stage/method start/end and error status.
-- `--save-log`: writes per-stage logs (`<PREFIX>_photutils.log`, `<PREFIX>_isoster.log`, `<PREFIX>_qa.log`).
+- `--save-log`: writes per-stage campaign JSON logs (`<PREFIX>_photutils_campaign-stage.json`, `<PREFIX>_isoster_campaign-stage.json`, `<PREFIX>_qa_campaign-stage.json`).
 - `--max-runtime-seconds 900`: per-stage timeout guard (default 900 seconds).
 - `--continue-from NGC4767`: resume by galaxy (inclusive).
 - `--continue-from-case NGC4767_mock1`: resume by exact case (inclusive).

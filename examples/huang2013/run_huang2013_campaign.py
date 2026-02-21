@@ -23,6 +23,7 @@ from huang2013_campaign_contract import (
     build_method_artifact_paths,
     build_profiles_manifest_path,
     build_qa_manifest_path,
+    load_method_statuses_from_profiles_manifest,
     read_json_dict_if_exists,
 )
 
@@ -308,6 +309,8 @@ def write_markdown_summary(summary_path: Path, payload: dict[str, Any]) -> None:
         if method_name not in payload["method_counters"]:
             continue
         method_counter = payload["method_counters"][method_name]
+        failed_cases = payload.get("extraction_failed_cases", {}).get(method_name, [])
+        timeout_cases = payload.get("extraction_timeout_cases", {}).get(method_name, [])
         lines.extend(
             [
                 f"### {method_name}",
@@ -317,11 +320,91 @@ def write_markdown_summary(summary_path: Path, payload: dict[str, Any]) -> None:
                 f"- Timeout: `{method_counter['timeout']}`",
                 f"- Skipped existing: `{method_counter['skipped_existing']}`",
                 f"- Unknown: `{method_counter['unknown']}`",
+                f"- Failed cases: `{format_problem_case_labels(failed_cases)}`",
+                f"- Timeout cases: `{format_problem_case_labels(timeout_cases)}`",
                 "",
             ]
         )
 
+    qa_failed_cases = payload.get("qa_failed_cases", [])
+    qa_timeout_cases = payload.get("qa_timeout_cases", [])
+    lines.extend(
+        [
+            "## Explicit Failed/Timeout Case Lists",
+            "",
+            f"- QA failed cases: `{format_problem_case_labels(qa_failed_cases)}`",
+            f"- QA timeout cases: `{format_problem_case_labels(qa_timeout_cases)}`",
+            "",
+        ]
+    )
+
     summary_path.write_text("\n".join(lines) + "\n")
+
+
+def build_problem_case_entry(case_payload: dict[str, Any], method_name: str | None = None) -> dict[str, Any]:
+    """Build compact case metadata for failed/timeout summary reporting."""
+    return {
+        "galaxy": case_payload.get("galaxy"),
+        "mock_id": case_payload.get("mock_id"),
+        "prefix": case_payload.get("prefix"),
+        "method": method_name,
+        "output_dir": case_payload.get("output_dir"),
+    }
+
+
+def format_problem_case_labels(case_entries: list[dict[str, Any]]) -> str:
+    """Format failed/timeout case metadata as concise case labels."""
+    if not case_entries:
+        return "none"
+    labels = [str(entry.get("prefix", "unknown")) for entry in case_entries]
+    return ", ".join(labels)
+
+
+def collect_problem_cases(
+    results_by_case: list[dict[str, Any]],
+    requested_methods: list[str],
+) -> tuple[dict[str, list[dict[str, Any]]], dict[str, list[dict[str, Any]]], list[dict[str, Any]], list[dict[str, Any]]]:
+    """Collect explicit per-case failed/timeout entries for extraction and QA."""
+    extraction_failed_cases = {method_name: [] for method_name in requested_methods}
+    extraction_timeout_cases = {method_name: [] for method_name in requested_methods}
+    qa_failed_cases: list[dict[str, Any]] = []
+    qa_timeout_cases: list[dict[str, Any]] = []
+
+    for case_payload in results_by_case:
+        profiles_manifest_text = case_payload.get("profiles_manifest")
+        profiles_manifest_path = Path(profiles_manifest_text) if isinstance(profiles_manifest_text, str) else None
+        manifest_statuses = load_method_statuses_from_profiles_manifest(profiles_manifest_path)
+
+        method_stage_payload = case_payload.get("method_stages", {})
+        if isinstance(method_stage_payload, dict):
+            for method_name in requested_methods:
+                method_stage = method_stage_payload.get(method_name, {})
+                if not isinstance(method_stage, dict):
+                    continue
+                stage_status = method_stage.get("status")
+                counted_status = method_stage.get("counted_status")
+                if isinstance(counted_status, str):
+                    stage_status = counted_status
+                elif stage_status == "success":
+                    manifest_status = manifest_statuses.get(method_name)
+                    if manifest_status in {"failed", "success"}:
+                        stage_status = manifest_status
+
+                if stage_status == "failed":
+                    extraction_failed_cases[method_name].append(build_problem_case_entry(case_payload, method_name))
+                elif stage_status == "timeout":
+                    extraction_timeout_cases[method_name].append(build_problem_case_entry(case_payload, method_name))
+
+        qa_stage_payload = case_payload.get("qa_stage")
+        if not isinstance(qa_stage_payload, dict):
+            continue
+        qa_stage_status = qa_stage_payload.get("status")
+        if qa_stage_status == "failed":
+            qa_failed_cases.append(build_problem_case_entry(case_payload))
+        elif qa_stage_status == "timeout":
+            qa_timeout_cases.append(build_problem_case_entry(case_payload))
+
+    return extraction_failed_cases, extraction_timeout_cases, qa_failed_cases, qa_timeout_cases
 
 
 def main() -> None:
@@ -417,7 +500,7 @@ def main() -> None:
         # Extraction stage per method
         for method_name in requested_methods:
             stage_name = f"{prefix}:extract:{method_name}"
-            method_log_path = output_dir / f"{prefix}_{method_name}.log"
+            method_log_path = output_dir / f"{prefix}_{method_name}_campaign-stage.json"
 
             paths = method_artifact_paths(output_dir, prefix, method_name, arguments.config_tag)
             if not arguments.update and is_reusable_success(paths):
@@ -464,17 +547,20 @@ def main() -> None:
             case_payload["method_stages"][method_name] = stage_result
 
             if stage_result["status"] == "timeout":
+                case_payload["method_stages"][method_name]["counted_status"] = "timeout"
                 method_counters[method_name]["timeout"] += 1
                 extraction_timeouts += 1
                 continue
 
             if stage_result["status"] == "failed":
+                case_payload["method_stages"][method_name]["counted_status"] = "failed"
                 method_counters[method_name]["failed"] += 1
                 extraction_invocation_failures += 1
                 continue
 
             profiles_manifest = read_json_if_exists(profiles_manifest_path)
             if profiles_manifest is None:
+                case_payload["method_stages"][method_name]["counted_status"] = "unknown"
                 method_counters[method_name]["unknown"] += 1
                 continue
 
@@ -482,19 +568,24 @@ def main() -> None:
             method_payload = method_runs_payload.get(method_name, {}) if isinstance(method_runs_payload, dict) else {}
             method_status = method_payload.get("status") if isinstance(method_payload, dict) else None
             skipped_existing = bool(method_payload.get("skipped_existing")) if isinstance(method_payload, dict) else False
+            case_payload["method_stages"][method_name]["manifest_status"] = method_status
 
             if method_status == "success":
                 if skipped_existing:
+                    case_payload["method_stages"][method_name]["counted_status"] = "skipped_existing"
                     method_counters[method_name]["skipped_existing"] += 1
                 else:
+                    case_payload["method_stages"][method_name]["counted_status"] = "success"
                     method_counters[method_name]["success"] += 1
             elif method_status == "failed":
+                case_payload["method_stages"][method_name]["counted_status"] = "failed"
                 method_counters[method_name]["failed"] += 1
             else:
+                case_payload["method_stages"][method_name]["counted_status"] = "unknown"
                 method_counters[method_name]["unknown"] += 1
 
         # QA stage
-        qa_log_path = output_dir / f"{prefix}_qa.log"
+        qa_log_path = output_dir / f"{prefix}_qa_campaign-stage.json"
 
         if not arguments.update and qa_manifest_path.exists():
             case_payload["qa_stage"] = {
@@ -583,6 +674,15 @@ def main() -> None:
         "cases": results_by_case,
     }
 
+    extraction_failed_cases, extraction_timeout_cases, qa_failed_cases, qa_timeout_cases = collect_problem_cases(
+        results_by_case=results_by_case,
+        requested_methods=requested_methods,
+    )
+    summary_payload["extraction_failed_cases"] = extraction_failed_cases
+    summary_payload["extraction_timeout_cases"] = extraction_timeout_cases
+    summary_payload["qa_failed_cases"] = qa_failed_cases
+    summary_payload["qa_timeout_cases"] = qa_timeout_cases
+
     summary_json_path = arguments.summary_dir / "huang2013_campaign_summary.json"
     summary_markdown_path = arguments.summary_dir / "huang2013_campaign_summary.md"
     summary_json_path.write_text(json.dumps(summary_payload, indent=2, sort_keys=True) + "\n")
@@ -591,11 +691,17 @@ def main() -> None:
     print(f"Summary JSON: {summary_json_path}")
     print(f"Summary MD: {summary_markdown_path}")
     for method_name, method_counter in method_counters.items():
+        failed_cases = summary_payload["extraction_failed_cases"].get(method_name, [])
+        timeout_cases = summary_payload["extraction_timeout_cases"].get(method_name, [])
         print(
             f"Method {method_name}: success={method_counter['success']} "
             f"failed={method_counter['failed']} timeout={method_counter['timeout']} "
             f"skipped_existing={method_counter['skipped_existing']} unknown={method_counter['unknown']}"
         )
+        print(f"  {method_name} failed cases: {format_problem_case_labels(failed_cases)}")
+        print(f"  {method_name} timeout cases: {format_problem_case_labels(timeout_cases)}")
+    print(f"QA failed cases: {format_problem_case_labels(summary_payload['qa_failed_cases'])}")
+    print(f"QA timeout cases: {format_problem_case_labels(summary_payload['qa_timeout_cases'])}")
 
 
 if __name__ == "__main__":

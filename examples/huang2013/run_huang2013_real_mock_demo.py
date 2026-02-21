@@ -20,6 +20,7 @@ import platform
 import pstats
 import shutil
 import time
+import warnings
 from pathlib import Path
 from typing import Any
 
@@ -781,6 +782,85 @@ def build_photutils_model_image(
     )
 
 
+def extract_isoster_model_rows(
+    profile_table: Table,
+    harmonic_orders: list[int] | None = None,
+) -> tuple[list[dict[str, float]], dict[str, int]]:
+    """Extract and sanitize isoster rows required by `build_isoster_model`."""
+    if harmonic_orders is None:
+        harmonic_orders = [3, 4]
+
+    required_columns = ["sma", "intens", "eps", "pa", "x0", "y0"]
+    missing_columns = [name for name in required_columns if name not in profile_table.colnames]
+    if missing_columns:
+        missing_text = ", ".join(missing_columns)
+        raise ValueError(f"Missing isoster model columns: {missing_text}")
+
+    model_columns: dict[str, np.ndarray] = {}
+    for column_name in required_columns:
+        model_columns[column_name] = np.asarray(profile_table[column_name], dtype=float)
+
+    valid_mask = model_columns["sma"] > 0.0
+    for column_name in required_columns:
+        valid_mask &= np.isfinite(model_columns[column_name])
+
+    input_row_count = len(profile_table)
+    valid_row_count = int(np.sum(valid_mask))
+    if valid_row_count < 6:
+        raise ValueError("Insufficient valid isoster rows for 2-D model reconstruction")
+
+    sort_indices = np.argsort(model_columns["sma"][valid_mask])
+    for column_name in required_columns:
+        model_columns[column_name] = model_columns[column_name][valid_mask][sort_indices]
+
+    unique_sma_values, unique_indices = np.unique(model_columns["sma"], return_index=True)
+    for column_name in required_columns:
+        model_columns[column_name] = model_columns[column_name][unique_indices]
+    model_columns["sma"] = unique_sma_values
+
+    unique_row_count = int(model_columns["sma"].size)
+    if unique_row_count < 6:
+        raise ValueError("Insufficient unique isoster SMA rows for 2-D model reconstruction")
+
+    harmonic_columns: dict[str, np.ndarray] = {}
+    for harmonic_order in harmonic_orders:
+        for harmonic_prefix in ["a", "b"]:
+            harmonic_name = f"{harmonic_prefix}{harmonic_order}"
+            if harmonic_name in profile_table.colnames:
+                harmonic_values = np.asarray(profile_table[harmonic_name], dtype=float)
+                harmonic_values = harmonic_values[valid_mask][sort_indices][unique_indices]
+                harmonic_columns[harmonic_name] = np.where(
+                    np.isfinite(harmonic_values),
+                    harmonic_values,
+                    0.0,
+                )
+            else:
+                harmonic_columns[harmonic_name] = np.zeros(unique_row_count, dtype=float)
+
+    isophote_rows: list[dict[str, float]] = []
+    for index in range(unique_row_count):
+        row = {
+            "sma": float(model_columns["sma"][index]),
+            "intens": float(model_columns["intens"][index]),
+            "eps": float(model_columns["eps"][index]),
+            "pa": float(model_columns["pa"][index]),
+            "x0": float(model_columns["x0"][index]),
+            "y0": float(model_columns["y0"][index]),
+        }
+        for harmonic_name, harmonic_values in harmonic_columns.items():
+            row[harmonic_name] = float(harmonic_values[index])
+        isophote_rows.append(row)
+
+    summary = {
+        "input_row_count": int(input_row_count),
+        "valid_row_count": int(valid_row_count),
+        "invalid_row_count": int(input_row_count - valid_row_count),
+        "unique_row_count": int(unique_row_count),
+        "duplicate_row_count": int(valid_row_count - unique_row_count),
+    }
+    return isophote_rows, summary
+
+
 def build_model_image(
     image_shape: tuple[int, int],
     profile_table: Table,
@@ -791,13 +871,42 @@ def build_model_image(
     if normalized_method == "photutils":
         return build_photutils_model_image(image_shape, profile_table)
 
-    isophotes = table_to_isophote_dicts(profile_table)
-    return isoster.build_isoster_model(
+    harmonic_orders = [3, 4]
+    isophotes, filter_summary = extract_isoster_model_rows(profile_table, harmonic_orders=harmonic_orders)
+    if filter_summary["invalid_row_count"] > 0 or filter_summary["duplicate_row_count"] > 0:
+        warnings.warn(
+            (
+                "Filtered isoster model rows before 2-D reconstruction: "
+                f"invalid_rows={filter_summary['invalid_row_count']} "
+                f"duplicate_rows={filter_summary['duplicate_row_count']} "
+                f"valid_rows={filter_summary['valid_row_count']} "
+                f"unique_rows={filter_summary['unique_row_count']}"
+            ),
+            RuntimeWarning,
+            stacklevel=2,
+        )
+
+    model_image = isoster.build_isoster_model(
         image_shape,
         isophotes,
         use_harmonics=True,
-        harmonic_orders=[3, 4],
+        harmonic_orders=harmonic_orders,
     )
+
+    finite_mask = np.isfinite(model_image)
+    if not np.all(finite_mask):
+        non_finite_count = int(model_image.size - np.count_nonzero(finite_mask))
+        warnings.warn(
+            (
+                "Non-finite values detected in isoster 2-D model output after filtering; "
+                f"replacing with 0.0 (count={non_finite_count})."
+            ),
+            RuntimeWarning,
+            stacklevel=2,
+        )
+        model_image = np.where(finite_mask, model_image, 0.0)
+
+    return model_image
 
 
 def compute_fractional_residual_percent(image: np.ndarray, model: np.ndarray) -> np.ndarray:

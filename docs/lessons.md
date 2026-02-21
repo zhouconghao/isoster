@@ -69,3 +69,6 @@
 - For photutils stop-code parity, max-iteration fallback in `isoster` should emit explicit `stop_code=2` and be treated as a usable (non-failure) row for growth propagation.
 - After stop-code policy changes, integration tests that select "usable" fitted rows should use an explicit usable set (`{0,1,2}`) instead of hard-coding `stop_code == 0`.
 - For Huang2013 extraction retries, reducing only `sma0`/`astep` is not always enough for unstable outer photutils fits; apply a `maxsma` decay (5% per failed attempt) to recover from NaN-geometry failures at very large SMA.
+- For Huang2013 isoster QA, sanitize model-input rows before 2-D reconstruction: filter non-finite required columns (`sma`, `intens`, `eps`, `pa`, `x0`, `y0`), de-duplicate SMA, and guard model output by replacing any residual non-finite pixels with `0.0` to prevent gap artifacts.
+- For campaign-level failed-case reporting, classify failures from the final counted method status (including extraction-manifest `status=failed`) rather than subprocess return status alone.
+- Avoid log-file role collisions between campaign and extraction stages; campaign `--save-log` outputs should use dedicated stage JSON filenames instead of reusing extraction method log names.

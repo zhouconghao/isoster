@@ -89,6 +89,61 @@ Plan file: `docs/todo.md`
     - `MPLCONFIGDIR=/tmp/mplconfig uv run python examples/huang2013/run_huang2013_campaign.py --huang-root /Users/mac/work/hsc/huang2013 --output-root /Users/mac/work/hsc/huang2013 --galaxies ESO185-G054 --mock-ids 1 --method isoster --config-tag baseline --limit 1 --verbose --save-log --update`
     - Result: campaign `mkdir` stage logged as skip-existing for `/Users/mac/work/hsc/huang2013/ESO185-G054/mock1`, then extraction + QA succeeded.
 
+## Phase 22 Plan (Huang2013 20-Galaxy Follow-Ups)
+
+Plan file: `docs/todo.md`
+
+| Item | Status | Notes |
+|---|---|---|
+| 1. Review dirty worktree items and confirm setup branch | [x] | Reviewed tracked `pycache` modifications and untracked journal prompt files; branch `huang2013-small-issues-2026-02-21` created for follow-up work. |
+| 2. Extract first-20 run outcome summary and failure cluster | [x] | `80/80` cases processed; `photutils` has `3` timeouts (`IC2006`, `IC4797`, `IC4889`, all `mock1`). |
+| 3. Decide worktree hygiene policy for tracked `*.pyc` and session prompt files | [ ] | Pending decision: quick restore-only vs durable untrack policy for pycache; keep/commit vs local-ignore for new journal prompts. |
+| 4. Implement selected small workflow fixes from the first-20 run | [x] | Added explicit failed/timeout case aggregation and reporting in campaign summary JSON/Markdown and terminal output (`run_huang2013_campaign.py`). |
+| 5. Re-run targeted verification and capture evidence | [x] | Added regression tests and ran targeted lint/test verification (details below). |
+
+### Phase 22 Review Notes (In Progress)
+
+- Current run summary source: `outputs/huang2013_campaign/huang2013_campaign_summary.json`.
+- Method counters:
+  - `isoster`: `80` success, `0` timeout/failure.
+  - `photutils`: `74` success, `3` timeout (counted as failed in method counters).
+- QA warning footprint (from per-case QA manifests): `21` `artifact_missing` warnings and `10` `isophote_count_mismatch` warnings.
+- Worktree hygiene root cause:
+  - `.gitignore` ignores `__pycache__` and `*.pyc`, but multiple `*.pyc` files are already tracked in git history, so runtime regenerates them as modified files.
+- First small issue implemented:
+  - campaign output now emits direct case labels for:
+    - extraction failed cases per method,
+    - extraction timeout cases per method,
+    - QA failed/timeout cases.
+  - same information is persisted in `huang2013_campaign_summary.json` and rendered in `huang2013_campaign_summary.md`.
+- Verification evidence:
+  - `uv run ruff check examples/huang2013/run_huang2013_campaign.py tests/unit/test_huang2013_campaign_fault_tolerance.py`
+    - Result: pass.
+  - `uv run pytest tests/unit/test_huang2013_campaign_fault_tolerance.py -q`
+    - Result: `19 passed`.
+- Second small issue implemented (isoster 2-D model gaps):
+  - Added isoster model-input sanitization in `run_huang2013_real_mock_demo.py` before calling `isoster.build_isoster_model(...)`.
+  - Filter now removes non-finite required rows (`sma`, `intens`, `eps`, `pa`, `x0`, `y0`) and de-duplicates repeated SMA rows.
+  - Added post-build finite guard to replace any residual non-finite model pixels with `0.0` plus runtime warning.
+  - Added targeted regressions:
+    - `test_extract_isoster_model_rows_filters_invalid_rows`
+    - `test_build_model_image_isoster_replaces_nonfinite_with_zero`
+  - Re-generated QA (no extraction rerun) for `IC2006_mock1` isoster:
+    - `MPLCONFIGDIR=/tmp/mplconfig uv run python examples/huang2013/run_huang2013_qa_afterburner.py --huang-root /Users/mac/work/hsc/huang2013 --galaxy IC2006 --mock-id 1 --method isoster --config-tag baseline --output-dir /Users/mac/work/hsc/huang2013/IC2006/mock1 --verbose`
+    - Result: method QA success; updated figure at `/Users/mac/work/hsc/huang2013/IC2006/mock1/IC2006_mock1_isoster_baseline_qa.png`.
+- Third small issue implemented (campaign failed-case reporting + log collision):
+  - `run_huang2013_campaign.py` now stores per-method `counted_status` and `manifest_status` in case stage payloads.
+  - Failed/timeout case lists now use counted status so manifest-level extraction failures are included even when subprocess exit code was success.
+  - `--save-log` campaign stage logs now use dedicated JSON filenames to avoid overwrite collision with extraction method logs:
+    - `<PREFIX>_<METHOD>_campaign-stage.json`
+    - `<PREFIX>_qa_campaign-stage.json`
+  - Added regression:
+    - `test_collect_problem_cases_honors_counted_status_for_manifest_failures`
+  - Verification:
+    - `uv run ruff check examples/huang2013/run_huang2013_campaign.py tests/unit/test_huang2013_campaign_fault_tolerance.py examples/huang2013/README.md`
+    - `uv run pytest tests/unit/test_huang2013_campaign_fault_tolerance.py -q`
+    - Result: `20 passed`.
+
 ## Phase 7 Checklist
 
 | Item | Status | Notes |

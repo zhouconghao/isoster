@@ -91,11 +91,13 @@ Extraction retries are method-local and shared across photutils/isoster with fix
 - `maxsma`: multiplied by `0.95` per retry attempt (5% decay each attempt)
 - Retry metadata (`fit_retry_log`, `attempt_count`, `max_attempts`) is persisted in per-method run JSON.
 
-For full-sample execution, `run_huang2013_campaign.py` iterates galaxies/mock IDs, continues across case failures, and writes campaign-level summary JSON/Markdown with aggregate method failure counts.
+For full-sample execution, `run_huang2013_campaign.py` iterates galaxies/mock IDs, continues across case failures, and writes campaign-level summary JSON/Markdown with aggregate method failure counts plus explicit failed/timeout case labels (per method and QA stage).
 
 Campaign controls include verbose stage telemetry (`--verbose`), per-stage logs (`--save-log`), per-stage timeout guard (`--max-runtime-seconds`, default 900), resume pointers (`--continue-from`, `--continue-from-case`), and skip-existing/rerun control (`--update`).
 
 QA afterburner uses extraction-manifest method status as a guard and skips method QA/comparison for methods with non-success extraction status.
+
+For QA/model reconstruction robustness, isoster 2-D model building in the Huang2013 workflow sanitizes profile rows before calling `isoster.build_isoster_model(...)`: rows with non-finite required fields are filtered, duplicate SMA rows are de-duplicated, and any residual non-finite model pixels are replaced with `0.0` with an explicit warning.
 
 Default output layout is case-scoped:
 
