@@ -88,7 +88,7 @@ Extraction retries are method-local and shared across photutils/isoster with fix
 - Maximum attempts: 5
 - `sma0` increment: +2.0 pixels per retry attempt
 - `astep` increment: +0.02 per retry attempt
-- `maxsma`: fixed across attempts (no fallback shrink)
+- `maxsma`: multiplied by `0.95` per retry attempt (5% decay each attempt)
 - Retry metadata (`fit_retry_log`, `attempt_count`, `max_attempts`) is persisted in per-method run JSON.
 
 For full-sample execution, `run_huang2013_campaign.py` iterates galaxies/mock IDs, continues across case failures, and writes campaign-level summary JSON/Markdown with aggregate method failure counts.

@@ -320,7 +320,13 @@ def test_retry_policy_applies_sma0_and_astep_increments_for_photutils(
     assert len(attempted_configs) == 3
     assert [config["sma0"] for config in attempted_configs] == pytest.approx([3.0, 5.0, 7.0])
     assert [config["astep"] for config in attempted_configs] == pytest.approx([0.10, 0.12, 0.14])
-    assert [config["maxsma"] for config in attempted_configs] == pytest.approx([15.0, 15.0, 15.0])
+    assert [config["maxsma"] for config in attempted_configs] == pytest.approx(
+        [
+            15.0,
+            15.0 * profile_extraction.MAXSMA_RETRY_DECAY_FACTOR,
+            15.0 * (profile_extraction.MAXSMA_RETRY_DECAY_FACTOR**2),
+        ]
+    )
 
     run_json_path = output_dir / "ESO185-G054_mock3_photutils_baseline_run.json"
     payload = json.loads(run_json_path.read_text())
@@ -374,7 +380,13 @@ def test_retry_policy_applies_sma0_and_astep_increments_for_isoster(
     assert len(attempted_configs) == 3
     assert [config["sma0"] for config in attempted_configs] == pytest.approx([6.0, 8.0, 10.0])
     assert [config["astep"] for config in attempted_configs] == pytest.approx([0.10, 0.12, 0.14])
-    assert [config["maxsma"] for config in attempted_configs] == pytest.approx([15.0, 15.0, 15.0])
+    assert [config["maxsma"] for config in attempted_configs] == pytest.approx(
+        [
+            15.0,
+            15.0 * profile_extraction.MAXSMA_RETRY_DECAY_FACTOR,
+            15.0 * (profile_extraction.MAXSMA_RETRY_DECAY_FACTOR**2),
+        ]
+    )
 
     run_json_path = output_dir / "ESO185-G054_mock3_isoster_baseline_run.json"
     payload = json.loads(run_json_path.read_text())
@@ -416,7 +428,12 @@ def test_retry_policy_exhaustion_records_all_attempts(tmp_path: Path, monkeypatc
     assert len(attempted_configs) == profile_extraction.MAX_FIT_ATTEMPTS
     assert [config["sma0"] for config in attempted_configs] == pytest.approx([3.0, 5.0, 7.0, 9.0, 11.0])
     assert [config["astep"] for config in attempted_configs] == pytest.approx([0.10, 0.12, 0.14, 0.16, 0.18])
-    assert [config["maxsma"] for config in attempted_configs] == pytest.approx([15.0, 15.0, 15.0, 15.0, 15.0])
+    assert [config["maxsma"] for config in attempted_configs] == pytest.approx(
+        [
+            15.0 * (profile_extraction.MAXSMA_RETRY_DECAY_FACTOR**index)
+            for index in range(profile_extraction.MAX_FIT_ATTEMPTS)
+        ]
+    )
 
     run_json_path = output_dir / "ESO185-G054_mock3_photutils_baseline_run.json"
     payload = json.loads(run_json_path.read_text())
@@ -482,6 +499,27 @@ def test_harmonize_method_cog_columns_prefers_isoster_cog_for_completeness() -> 
     method_cog_flux = np.asarray(profile_table["method_cog_flux"], dtype=float)
     assert np.all(np.isfinite(method_cog_flux))
     assert np.allclose(method_cog_flux, np.asarray(profile_table["cog"], dtype=float))
+
+
+def test_harmonize_method_cog_columns_builds_photutils_cog_and_prefers_it() -> None:
+    """Photutils harmonization should use isoster-style computed `cog` before `tflux_e`."""
+    profile_table = Table()
+    profile_table["sma"] = np.array([3.0, 4.0, 5.0], dtype=float)
+    profile_table["eps"] = np.array([0.2, 0.2, 0.2], dtype=float)
+    profile_table["intens"] = np.array([2.0, 1.8, 1.5], dtype=float)
+    profile_table["x0"] = np.array([10.0, 10.0, 10.0], dtype=float)
+    profile_table["y0"] = np.array([10.0, 10.0, 10.0], dtype=float)
+    profile_table["tflux_e"] = np.array([100.0, np.nan, np.nan], dtype=float)
+    profile_table["true_cog_flux"] = np.array([9.0, 19.0, 29.0], dtype=float)
+
+    real_mock_demo.harmonize_method_cog_columns(profile_table, method_name="photutils")
+
+    assert "cog" in profile_table.colnames
+    method_cog_flux = np.asarray(profile_table["method_cog_flux"], dtype=float)
+    cog = np.asarray(profile_table["cog"], dtype=float)
+    assert np.all(np.isfinite(method_cog_flux))
+    assert np.allclose(method_cog_flux, cog)
+    assert method_cog_flux[0] != pytest.approx(float(profile_table["tflux_e"][0]))
 
 
 def test_validate_profile_table_for_qa_rejects_empty_and_missing_columns() -> None:

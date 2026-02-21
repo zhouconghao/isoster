@@ -65,6 +65,7 @@
 ## 2026-02-21
 
 - In `fit_isophote`, rows can keep `stop_code=0` while `niter` reaches `maxit`; when this happens, convergence-only work (including `full_photometry`) may not run, so `tflux_e` can remain `NaN` despite finite fitted intensity.
-- For Huang2013 QA tables, CoG harmonization should be method-aware: prefer `cog` for `isoster` and prefer `tflux_e` for `photutils` to keep method semantics explicit and CoG coverage complete.
+- For Huang2013 QA tables, CoG harmonization should be unified across methods: derive `cog` via `isoster.cog.compute_cog` when geometry/intensity columns are available, and prioritize that `cog` for both `isoster` and `photutils`.
 - For photutils stop-code parity, max-iteration fallback in `isoster` should emit explicit `stop_code=2` and be treated as a usable (non-failure) row for growth propagation.
 - After stop-code policy changes, integration tests that select "usable" fitted rows should use an explicit usable set (`{0,1,2}`) instead of hard-coding `stop_code == 0`.
+- For Huang2013 extraction retries, reducing only `sma0`/`astep` is not always enough for unstable outer photutils fits; apply a `maxsma` decay (5% per failed attempt) to recover from NaN-geometry failures at very large SMA.

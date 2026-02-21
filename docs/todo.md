@@ -673,3 +673,28 @@ Action:
 
 - `uv run pytest tests/ -q`
 - `uv run pytest tests/integration/test_edge_cases.py tests/integration/test_template_forced.py -q`
+
+## Phase 20 Plan (Unify CoG Recipe Across isoster and photutils)
+
+| Item | Status | Notes |
+|---|---|---|
+| 1. Document exact isoster CoG recipe and apply it consistently | [x] | Added `ensure_isoster_style_cog_columns()` to compute CoG via `isoster.cog.compute_cog` from `{sma, eps, intens, x0, y0}` geometry/intensity columns. |
+| 2. Remove photutils-first `tflux_e` preference in QA harmonization | [x] | `harmonize_method_cog_columns()` now prioritizes `cog` for both `isoster` and `photutils`; `tflux_e` is fallback only. |
+| 3. Add regression test for photutils CoG harmonization policy | [x] | Added unit test proving photutils `method_cog_flux` is sourced from computed `cog` even when `tflux_e` is present. |
+
+### Phase 20 Verification Commands
+
+- `uv run pytest tests/unit/test_huang2013_campaign_fault_tolerance.py -q`
+
+## Phase 21 Plan (Retry maxsma 5% Decay on Failure)
+
+| Item | Status | Notes |
+|---|---|---|
+| 1. Change Huang2013 retry config builder to shrink `maxsma` on each failed attempt | [x] | `build_retry_attempt_config()` now applies `maxsma *= 0.95 ** retry_offset` while keeping existing `sma0`/`astep` increments. |
+| 2. Update retry-policy regression tests | [x] | Unit expectations now validate decaying `maxsma` sequence instead of fixed `maxsma` across attempts. |
+| 3. Reproduce and validate `ESO185-G054_mock1` photutils behavior | [x] | Confirmed default maxsma failure regime and recovery when retries reduce `maxsma`; sweep artifacts saved under `outputs/huang2013_mock1_photutils_maxsma_scan/`. |
+
+### Phase 21 Verification Commands
+
+- `uv run pytest tests/unit/test_huang2013_campaign_fault_tolerance.py -q`
+- `MPLCONFIGDIR=/tmp/mplconfig uv run python examples/huang2013/run_huang2013_profile_extraction.py --galaxy ESO185-G054 --mock-id 1 --huang-root /Users/mac/work/hsc/huang2013 --output-dir outputs/huang2013_mock1_photutils_retry_decay --method photutils --config-tag retry-decay --verbose --save-log --update`

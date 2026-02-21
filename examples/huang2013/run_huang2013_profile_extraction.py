@@ -45,6 +45,7 @@ MIN_SUCCESS_ISOPHOTE_COUNT = 3
 MAX_FIT_ATTEMPTS = 5
 SMA0_RETRY_INCREMENT_PIX = 2.0
 ASTEP_RETRY_INCREMENT = 0.02
+MAXSMA_RETRY_DECAY_FACTOR = 0.95
 
 
 def parse_arguments() -> argparse.Namespace:
@@ -236,7 +237,7 @@ def build_retry_attempt_config(base_fit_config: dict[str, Any], attempt_index: i
     retry_offset = attempt_index - 1
     attempt_config["sma0"] = float(base_fit_config["sma0"] + SMA0_RETRY_INCREMENT_PIX * retry_offset)
     attempt_config["astep"] = float(base_fit_config["astep"] + ASTEP_RETRY_INCREMENT * retry_offset)
-    attempt_config["maxsma"] = float(base_fit_config["maxsma"])
+    attempt_config["maxsma"] = float(base_fit_config["maxsma"] * (MAXSMA_RETRY_DECAY_FACTOR**retry_offset))
     return attempt_config
 
 

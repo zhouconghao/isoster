@@ -32,6 +32,7 @@ from astropy import units as units
 from astropy.cosmology import Planck18
 from astropy.io import fits
 from astropy.table import Table
+from isoster.cog import compute_cog
 from isoster.config import IsosterConfig
 from matplotlib import gridspec
 from matplotlib.lines import Line2D
@@ -522,10 +523,52 @@ def compute_true_curve_of_growth(
     return curve_of_growth
 
 
+def ensure_isoster_style_cog_columns(profile_table: Table) -> None:
+    """Populate CoG columns using the shared `isoster.cog.compute_cog` recipe."""
+    if len(profile_table) == 0:
+        return
+
+    required_columns = {"sma", "eps", "intens", "x0", "y0"}
+    if not required_columns.issubset(profile_table.colnames):
+        return
+
+    if "cog" in profile_table.colnames:
+        existing_cog = np.asarray(profile_table["cog"], dtype=float)
+        if np.any(np.isfinite(existing_cog)):
+            return
+
+    isophote_rows: list[dict[str, float]] = []
+    try:
+        for index in range(len(profile_table)):
+            isophote_rows.append(
+                {
+                    "sma": float(profile_table["sma"][index]),
+                    "eps": float(profile_table["eps"][index]),
+                    "intens": float(profile_table["intens"][index]),
+                    "x0": float(profile_table["x0"][index]),
+                    "y0": float(profile_table["y0"][index]),
+                }
+            )
+    except (TypeError, ValueError):
+        return
+
+    cog_results = compute_cog(isophote_rows)
+    profile_table["cog"] = np.asarray(cog_results["cog"], dtype=float)
+    profile_table["cog_annulus"] = np.asarray(cog_results["cog_annulus"], dtype=float)
+    profile_table["area_annulus"] = np.asarray(cog_results["area_annulus"], dtype=float)
+    profile_table["flag_cross"] = np.asarray(cog_results["flag_cross"], dtype=bool)
+    profile_table["flag_negative_area"] = np.asarray(
+        cog_results["flag_negative_area"],
+        dtype=bool,
+    )
+
+
 def harmonize_method_cog_columns(profile_table: Table, method_name: str | None = None) -> None:
     """Populate method CoG column using method-aware source priority."""
     if len(profile_table) == 0:
         return
+
+    ensure_isoster_style_cog_columns(profile_table)
 
     resolved_method_name = None
     if isinstance(method_name, str) and method_name:
@@ -533,10 +576,8 @@ def harmonize_method_cog_columns(profile_table: Table, method_name: str | None =
     elif isinstance(profile_table.meta.get("METHOD"), str):
         resolved_method_name = profile_table.meta["METHOD"].strip().lower()
 
-    if resolved_method_name == "isoster":
+    if resolved_method_name in {"isoster", "photutils"}:
         source_priority = ["cog", "method_cog_flux", "tflux_e", "true_cog_flux"]
-    elif resolved_method_name == "photutils":
-        source_priority = ["tflux_e", "method_cog_flux", "cog", "true_cog_flux"]
     else:
         source_priority = ["method_cog_flux", "cog", "tflux_e", "true_cog_flux"]
 
