@@ -218,6 +218,26 @@ class TestCoGMode:
                 assert abs(iso_no['intens'] - iso_yes['intens']) < 1e-10
 
 
+class TestAddCogLengthCheck:
+    """Regression test for I6: add_cog_to_isophotes length mismatch."""
+
+    def test_length_mismatch_raises(self):
+        """Mismatched isophote and CoG list lengths should raise ValueError."""
+        from isoster.cog import add_cog_to_isophotes
+
+        isophotes = [{'sma': 10.0}, {'sma': 20.0}, {'sma': 30.0}]
+        cog_results = {
+            'cog': [1.0, 2.0],
+            'cog_annulus': [0.5, 1.0],
+            'area_annulus': [100.0, 200.0],
+            'flag_cross': [False, False],
+            'flag_negative_area': [False, False],
+        }
+
+        with pytest.raises(ValueError, match="Length mismatch"):
+            add_cog_to_isophotes(isophotes, cog_results)
+
+
 class TestMaskedImages:
     """Test handling of all-masked and empty images."""
 
