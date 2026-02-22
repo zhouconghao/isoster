@@ -92,6 +92,61 @@ def test_fit_isophote_emits_stop_code_2_and_photometry_on_maxit_exhaustion():
     assert np.isfinite(result["tflux_e"])
     assert result["npix_e"] > 0
 
+
+def test_stop_code_2_computes_harmonic_deviations():
+    """Regression test for I8: stop_code=2 should still compute harmonic deviations.
+
+    When maxit is reached without convergence, the code should compute best-effort
+    a3/b3/a4/b4 from the last iteration rather than leaving them as zeros.
+    """
+    image_size = 80
+    y_coords, x_coords = np.mgrid[:image_size, :image_size]
+    center_x = image_size / 2.0
+    center_y = image_size / 2.0
+    radius = np.hypot(x_coords - center_x, y_coords - center_y)
+    # Add a boxy/disky perturbation so a4 is non-zero
+    theta = np.arctan2(y_coords - center_y, x_coords - center_x)
+    # Add noise so leastsq returns a non-None covariance matrix
+    np.random.seed(42)
+    image = np.exp(-radius / 8.0) * (1.0 + 0.1 * np.cos(4 * theta))
+    image += np.random.normal(0, 0.005, image.shape)
+
+    config = IsosterConfig(
+        x0=center_x,
+        y0=center_y,
+        eps=0.2,
+        pa=0.0,
+        sma0=8.0,
+        maxit=1,
+        minit=1,
+        conver=1e-8,
+        maxgerr=1.0,
+        full_photometry=False,
+        compute_errors=False,
+        compute_deviations=True,
+        harmonic_orders=[3, 4],
+        sclip=3.0,
+        nclip=0,
+    )
+    start_geometry = {"x0": center_x, "y0": center_y, "eps": 0.2, "pa": 0.0}
+    result = fit_isophote(
+        image,
+        mask=None,
+        sma=8.0,
+        start_geometry=start_geometry,
+        config=config,
+    )
+
+    assert result["stop_code"] == 2, f"Expected stop_code=2, got {result['stop_code']}"
+    # Harmonic fields should exist and be finite
+    for key in ('a3', 'b3', 'a4', 'b4', 'a3_err', 'b3_err', 'a4_err', 'b4_err'):
+        assert key in result, f"Missing harmonic field '{key}' in stop_code=2 result"
+        assert np.isfinite(result[key]), f"Non-finite {key}={result[key]} in stop_code=2 result"
+    # The boxy perturbation should produce a non-trivial a4 or b4
+    assert abs(result['a4']) > 1e-6 or abs(result['b4']) > 1e-6, \
+        f"Expected non-zero a4/b4 from boxy image, got a4={result['a4']}, b4={result['b4']}"
+
+
 if __name__ == '__main__':
     unittest.main()
 

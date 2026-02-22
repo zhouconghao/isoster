@@ -885,6 +885,25 @@ def fit_isophote(image, mask, sma, start_geometry, config, going_inwards=False, 
 
     if niter >= maxit and stop_code == 0 and not converged:
         stop_code = 2  # STOP_CODE 2: Reached max iterations without convergence
+        # Best-effort harmonic deviations from the last iteration
+        if compute_deviations_flag and best_geometry is not None:
+            if simultaneous_harmonics:
+                harmonics = fit_higher_harmonics_simultaneous(
+                    angles, intens, sma, gradient, harmonic_orders
+                )
+                for n in harmonic_orders:
+                    an, bn, an_err, bn_err = harmonics.get(n, (0.0, 0.0, 0.0, 0.0))
+                    best_geometry[f'a{n}'] = an
+                    best_geometry[f'b{n}'] = bn
+                    best_geometry[f'a{n}_err'] = an_err
+                    best_geometry[f'b{n}_err'] = bn_err
+            else:
+                for n in harmonic_orders:
+                    an, bn, an_err, bn_err = compute_deviations(angles, intens, sma, gradient, n)
+                    best_geometry[f'a{n}'] = an
+                    best_geometry[f'b{n}'] = bn
+                    best_geometry[f'a{n}_err'] = an_err
+                    best_geometry[f'b{n}_err'] = bn_err
         if full_photometry:
             _attach_full_photometry(best_geometry, image, mask)
 
