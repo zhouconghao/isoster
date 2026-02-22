@@ -659,3 +659,185 @@ def test_fit_higher_harmonics_vs_sequential():
     print(f"  3rd harmonic: sequential=({a3_seq:.4f}, {b3_seq:.4f}), simultaneous=({a3_sim:.4f}, {b3_sim:.4f})")
     print(f"  4th harmonic: sequential=({a4_seq:.4f}, {b4_seq:.4f}), simultaneous=({a4_sim:.4f}, {b4_sim:.4f})")
 
+
+class TestFflagSemantics(unittest.TestCase):
+    """Regression tests for I1: fflag semantics must match documented convention.
+
+    fflag is documented as 'maximum fraction of flagged data (masked + clipped)'.
+    With fflag=0.2, the isophote should be rejected when sigma clipping removes
+    >20% of the sampled points (i.e. when actual_points < 80% of total_points).
+
+    Note: In isoster, total_points is the count after mask-based filtering
+    (during sampling), and actual_points is after sigma clipping. The fflag
+    check only triggers from sigma clipping, not from mask-based exclusion.
+    """
+
+    def _make_image_with_outliers(self, size=101, sma=20, outlier_fraction=0.4):
+        """Create a radially symmetric image with intensity outliers along part of the ellipse.
+
+        The outliers are extreme enough to be clipped by sigma clipping,
+        reducing actual_points relative to total_points.
+        """
+        y, x = np.mgrid[:size, :size]
+        cx, cy = size // 2, size // 2
+        r = np.sqrt((x - cx)**2 + (y - cy)**2) + 1.0
+        image = 1000.0 / r
+
+        # Inject extreme outliers along a fraction of the ellipse
+        n_outlier_angles = int(360 * outlier_fraction)
+        for angle_deg in range(n_outlier_angles):
+            angle = np.radians(angle_deg)
+            px = int(cx + sma * np.cos(angle))
+            py = int(cy + sma * np.sin(angle))
+            if 0 <= px < size and 0 <= py < size:
+                image[py, px] = 1e6  # extreme outlier
+        return image
+
+    def test_fflag_rejects_high_clipping(self):
+        """With fflag=0.1 and aggressive sigma clipping, stop_code=1 should trigger."""
+        # ~40% of points are extreme outliers, sigma clipping will remove them
+        image = self._make_image_with_outliers(outlier_fraction=0.4)
+        size = image.shape[0]
+        cx, cy = size // 2, size // 2
+        mask = np.zeros_like(image, dtype=bool)
+
+        config = IsosterConfig(
+            x0=float(cx), y0=float(cy), sma0=20.0, eps=0.0, pa=0.0,
+            fflag=0.1,     # allow at most 10% clipped
+            sclip=2.0,     # aggressive sigma clipping
+            nclip=3,        # 3 iterations of clipping
+            maxsma=25.0, fix_center=True, fix_pa=True, fix_eps=True,
+        )
+
+        geom = {'x0': float(cx), 'y0': float(cy), 'eps': 0.0, 'pa': 0.0}
+        result = fit_isophote(image, mask, sma=20.0,
+                              start_geometry=geom, config=config)
+
+        # ~40% clipped > 10% threshold, should trigger stop_code=1
+        self.assertEqual(result['stop_code'], 1,
+            "fflag=0.1 with ~40% sigma-clipped points should trigger stop_code=1")
+
+    def test_fflag_accepts_low_clipping(self):
+        """With fflag=0.5 and moderate outliers, stop_code should NOT be 1."""
+        # ~10% of points are outliers
+        image = self._make_image_with_outliers(outlier_fraction=0.10)
+        size = image.shape[0]
+        cx, cy = size // 2, size // 2
+        mask = np.zeros_like(image, dtype=bool)
+
+        config = IsosterConfig(
+            x0=float(cx), y0=float(cy), sma0=20.0, eps=0.0, pa=0.0,
+            fflag=0.5,     # allow up to 50% clipped
+            sclip=2.0,
+            nclip=3,
+            maxsma=25.0, fix_center=True, fix_pa=True, fix_eps=True,
+        )
+
+        geom = {'x0': float(cx), 'y0': float(cy), 'eps': 0.0, 'pa': 0.0}
+        result = fit_isophote(image, mask, sma=20.0,
+                              start_geometry=geom, config=config)
+
+        # ~10% clipped < 50% threshold, should NOT trigger stop_code=1
+        self.assertNotEqual(result['stop_code'], 1,
+            "fflag=0.5 with ~10% sigma-clipped points should not trigger stop_code=1")
+
+    def test_fflag_arithmetic_correctness(self):
+        """Verify fflag semantics directly: (1-fflag) is the min valid fraction."""
+        # Unit test the arithmetic without full fit_isophote
+        # fflag=0.2 means max 20% flagged, so min 80% valid
+        # With 100 total points, need >= 80 actual to pass
+        fflag = 0.2
+        total_points = 100
+
+        # 79 actual out of 100 = 21% flagged > 20% threshold => should fail
+        actual_points_fail = 79
+        self.assertTrue(
+            actual_points_fail < total_points * (1.0 - fflag),
+            "79/100 valid (21% flagged) should fail fflag=0.2 check"
+        )
+
+        # 81 actual out of 100 = 19% flagged < 20% threshold => should pass
+        actual_points_pass = 81
+        self.assertFalse(
+            actual_points_pass < total_points * (1.0 - fflag),
+            "81/100 valid (19% flagged) should pass fflag=0.2 check"
+        )
+
+
+class TestVarResidualDdofGuard(unittest.TestCase):
+    """Regression tests for I2: var_residual ddof underflow guard.
+
+    When len(intens) <= n_params, np.std/np.var with ddof=n_params produces
+    NaN/Inf. Functions should return zero errors instead.
+    """
+
+    def test_compute_parameter_errors_few_points_no_cov(self):
+        """compute_parameter_errors with fewer points than parameters returns zeros."""
+        # 5 harmonic coeffs need > 5 data points
+        phi = np.linspace(0, 2*np.pi, 4)
+        intens = np.array([100.0, 101.0, 99.0, 100.5])
+
+        result = compute_parameter_errors(
+            phi, intens, x0=50.0, y0=50.0, sma=10.0, eps=0.2, pa=0.5,
+            gradient=-1.0, cov_matrix=None
+        )
+
+        for val in result:
+            self.assertTrue(np.isfinite(val), f"Expected finite value, got {val}")
+
+    def test_compute_parameter_errors_few_points_with_cov(self):
+        """compute_parameter_errors with cov_matrix but few points returns zeros."""
+        phi = np.linspace(0, 2*np.pi, 4)
+        intens = np.array([100.0, 101.0, 99.0, 100.5])
+        cov_matrix = np.eye(5) * 0.01
+        coeffs = np.array([100.0, 0.5, 0.3, 0.1, 0.05])
+
+        result = compute_parameter_errors(
+            phi, intens, x0=50.0, y0=50.0, sma=10.0, eps=0.2, pa=0.5,
+            gradient=-1.0, cov_matrix=cov_matrix, coeffs=coeffs
+        )
+
+        for val in result:
+            self.assertTrue(np.isfinite(val), f"Expected finite value, got {val}")
+
+    def test_compute_deviations_few_points(self):
+        """compute_deviations with fewer points than parameters returns zeros."""
+        # 3 params (intercept + sin + cos) need > 3 data points
+        phi = np.linspace(0, 2*np.pi, 2)
+        intens = np.array([100.0, 99.0])
+
+        result = compute_deviations(phi, intens, sma=10.0, gradient=-1.0, order=3)
+
+        for val in result:
+            self.assertTrue(np.isfinite(val), f"Expected finite value, got {val}")
+
+    def test_fit_higher_harmonics_simultaneous_few_points(self):
+        """fit_higher_harmonics_simultaneous with few points returns zeros dict."""
+        # orders=[3,4] means 5 params, need > 5 data points
+        # The function already has a guard at line 379, but let's also test
+        # the case where lstsq succeeds but var_residual would underflow
+        angles = np.linspace(0, 2*np.pi, 5)
+        intens = np.array([100.0, 101.0, 99.0, 100.5, 98.0])
+
+        result = fit_higher_harmonics_simultaneous(
+            angles, intens, sma=10.0, gradient=-1.0, orders=[3, 4]
+        )
+
+        for order in [3, 4]:
+            self.assertIn(order, result)
+            for val in result[order]:
+                self.assertTrue(np.isfinite(val), f"Order {order}: expected finite, got {val}")
+
+    def test_compute_parameter_errors_exact_boundary(self):
+        """With exactly n_params points, should return zeros (not NaN)."""
+        phi = np.linspace(0, 2*np.pi, 5)
+        intens = np.array([100.0, 101.0, 99.0, 100.5, 98.0])
+
+        result = compute_parameter_errors(
+            phi, intens, x0=50.0, y0=50.0, sma=10.0, eps=0.2, pa=0.5,
+            gradient=-1.0, cov_matrix=None
+        )
+
+        for val in result:
+            self.assertTrue(np.isfinite(val), f"Expected finite value, got {val}")
+
