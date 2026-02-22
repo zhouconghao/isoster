@@ -693,7 +693,11 @@ def fit_isophote(image, mask, sma, start_geometry, config, going_inwards=False, 
         convergence_scale = max(1.0, np.sqrt(sma))
     else:  # 'none'
         convergence_scale = 1.0
-    
+
+    # Geometry convergence tracking
+    prev_geom = (x0, y0, eps, pa)
+    stable_count = 0
+
     for i in range(maxit):
         niter = i + 1
         
@@ -883,7 +887,49 @@ def fit_isophote(image, mask, sma, start_geometry, config, going_inwards=False, 
                 eps = min(-eps, 0.95)
                 pa = (pa + np.pi/2) % np.pi
             if eps == 0.0: eps = 0.05
-            
+
+        # Geometry-stability convergence check
+        if cfg.geometry_convergence and i >= minit:
+            gx0, gy0, geps, gpa = prev_geom
+            delta_x0 = abs(x0 - gx0) / max(sma, 1.0)
+            delta_y0 = abs(y0 - gy0) / max(sma, 1.0)
+            delta_eps = abs(eps - geps)
+            delta_pa_raw = abs(pa - gpa)
+            delta_pa = min(delta_pa_raw, np.pi - delta_pa_raw) / np.pi
+            max_delta = max(delta_x0, delta_y0, delta_eps, delta_pa)
+
+            if max_delta < cfg.geometry_tolerance:
+                stable_count += 1
+            else:
+                stable_count = 0
+
+            if stable_count >= cfg.geometry_stable_iters:
+                stop_code = 0
+                converged = True
+                if compute_deviations_flag:
+                    if simultaneous_harmonics:
+                        harmonics = fit_higher_harmonics_simultaneous(
+                            angles, intens, sma, gradient, harmonic_orders
+                        )
+                        for n in harmonic_orders:
+                            an, bn, an_err, bn_err = harmonics.get(n, (0.0, 0.0, 0.0, 0.0))
+                            best_geometry[f'a{n}'] = an
+                            best_geometry[f'b{n}'] = bn
+                            best_geometry[f'a{n}_err'] = an_err
+                            best_geometry[f'b{n}_err'] = bn_err
+                    else:
+                        for n in harmonic_orders:
+                            an, bn, an_err, bn_err = compute_deviations(angles, intens, sma, gradient, n)
+                            best_geometry[f'a{n}'] = an
+                            best_geometry[f'b{n}'] = bn
+                            best_geometry[f'a{n}_err'] = an_err
+                            best_geometry[f'b{n}_err'] = bn_err
+                if full_photometry:
+                    _attach_full_photometry(best_geometry, image, mask)
+                break
+
+        prev_geom = (x0, y0, eps, pa)
+
     if best_geometry is None:
         best_geometry = {'x0': x0, 'y0': y0, 'eps': eps, 'pa': pa, 'sma': sma, 'intens': np.nan, 'rms': np.nan, 'intens_err': np.nan,
                          'x0_err': 0.0, 'y0_err': 0.0, 'eps_err': 0.0, 'pa_err': 0.0,

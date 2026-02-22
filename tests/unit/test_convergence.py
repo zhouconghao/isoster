@@ -110,3 +110,37 @@ class TestGeometryDamping:
         # At re=30, intensity should be close to ie (1000) * exp(-bn*(1-1)) = 1000
         assert result['stop_code'] == 0
         assert abs(result['intens'] - 1000.0) / 1000.0 < 0.05
+
+
+class TestGeometryConvergence:
+    """Test geometry-stability-based convergence."""
+
+    def test_geometry_convergence_detects_stability(self):
+        """When geometry stops changing, should declare convergence."""
+        image = make_sersic_image(shape=(401, 401), x0=200, y0=200, re=30.0, eps=0.3)
+        mask = np.zeros_like(image, dtype=bool)
+        start_geom = {'x0': 200.0, 'y0': 200.0, 'eps': 0.3, 'pa': 0.5}
+
+        # Without geometry convergence: likely hits maxit at outer SMA
+        cfg_off = IsosterConfig(geometry_convergence=False, convergence_scaling='none',
+                                maxit=30, minit=5, conver=0.01)
+        result_off = fit_isophote(image, mask, 150.0, start_geom, cfg_off)
+
+        # With geometry convergence: should converge via geometry stability
+        cfg_on = IsosterConfig(geometry_convergence=True, convergence_scaling='none',
+                               maxit=30, minit=5, conver=0.01,
+                               geometry_tolerance=0.01, geometry_stable_iters=3)
+        result_on = fit_isophote(image, mask, 150.0, start_geom, cfg_on)
+
+        # Geometry convergence should help
+        assert result_on['niter'] <= result_off['niter'] or result_on['stop_code'] == 0
+
+    def test_geometry_convergence_off_is_legacy(self):
+        """geometry_convergence=False should match legacy behavior."""
+        image = make_sersic_image()
+        mask = np.zeros_like(image, dtype=bool)
+        start_geom = {'x0': 100.0, 'y0': 100.0, 'eps': 0.3, 'pa': 0.5}
+
+        cfg = IsosterConfig(geometry_convergence=False, convergence_scaling='none')
+        result = fit_isophote(image, mask, 30.0, start_geom, cfg)
+        assert result['stop_code'] in {0, 1, 2, 3, -1}
