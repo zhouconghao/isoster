@@ -123,11 +123,18 @@ class IsosterConfig(BaseModel):
     )
 
     @model_validator(mode='after')
-    def check_sma_consistency(self):
+    def check_config_consistency(self):
         if self.maxsma is not None and self.maxsma < self.minsma:
             raise ValueError(f"maxsma ({self.maxsma}) must be greater than minsma ({self.minsma})")
+        if self.minit > self.maxit:
+            raise ValueError(f"minit ({self.minit}) must be <= maxit ({self.maxit})")
         if self.integrator == 'adaptive' and self.lsb_sma_threshold is None:
             raise ValueError("lsb_sma_threshold must be provided when integrator='adaptive'")
         if self.forced and (self.forced_sma is None or len(self.forced_sma) == 0):
             raise ValueError("forced_sma must be provided when forced=True")
+        if any(order < 3 for order in self.harmonic_orders):
+            raise ValueError(
+                f"harmonic_orders must all be >= 3 (orders 1 and 2 are used internally "
+                f"for geometry fitting), got {self.harmonic_orders}"
+            )
         return self

@@ -89,16 +89,16 @@ def get_elliptical_coordinates(x, y, x0, y0, pa, eps):
     
     return sma, phi
 
-def extract_isophote_data(image, mask, x0, y0, sma, eps, pa, astep=0.1, linear_growth=False, use_eccentric_anomaly=False):
+def extract_isophote_data(image, mask, x0, y0, sma, eps, pa, use_eccentric_anomaly=False):
     """
     Extract image pixels along an elliptical path using vectorized sampling.
-    
+
     This is the core performance optimization - replacing photutils' area-based integration
     (integrator.BILINEAR or MEDIAN) with direct path-based sampling via map_coordinates.
-    
+
     Per Ciambur (2015), when use_eccentric_anomaly=True, harmonics should be fitted in
     ψ (eccentric anomaly) space, NOT φ (position angle) space.
-    
+
     Parameters
     ----------
     image : 2D array
@@ -113,10 +113,6 @@ def extract_isophote_data(image, mask, x0, y0, sma, eps, pa, astep=0.1, linear_g
         Ellipticity (1 - b/a).
     pa : float
         Position angle in radians.
-    astep : float
-        Not used for sampling (kept for API compatibility).
-    linear_growth : bool
-        Not used here (kept for API compatibility).
     use_eccentric_anomaly : bool
         If True, sample uniformly in ψ and fit harmonics in ψ space (Ciambur 2015).
         If False, sample uniformly in φ and fit harmonics in φ space (traditional).
