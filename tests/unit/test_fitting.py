@@ -540,6 +540,92 @@ def test_fit_higher_harmonics_simultaneous_zero_gradient():
     print("✓ fit_higher_harmonics_simultaneous zero gradient test passed")
 
 
+def test_sigma_clip_ea_phi_sync():
+    """Test that sigma clipping keeps phi in sync with angles/intens in EA mode.
+
+    Regression test for C1: In EA mode, angles (psi) and phi are different arrays.
+    After sigma_clip removes outliers from angles+intens, phi must be clipped with the
+    same mask. Otherwise, downstream functions (compute_gradient, compute_parameter_errors)
+    receive mismatched phi/intens arrays.
+    """
+    from isoster.sampling import extract_isophote_data
+
+    np.random.seed(42)
+
+    # Build a smooth image with outliers placed precisely on the sampling ellipse
+    image_size = 201
+    center = 100.0
+    eps, pa, sma = 0.4, 0.5, 30.0
+    yy, xx = np.mgrid[:image_size, :image_size]
+    cos_pa, sin_pa = np.cos(pa), np.sin(pa)
+    dx, dy = xx - center, yy - center
+    x_rot = dx * cos_pa + dy * sin_pa
+    y_rot = -dx * sin_pa + dy * cos_pa
+    r_ell = np.sqrt(x_rot**2 + (y_rot / (1 - eps))**2)
+    image = 1000.0 * np.exp(-r_ell / 20.0)
+
+    # Place extreme outliers ON the sampling ellipse to guarantee sigma_clip triggers
+    n_outliers = 10
+    for i in range(n_outliers):
+        angle = 2 * np.pi * i / n_outliers
+        ox = center + sma * np.cos(angle) * cos_pa - sma * (1 - eps) * np.sin(angle) * sin_pa
+        oy = center + sma * np.cos(angle) * sin_pa + sma * (1 - eps) * np.sin(angle) * cos_pa
+        ox_int, oy_int = int(round(ox)), int(round(oy))
+        if 0 <= ox_int < image_size and 0 <= oy_int < image_size:
+            image[oy_int, ox_int] = 1e6  # Extreme outlier
+
+    # Verify that EA mode extraction gives different angles vs phi
+    data = extract_isophote_data(image, None, center, center, sma, eps, pa,
+                                 use_eccentric_anomaly=True)
+    assert not np.allclose(data.angles, data.phi), \
+        "EA mode should produce different angles (psi) and phi arrays"
+
+    # Verify sigma clipping DOES clip some points (outliers on the ellipse)
+    _, intens_clipped, n_clipped = sigma_clip(data.angles, data.intens, sclip=3.0, nclip=3)
+    assert n_clipped >= 1, \
+        f"Expected sigma clipping to remove outliers, but n_clipped={n_clipped}"
+
+    # Now run fit_isophote in EA mode with sigma clipping -- this is the actual bug test.
+    # Before the fix: phi has length N, intens has length N - n_clipped after sigma_clip.
+    # compute_parameter_errors(phi, intens, ...) would crash or produce wrong results
+    # because harmonic_function(phi, coeffs) produces N values but intens has N-k values.
+    config = IsosterConfig(
+        x0=center, y0=center, eps=eps, pa=pa,
+        sma0=sma, minsma=5.0, maxsma=80.0,
+        use_eccentric_anomaly=True,
+        nclip=3, sclip=3.0,
+        maxit=30, minit=5, conver=0.05,
+        fix_center=True, fix_eps=True, fix_pa=True,
+        compute_errors=True,
+        compute_deviations=True,
+    )
+    start_geom = {'x0': center, 'y0': center, 'eps': eps, 'pa': pa}
+
+    # This should NOT raise or produce NaN/zero errors due to array length mismatch.
+    # Before the fix, compute_parameter_errors catches the broadcast ValueError and
+    # silently returns zeros -- we detect this via the RuntimeWarning it emits.
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        result = fit_isophote(image, mask=None, sma=sma,
+                              start_geometry=start_geom, config=config)
+
+    assert result is not None, "fit_isophote should return a result"
+    assert np.isfinite(result['intens']), f"Intensity should be finite, got {result['intens']}"
+    assert np.isfinite(result['rms']), f"RMS should be finite, got {result['rms']}"
+
+    # The key assertion: no broadcast shape mismatch warnings should be emitted.
+    # Before the fix, the mismatched phi/intens arrays cause:
+    #   "operands could not be broadcast together with shapes (N,) (M,)"
+    broadcast_warnings = [
+        w for w in caught
+        if "could not be broadcast" in str(w.message)
+    ]
+    assert len(broadcast_warnings) == 0, (
+        f"EA mode + sigma clipping caused array shape mismatch in "
+        f"compute_parameter_errors: {[str(w.message) for w in broadcast_warnings]}"
+    )
+
+
 def test_fit_higher_harmonics_vs_sequential():
     """Compare simultaneous fitting with sequential (compute_deviations) for consistency."""
     np.random.seed(42)

@@ -162,37 +162,59 @@ def harmonic_function(phi, coeffs):
     """
     return harmonic_model(phi, coeffs)
 
-def sigma_clip(phi, intens, sclip=3.0, nclip=0, sclip_low=None, sclip_high=None):
-    """Perform iterative sigma clipping on intensity data."""
+def sigma_clip(phi, intens, sclip=3.0, nclip=0, sclip_low=None, sclip_high=None, extra_arrays=None):
+    """Perform iterative sigma clipping on intensity data.
+
+    Args:
+        phi: Angle array to clip in parallel with intens.
+        intens: Intensity array used for computing clip thresholds.
+        sclip: Symmetric sigma threshold (used if sclip_low/sclip_high not set).
+        nclip: Number of clipping iterations (0 = no clipping).
+        sclip_low: Lower sigma threshold (overrides sclip).
+        sclip_high: Upper sigma threshold (overrides sclip).
+        extra_arrays: Optional list of additional arrays to clip with the same mask.
+            Each must have the same length as phi/intens.
+
+    Returns:
+        tuple: (phi_clipped, intens_clipped, total_clipped) when extra_arrays is None.
+            (phi_clipped, intens_clipped, total_clipped, *extra_clipped) when extra_arrays
+            is provided.
+    """
     if nclip <= 0:
+        if extra_arrays:
+            return phi, intens, 0, *extra_arrays
         return phi, intens, 0
-        
+
     s_low = sclip_low if sclip_low is not None else sclip
     s_high = sclip_high if sclip_high is not None else sclip
-    
+
     phi_c = phi.copy()
     intens_c = intens.copy()
+    extras_c = [a.copy() for a in extra_arrays] if extra_arrays else []
     total_clipped = 0
-    
+
     for _ in range(nclip):
         if len(intens_c) < 3:
             break
         mean = np.mean(intens_c)
         std = np.std(intens_c)
-        
+
         lower = mean - s_low * std
         upper = mean + s_high * std
-        
+
         mask = (intens_c >= lower) & (intens_c <= upper)
         n_clipped = len(intens_c) - np.sum(mask)
-        
+
         if n_clipped == 0:
             break
-            
+
         total_clipped += n_clipped
         phi_c = phi_c[mask]
         intens_c = intens_c[mask]
-        
+        extras_c = [a[mask] for a in extras_c]
+
+    if extras_c:
+        return phi_c, intens_c, total_clipped, *extras_c
     return phi_c, intens_c, total_clipped
 
 def compute_parameter_errors(phi, intens, x0, y0, sma, eps, pa, gradient, cov_matrix=None, coeffs=None):
@@ -662,8 +684,16 @@ def fit_isophote(image, mask, sma, start_geometry, config, going_inwards=False, 
         
         total_points = len(angles)
         
-        # Sigma clipping operates on (angle, intensity) pairs
-        angles, intens, n_clipped = sigma_clip(angles, intens, sclip, nclip, sclip_low, sclip_high)
+        # Sigma clipping operates on (angle, intensity) pairs.
+        # In EA mode, phi differs from angles (psi) and must be clipped with the same mask.
+        if use_eccentric_anomaly:
+            angles, intens, n_clipped, phi = sigma_clip(
+                angles, intens, sclip, nclip, sclip_low, sclip_high,
+                extra_arrays=[phi]
+            )
+        else:
+            angles, intens, n_clipped = sigma_clip(angles, intens, sclip, nclip, sclip_low, sclip_high)
+            phi = angles  # In regular mode, angles and phi are identical
         actual_points = len(angles)
         
         if actual_points < (total_points * fflag):
