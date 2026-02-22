@@ -123,6 +123,12 @@ Follow these rules for all Python environment and dependency work in this reposi
 
 - **Central regularization**: When `use_central_regularization=True`, applies geometry regularization in low S/N central regions (SMA < `central_reg_sma_threshold`) to stabilize fitting by penalizing large geometry changes.
 
+- **Convergence scaling**: `convergence_scaling='sector_area'` (default) scales the convergence threshold by the approximate sector area, which grows with SMA. This matches photutils behavior and eliminates most stop=2 failures at outer isophotes. Use `'none'` for legacy (SMA-independent) behavior.
+
+- **Geometry damping**: `geometry_damping` (0-1, default 0.7) scales geometry corrections to prevent oscillations. The default 0.7 was validated across 20 Huang2013 galaxies, eliminating nearly all stop=2 failures when combined with `sector_area` scaling. Use `1.0` for legacy (undamped) behavior.
+
+- **Geometry convergence**: When `geometry_convergence=True`, declares convergence when geometry parameters stabilize for `geometry_stable_iters` consecutive iterations (within `geometry_tolerance`), even if the harmonic criterion is not met.
+
 - **Stop codes**: 0=converged, 1=too many flagged pixels, 2=max iterations reached, 3=too few points, -1=gradient error
 
 ### Directory Layout
@@ -231,6 +237,11 @@ config = IsosterConfig(
     # Convergence criteria
     maxgerr=0.5,         # Max gradient error (use 1.0-1.2 for eps > 0.6)
     conver=0.05,         # Harmonic convergence threshold
+    convergence_scaling='sector_area',  # Scale threshold with SMA (default, matches photutils)
+    geometry_damping=0.7,               # Damping factor for geometry updates (default 0.7; 1.0 = no damping)
+    geometry_convergence=False,         # Enable geometry-stability convergence
+    geometry_tolerance=0.01,            # Tolerance for geometry convergence
+    geometry_stable_iters=3,            # Consecutive stable iterations required
 
     # Photometry
     full_photometry=False,   # Enable flux integration metrics (default: False)
@@ -247,6 +258,9 @@ config = IsosterConfig(
 - **Challenging data**: Enable `permissive_geometry=True` to continue fitting through convergence issues
 - **Low S/N centers**: Enable `use_central_regularization=True` with appropriate threshold and strength
 - **Morphological features**: Enable `simultaneous_harmonics=True` to capture higher-order deviations
+- **Convergence scaling**: Default `convergence_scaling='sector_area'` matches photutils behavior; use `'none'` to revert to legacy constant threshold
+- **Geometry damping**: Default `geometry_damping=0.7` stabilizes most cases; use `0.5` for severely oscillating fits, or `1.0` for legacy undamped behavior
+- **Geometry-based convergence**: Enable `geometry_convergence=True` as supplementary convergence criterion for challenging outer isophotes
 
 ## QA Figure Rules
 
