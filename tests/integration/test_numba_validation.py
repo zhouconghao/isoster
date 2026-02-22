@@ -13,7 +13,7 @@ from matplotlib.gridspec import GridSpec
 from isoster.driver import fit_image
 from isoster.config import IsosterConfig
 from isoster.output_paths import resolve_output_directory
-from tests.fixtures import compute_bn
+from tests.fixtures import create_sersic_model
 from isoster.numba_kernels import (
     NUMBA_AVAILABLE,
     _harmonic_model_numba, _harmonic_model_numpy,
@@ -22,47 +22,6 @@ from isoster.numba_kernels import (
     _build_harmonic_matrix_numba, _build_harmonic_matrix_numpy,
     harmonic_model, ea_to_pa, compute_ellipse_coords, build_harmonic_matrix,
 )
-
-
-def create_sersic_model(R_e, n, I_e, eps, pa, oversample=5):
-    """Create a centered 2D Sersic profile image."""
-    half_size = max(int(15 * R_e), 150)
-    shape = (2 * half_size, 2 * half_size)
-    x0, y0 = half_size, half_size
-
-    b_n = compute_bn(n)
-
-    if oversample > 1:
-        y_hr = np.linspace(0, shape[0], shape[0] * oversample, endpoint=False) + 0.5/oversample
-        x_hr = np.linspace(0, shape[1], shape[1] * oversample, endpoint=False) + 0.5/oversample
-        yy_hr, xx_hr = np.meshgrid(y_hr, x_hr, indexing='ij')
-
-        dx_hr = xx_hr - x0
-        dy_hr = yy_hr - y0
-        x_rot_hr = dx_hr * np.cos(pa) + dy_hr * np.sin(pa)
-        y_rot_hr = -dx_hr * np.sin(pa) + dy_hr * np.cos(pa)
-        r_hr = np.sqrt(x_rot_hr**2 + (y_rot_hr / (1 - eps))**2)
-
-        image_hr = I_e * np.exp(-b_n * ((r_hr / R_e)**(1/n) - 1))
-        image = image_hr.reshape(shape[0], oversample, shape[1], oversample).mean(axis=(1, 3))
-    else:
-        y, x = np.mgrid[:shape[0], :shape[1]].astype(np.float64)
-        dx = x - x0
-        dy = y - y0
-        x_rot = dx * np.cos(pa) + dy * np.sin(pa)
-        y_rot = -dx * np.sin(pa) + dy * np.cos(pa)
-        r = np.sqrt(x_rot**2 + (y_rot / (1 - eps))**2)
-        image = I_e * np.exp(-b_n * ((r / R_e)**(1/n) - 1))
-
-    def true_profile(sma):
-        return I_e * np.exp(-b_n * ((sma / R_e)**(1/n) - 1))
-
-    params = {
-        'R_e': R_e, 'n': n, 'I_e': I_e, 'eps': eps, 'pa': pa,
-        'x0': x0, 'y0': y0, 'shape': shape
-    }
-
-    return image, true_profile, params
 
 
 class TestNumbaKernels:

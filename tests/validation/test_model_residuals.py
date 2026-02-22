@@ -7,60 +7,7 @@ from isoster import fit_image
 from isoster.model import build_isoster_model
 from isoster.config import IsosterConfig
 from isoster.output_paths import resolve_output_directory
-from tests.fixtures import compute_bn
-
-
-def create_sersic_model(R_e, n, I_e, eps, pa, oversample=1):
-    """Create a centered 2D Sersic profile image with proper sizing.
-
-    Per CLAUDE.md: Image half-size should be >= 10 * R_e (15x even better)
-    """
-    # Per CLAUDE.md: half-size >= 10 * R_e (use 15x for better coverage)
-    half_size = max(int(15 * R_e), 150)
-    shape = (2 * half_size, 2 * half_size)
-    x0, y0 = half_size, half_size  # Center of image
-
-    # Compute b_n for Sersic profile
-    b_n = compute_bn(n)
-
-    if oversample > 1:
-        # Create oversampled grid
-        oversamp_shape = (shape[0] * oversample, shape[1] * oversample)
-        y = np.arange(oversamp_shape[0]) / oversample
-        x = np.arange(oversamp_shape[1]) / oversample
-        yy, xx = np.meshgrid(y, x, indexing='ij')
-
-        # Compute elliptical radius
-        dx = xx - x0
-        dy = yy - y0
-        x_rot = dx * np.cos(pa) + dy * np.sin(pa)
-        y_rot = -dx * np.sin(pa) + dy * np.cos(pa)
-        r_ell = np.sqrt(x_rot**2 + (y_rot / (1 - eps))**2)
-
-        # Sersic profile
-        image_oversamp = I_e * np.exp(-b_n * ((r_ell / R_e)**(1/n) - 1))
-
-        # Downsample by averaging
-        image = np.zeros(shape)
-        for i in range(oversample):
-            for j in range(oversample):
-                image += image_oversamp[i::oversample, j::oversample]
-        image /= oversample**2
-    else:
-        # Standard grid
-        y = np.arange(shape[0])
-        x = np.arange(shape[1])
-        yy, xx = np.meshgrid(y, x, indexing='ij')
-
-        dx = xx - x0
-        dy = yy - y0
-        x_rot = dx * np.cos(pa) + dy * np.sin(pa)
-        y_rot = -dx * np.sin(pa) + dy * np.cos(pa)
-        r_ell = np.sqrt(x_rot**2 + (y_rot / (1 - eps))**2)
-
-        image = I_e * np.exp(-b_n * ((r_ell / R_e)**(1/n) - 1))
-
-    return image, (x0, y0), shape
+from tests.fixtures import create_sersic_model as _create_sersic_model
 
 
 def compute_residual_statistics(data, model, R_e, x0, y0):
@@ -224,7 +171,8 @@ def test_model_building():
 
     # Create model
     print(f"\nCreating Sersic model: n={n}, Re={R_e}, eps={eps:.2f}, pa={pa:.2f}")
-    data, (x0, y0), shape = create_sersic_model(R_e, n, I_e, eps, pa, oversample)
+    data, _, params = _create_sersic_model(R_e, n, I_e, eps, pa, oversample=oversample)
+    x0, y0, shape = params['x0'], params['y0'], params['shape']
     print(f"Image shape: {shape}, center: ({x0}, {y0})")
 
     # Fit with isoster
