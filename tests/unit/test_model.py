@@ -89,6 +89,61 @@ class TestModel(unittest.TestCase):
         self.assertGreater(val_along_major, val_along_minor,
                            "PA interpolation should go through 180/0, not through 90")
 
+    def test_nan_isophotes_filtered_before_interpolation(self):
+        """Regression test for I4: NaN intensities should be filtered out.
+
+        Isophotes with stop_code != 0 may carry NaN intensity. Without filtering,
+        interp1d propagates NaN across the whole model.
+        """
+        shape = (100, 100)
+        isos = [
+            {'x0': 50.0, 'y0': 50.0, 'sma': 10.0, 'eps': 0.0, 'pa': 0.0, 'intens': 100.0},
+            {'x0': 50.0, 'y0': 50.0, 'sma': 20.0, 'eps': 0.0, 'pa': 0.0, 'intens': np.nan},
+            {'x0': 50.0, 'y0': 50.0, 'sma': 30.0, 'eps': 0.0, 'pa': 0.0, 'intens': 60.0},
+        ]
+
+        model = build_isoster_model(shape, isos)
+
+        # The NaN isophote at sma=20 should be excluded; model should not contain NaN
+        # in the region covered by the valid isophotes (sma 10-30)
+        val_at_10 = model[50, 60]  # r~10
+        val_at_30 = model[50, 80]  # r~30
+        self.assertTrue(np.isfinite(val_at_10), f"Model at sma=10 should be finite, got {val_at_10}")
+        self.assertTrue(np.isfinite(val_at_30), f"Model at sma=30 should be finite, got {val_at_30}")
+
+    def test_nan_geometry_filtered_before_interpolation(self):
+        """Isophotes with NaN geometry columns should be excluded."""
+        shape = (100, 100)
+        isos = [
+            {'x0': 50.0, 'y0': 50.0, 'sma': 10.0, 'eps': 0.0, 'pa': 0.0, 'intens': 100.0},
+            {'x0': np.nan, 'y0': 50.0, 'sma': 20.0, 'eps': 0.0, 'pa': 0.0, 'intens': 80.0},
+            {'x0': 50.0, 'y0': 50.0, 'sma': 30.0, 'eps': 0.0, 'pa': 0.0, 'intens': 60.0},
+        ]
+
+        model = build_isoster_model(shape, isos)
+
+        val_at_10 = model[50, 60]
+        self.assertTrue(np.isfinite(val_at_10), f"Model at sma=10 should be finite, got {val_at_10}")
+
+    def test_nan_harmonic_coefficients_treated_as_zero(self):
+        """NaN harmonic coefficients should be replaced with 0, not poison the model."""
+        shape = (100, 100)
+        isos = [
+            {'x0': 50.0, 'y0': 50.0, 'sma': 10.0, 'eps': 0.0, 'pa': 0.0,
+             'intens': 100.0, 'a3': 0.01, 'b3': 0.01, 'a4': 0.01, 'b4': 0.01},
+            {'x0': 50.0, 'y0': 50.0, 'sma': 20.0, 'eps': 0.0, 'pa': 0.0,
+             'intens': 80.0, 'a3': np.nan, 'b3': np.inf, 'a4': 0.01, 'b4': 0.01},
+            {'x0': 50.0, 'y0': 50.0, 'sma': 30.0, 'eps': 0.0, 'pa': 0.0,
+             'intens': 60.0, 'a3': 0.01, 'b3': 0.01, 'a4': 0.01, 'b4': 0.01},
+        ]
+
+        model = build_isoster_model(shape, isos, use_harmonics=True, harmonic_orders=[3, 4])
+
+        # Model should be entirely finite despite NaN/Inf harmonic coefficients
+        n_nonfinite = np.sum(~np.isfinite(model))
+        self.assertEqual(n_nonfinite, 0,
+                         f"Model has {n_nonfinite} non-finite pixels from NaN harmonics")
+
 
 if __name__ == '__main__':
     unittest.main()

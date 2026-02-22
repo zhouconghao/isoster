@@ -76,8 +76,13 @@ def build_isoster_model(image_shape, isophote_results, fill=0.0, interp_kind='li
     h, w = image_shape
     model = np.full((h, w), fill, dtype=np.float64)
 
-    # Filter valid isophotes (stop_code should be good, but allow some flexibility)
-    valid_isos = [iso for iso in isophote_results if iso['sma'] > 0]
+    # Filter valid isophotes: require finite values in all geometry and intensity columns
+    _required_keys = ('intens', 'x0', 'y0', 'eps', 'pa')
+    valid_isos = [
+        iso for iso in isophote_results
+        if iso['sma'] > 0
+        and all(np.isfinite(iso.get(k, np.nan)) for k in _required_keys)
+    ]
 
     if len(valid_isos) == 0:
         # No valid isophotes, return fill value
@@ -207,6 +212,8 @@ def build_isoster_model(image_shape, isophote_results, fill=0.0, interp_kind='li
                 if an_key in sorted_isos[0]:
                     an_values = np.array([iso.get(an_key, 0.0) for iso in sorted_isos])
                     bn_values = np.array([iso.get(bn_key, 0.0) for iso in sorted_isos])
+                    an_values = np.where(np.isfinite(an_values), an_values, 0.0)
+                    bn_values = np.where(np.isfinite(bn_values), bn_values, 0.0)
                     harm_interps[n] = (
                         interp1d(sma_values, an_values, kind='linear',
                                  bounds_error=False, fill_value=(an_values[0], an_values[-1])),
