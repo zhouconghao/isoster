@@ -147,9 +147,6 @@ def test_stop_code_2_computes_harmonic_deviations():
         f"Expected non-zero a4/b4 from boxy image, got a4={result['a4']}, b4={result['b4']}"
 
 
-if __name__ == '__main__':
-    unittest.main()
-
 
 # ============================================================================
 # Pytest-style tests for exception handling (ISSUE-1)
@@ -180,6 +177,7 @@ def test_compute_parameter_errors_singular_matrix():
 
 def test_compute_parameter_errors_zero_gradient():
     """Test that zero gradient is handled gracefully."""
+    np.random.seed(42)
     phi = np.linspace(0, 2*np.pi, 10)
     intens = np.random.random(10) * 100.0
 
@@ -196,6 +194,7 @@ def test_compute_parameter_errors_zero_gradient():
 
 def test_compute_parameter_errors_none_gradient():
     """Test that None gradient is handled gracefully."""
+    np.random.seed(42)
     phi = np.linspace(0, 2*np.pi, 10)
     intens = np.random.random(10) * 100.0
 
@@ -234,6 +233,7 @@ def test_compute_deviations_singular_matrix():
 
 def test_compute_deviations_zero_factor():
     """Test that zero factor (gradient=0 or sma=0) returns zeros."""
+    np.random.seed(42)
     phi = np.linspace(0, 2*np.pi, 10)
     intens = np.random.random(10) * 100.0
 
@@ -248,6 +248,7 @@ def test_compute_deviations_zero_factor():
 
 def test_compute_parameter_errors_normal_case():
     """Test that compute_parameter_errors works correctly for normal case."""
+    np.random.seed(42)
     # Create realistic harmonic data
     phi = np.linspace(0, 2*np.pi, 50, endpoint=False)
     y0, A1, B1, A2, B2 = 100.0, 5.0, 3.0, 1.0, 0.5
@@ -275,6 +276,7 @@ def test_compute_parameter_errors_normal_case():
 
 def test_compute_deviations_normal_case():
     """Test that compute_deviations works correctly for normal case."""
+    np.random.seed(42)
     # Create realistic data with 3rd order harmonic
     phi = np.linspace(0, 2*np.pi, 50, endpoint=False)
     y0, A3, B3 = 100.0, 2.0, 1.0
@@ -525,6 +527,7 @@ def test_fit_higher_harmonics_simultaneous_with_noise():
 
 def test_fit_higher_harmonics_simultaneous_empty_orders():
     """Test simultaneous harmonics fitting with empty orders list."""
+    np.random.seed(42)
     phi = np.linspace(0, 2*np.pi, 100, endpoint=False)
     intens = np.random.random(100) * 100.0
 

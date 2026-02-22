@@ -12,58 +12,7 @@ import numpy as np
 import pytest
 from isoster import fit_image
 from isoster.config import IsosterConfig
-from tests.fixtures import compute_bn
-
-
-def create_sersic_model(R_e, n, I_e, eps, pa, noise_level=None, oversample=1):
-    """Create a centered 2D Sersic profile with optional noise.
-
-    Per CLAUDE.md: Image half-size should be >= 10 * R_e (15x for better coverage)
-    """
-    half_size = max(int(15 * R_e), 150)
-    shape = (2 * half_size, 2 * half_size)
-    x0, y0 = half_size, half_size
-
-    b_n = compute_bn(n)
-
-    if oversample > 1:
-        oversamp_shape = (shape[0] * oversample, shape[1] * oversample)
-        y = np.arange(oversamp_shape[0]) / oversample
-        x = np.arange(oversamp_shape[1]) / oversample
-        yy, xx = np.meshgrid(y, x, indexing='ij')
-
-        dx = xx - x0
-        dy = yy - y0
-        x_rot = dx * np.cos(pa) + dy * np.sin(pa)
-        y_rot = -dx * np.sin(pa) + dy * np.cos(pa)
-        r_ell = np.sqrt(x_rot**2 + (y_rot / (1 - eps))**2)
-
-        image_oversamp = I_e * np.exp(-b_n * ((r_ell / R_e)**(1/n) - 1))
-
-        image = np.zeros(shape)
-        for i in range(oversample):
-            for j in range(oversample):
-                image += image_oversamp[i::oversample, j::oversample]
-        image /= oversample**2
-    else:
-        y = np.arange(shape[0])
-        x = np.arange(shape[1])
-        yy, xx = np.meshgrid(y, x, indexing='ij')
-
-        dx = xx - x0
-        dy = yy - y0
-        x_rot = dx * np.cos(pa) + dy * np.sin(pa)
-        y_rot = -dx * np.sin(pa) + dy * np.cos(pa)
-        r_ell = np.sqrt(x_rot**2 + (y_rot / (1 - eps))**2)
-
-        image = I_e * np.exp(-b_n * ((r_ell / R_e)**(1/n) - 1))
-
-    # Add noise if requested
-    if noise_level is not None and noise_level > 0:
-        rng = np.random.RandomState(42)  # Fixed seed for reproducibility
-        image += rng.normal(0, noise_level, image.shape)
-
-    return image, (x0, y0), shape
+from tests.fixtures import create_sersic_model as _create_sersic_model
 
 
 def compute_profile_agreement(iso_isoster, iso_photutils, R_e):
@@ -229,10 +178,13 @@ class TestPhotutilsComparison:
         """Compare isoster and photutils on Sersic profile."""
         # Create mock image
         I_e = 1000.0
-        noise_level = I_e / snr if snr is not None else None
         oversample = 5 if snr is None else 1
 
-        image, (x0, y0), shape = create_sersic_model(R_e, n, I_e, eps, pa, noise_level, oversample)
+        image, _, params = _create_sersic_model(
+            R_e, n, I_e, eps, pa, oversample=oversample,
+            noise_snr=snr, seed=42,
+        )
+        x0, y0, shape = params['x0'], params['y0'], params['shape']
 
         # Run isoster
         config = IsosterConfig(

@@ -13,92 +13,12 @@ from matplotlib.gridspec import GridSpec
 from isoster.driver import fit_image
 from isoster.config import IsosterConfig
 from isoster.output_paths import resolve_output_directory
-from tests.fixtures import compute_bn
+from tests.fixtures import create_sersic_model
 
 
 def get_qa_output_directory():
     """Return output directory for integration QA artifacts."""
     return resolve_output_directory("tests_integration", "sersic_accuracy")
-
-
-def create_sersic_model(R_e, n, I_e, eps, pa, oversample=1):
-    """
-    Create a centered 2D Sersic profile image with proper sizing.
-
-    Per CLAUDE.md: Image half-size should be >= 10 * R_e (15x even better)
-
-    Args:
-        R_e: Effective radius (pixels)
-        n: Sersic index
-        I_e: Intensity at effective radius
-        eps: Ellipticity (0 to 1)
-        pa: Position angle (radians)
-        oversample: Oversampling factor for central region
-
-    Returns:
-        image: 2D Sersic profile (centered)
-        true_profile: Function to compute true 1D profile at any radius
-        params: Dict with all parameters including image center
-    """
-    # Per CLAUDE.md: half-size >= 10 * R_e (use 15x for better coverage)
-    half_size = max(int(15 * R_e), 150)
-    shape = (2 * half_size, 2 * half_size)
-    x0, y0 = half_size, half_size  # Center of image
-
-    h, w = shape
-
-    # Compute b_n parameter via exact incomplete-gamma inversion
-    b_n = compute_bn(n)
-
-    if oversample > 1:
-        # High-resolution grid for central region
-        y_hr = np.linspace(0, h, h * oversample, endpoint=False) + 0.5/oversample
-        x_hr = np.linspace(0, w, w * oversample, endpoint=False) + 0.5/oversample
-        yy_hr, xx_hr = np.meshgrid(y_hr, x_hr, indexing='ij')
-
-        # Rotate coordinates
-        dx_hr = xx_hr - x0
-        dy_hr = yy_hr - y0
-        x_rot_hr = dx_hr * np.cos(pa) + dy_hr * np.sin(pa)
-        y_rot_hr = -dx_hr * np.sin(pa) + dy_hr * np.cos(pa)
-
-        # Elliptical radius
-        r_hr = np.sqrt(x_rot_hr**2 + (y_rot_hr / (1 - eps))**2)
-
-        # Sersic profile
-        image_hr = I_e * np.exp(-b_n * ((r_hr / R_e)**(1/n) - 1))
-
-        # Downsample to final resolution
-        image = image_hr.reshape(h, oversample, w, oversample).mean(axis=(1, 3))
-    else:
-        # Standard resolution
-        y = np.arange(h)
-        x = np.arange(w)
-        yy, xx = np.meshgrid(y, x, indexing='ij')
-
-        # Rotate coordinates
-        dx = xx - x0
-        dy = yy - y0
-        x_rot = dx * np.cos(pa) + dy * np.sin(pa)
-        y_rot = -dx * np.sin(pa) + dy * np.cos(pa)
-
-        # Elliptical radius
-        r = np.sqrt(x_rot**2 + (y_rot / (1 - eps))**2)
-
-        # Sersic profile
-        image = I_e * np.exp(-b_n * ((r / R_e)**(1/n) - 1))
-
-    # True 1D profile function
-    def true_profile(sma):
-        """Compute true Sersic intensity at given SMA."""
-        return I_e * np.exp(-b_n * ((sma / R_e)**(1/n) - 1))
-
-    params = {
-        'R_e': R_e, 'n': n, 'I_e': I_e, 'eps': eps, 'pa': pa,
-        'x0': x0, 'y0': y0, 'shape': shape
-    }
-
-    return image, true_profile, params
 
 
 def plot_qa_figure(image, results, true_profile, params, output_path):

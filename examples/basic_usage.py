@@ -10,6 +10,7 @@ This script demonstrates the fundamental workflow for isophote fitting:
 
 import numpy as np
 import matplotlib.pyplot as plt
+from scipy.special import gammaincinv
 
 from isoster import fit_image
 from isoster.config import IsosterConfig
@@ -40,8 +41,8 @@ def create_simple_galaxy():
     # Elliptical radius
     r = np.sqrt(x_rot**2 + (y_rot / (1 - eps))**2)
 
-    # Sersic profile
-    b_n = 1.9992 * n - 0.3271
+    # Sersic profile (accurate b_n via inverse incomplete gamma function)
+    b_n = gammaincinv(2 * n, 0.5)
     image = I_e * np.exp(-b_n * ((r / R_e)**(1/n) - 1))
 
     return image, center, center, eps, pa

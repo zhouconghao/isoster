@@ -66,53 +66,45 @@ def sersic_analytical_cog(I_e, r_e, n, eps, sma_array):
 
 def compute_aperture_cog(image, x0, y0, sma_array, eps, pa_deg):
     """
-    Compute accurate CoG using SEP elliptical aperture photometry with subpixel method.
-    
-    This properly handles fractional pixel coverage in the central region.
-    Uses SEP library which supports vectorized elliptical apertures.
-    
+    Compute CoG using elliptical aperture photometry with exact pixel masking.
+
+    For each semi-major axis value, sums all pixels whose elliptical radius
+    (accounting for ellipticity and position angle) falls within the aperture.
+
     Args:
         image: 2D array
         x0, y0: Center coordinates
         sma_array: Array of semi-major axes
         eps: Ellipticity (1 - b/a)
         pa_deg: Position angle in degrees
-        
+
     Returns:
         cog_aperture: Array of cumulative flux within each ellipse
     """
-    import sep
-    
-    # SEP requires C-contiguous array with native byte order
-    image_sep = np.ascontiguousarray(image, dtype=np.float64)
-    
-    # Convert ellipticity to axis ratio
-    # eps = 1 - b/a, so b/a = 1 - eps
+    ny, nx = image.shape
+    y_grid, x_grid = np.mgrid[:ny, :nx]
+
+    # Offset from center
+    dx = x_grid - x0
+    dy = y_grid - y0
+
+    # Rotate into ellipse frame
+    pa_rad = np.radians(pa_deg)
+    cos_pa = np.cos(pa_rad)
+    sin_pa = np.sin(pa_rad)
+    x_rot = dx * cos_pa + dy * sin_pa
+    y_rot = -dx * sin_pa + dy * cos_pa
+
+    # Elliptical radius (semi-major axis equivalent)
     b_over_a = 1.0 - eps
-    
-    # SEP uses semi-minor axis b, not ellipticity
-    b_array = sma_array * b_over_a
-    
-    # SEP position angle convention: radians, counter-clockwise from x-axis
-    theta = np.radians(pa_deg)
-    
-    # Create arrays for all apertures (SEP supports vectorized operations)
-    x_array = np.full_like(sma_array, x0)
-    y_array = np.full_like(sma_array, y0)
-    theta_array = np.full_like(sma_array, theta)
-    
-    # Perform elliptical aperture photometry with subpixel method
-    # sep.sum_ellipse(data, x, y, a, b, theta, r=1.0, err=None, gain=None, 
-    #                 mask=None, maskthresh=0.0, bkgann=None, subpix=5)
-    flux, fluxerr, flag = sep.sum_ellipse(
-        image_sep, 
-        x_array, y_array,  # Center positions
-        sma_array, b_array,  # Semi-major and semi-minor axes
-        theta_array,  # Position angles
-        subpix=9  # Subpixel sampling (9x9 grid per pixel)
-    )
-    
-    return flux
+    r_ellipse = np.sqrt(x_rot**2 + (y_rot / b_over_a)**2)
+
+    # Sum flux within each aperture
+    cog_aperture = np.zeros(len(sma_array))
+    for i, sma in enumerate(sma_array):
+        cog_aperture[i] = np.sum(image[r_ellipse <= sma])
+
+    return cog_aperture
 
 def generate_sersic_image(size=512, I_e=1000.0, r_e=50.0, n=4.0, eps=0.2, pa=30.0, oversample=10):
     """
