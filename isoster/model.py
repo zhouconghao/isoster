@@ -137,10 +137,11 @@ def build_isoster_model(image_shape, isophote_results, fill=0.0, interp_kind='li
                           kind='linear', bounds_error=False,
                           fill_value=([iso['eps'] for iso in sorted_isos][0],
                                      [iso['eps'] for iso in sorted_isos][-1]))
-    pa_interp = interp1d(sma_values, [iso['pa'] for iso in sorted_isos],
+    pa_raw = np.array([iso['pa'] for iso in sorted_isos])
+    pa_unwrapped = np.unwrap(pa_raw, period=np.pi)
+    pa_interp = interp1d(sma_values, pa_unwrapped,
                          kind='linear', bounds_error=False,
-                         fill_value=([iso['pa'] for iso in sorted_isos][0],
-                                    [iso['pa'] for iso in sorted_isos][-1]))
+                         fill_value=(pa_unwrapped[0], pa_unwrapped[-1]))
 
     # Use outer isophote geometry as initial guess to find approximate radii
     outer_iso = sorted_isos[-1]

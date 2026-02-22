@@ -841,3 +841,63 @@ class TestVarResidualDdofGuard(unittest.TestCase):
         for val in result:
             self.assertTrue(np.isfinite(val), f"Expected finite value, got {val}")
 
+
+class TestGradientLinearGrowth(unittest.TestCase):
+    """Regression tests for I3: gradient formula in linear growth mode."""
+
+    def _make_image(self):
+        """Create a constant-slope radial image: I = 1000 - 5*r."""
+        size = 200
+        cx, cy = size / 2, size / 2
+        y, x = np.mgrid[:size, :size]
+        r = np.sqrt((x - cx) ** 2 + (y - cy) ** 2)
+        image = np.clip(1000.0 - 5.0 * r, 0.0, None)
+        mask = np.zeros_like(image, dtype=bool)
+        return image, mask, cx, cy
+
+    def test_linear_gradient_independent_of_sma(self):
+        """For a constant-slope profile, linear-growth gradient should not depend on SMA.
+
+        Before the fix, gradient was divided by sma*step; with the fix it divides
+        by step only. On I(r) = 1000 - 5r, dI/dr = -5, so gradient ~ -5 at all radii.
+        """
+        from isoster.fitting import compute_gradient
+        image, mask, cx, cy = self._make_image()
+        step = 3.0
+
+        config = IsosterConfig(
+            x0=cx, y0=cy, eps=0.0, pa=0.0,
+            sma0=10.0, minsma=3.0, maxsma=80.0,
+            astep=step, linear_growth=True,
+            integrator='mean', use_eccentric_anomaly=False
+        )
+
+        geom_15 = {'x0': cx, 'y0': cy, 'sma': 15.0, 'eps': 0.0, 'pa': 0.0}
+        geom_30 = {'x0': cx, 'y0': cy, 'sma': 30.0, 'eps': 0.0, 'pa': 0.0}
+
+        grad_15, _ = compute_gradient(image, mask, geom_15, config, previous_gradient=-1.0)
+        grad_30, _ = compute_gradient(image, mask, geom_30, config, previous_gradient=-1.0)
+
+        ratio = grad_30 / grad_15
+        self.assertAlmostEqual(ratio, 1.0, delta=0.15,
+                               msg=f"Linear gradient should not depend on SMA, ratio={ratio:.3f}")
+
+    def test_linear_gradient_magnitude(self):
+        """On I(r) = 1000 - 5r, linear-growth gradient should be approximately -5."""
+        from isoster.fitting import compute_gradient
+        image, mask, cx, cy = self._make_image()
+        step = 3.0
+
+        config = IsosterConfig(
+            x0=cx, y0=cy, eps=0.0, pa=0.0,
+            sma0=10.0, minsma=3.0, maxsma=80.0,
+            astep=step, linear_growth=True,
+            integrator='mean', use_eccentric_anomaly=False
+        )
+
+        geom = {'x0': cx, 'y0': cy, 'sma': 20.0, 'eps': 0.0, 'pa': 0.0}
+        grad, _ = compute_gradient(image, mask, geom, config, previous_gradient=-1.0)
+
+        self.assertAlmostEqual(grad, -5.0, delta=0.5,
+                               msg=f"Expected gradient ~ -5.0, got {grad:.3f}")
+

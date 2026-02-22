@@ -512,12 +512,13 @@ def compute_gradient(image, mask, geometry, config, previous_gradient=None, curr
         mean_g = np.median(intens_g)
     else:
         mean_g = np.mean(intens_g)
-    gradient = (mean_g - mean_c) / sma / step
-    
+    delta_r = step if linear_growth else sma * step
+    gradient = (mean_g - mean_c) / delta_r
+
     sigma_c = np.std(intens_c)
     sigma_g = np.std(intens_g)
-    gradient_error = (np.sqrt(sigma_c**2 / len(intens_c) + sigma_g**2 / len(intens_g)) 
-                     / sma / step)
+    gradient_error = (np.sqrt(sigma_c**2 / len(intens_c) + sigma_g**2 / len(intens_g))
+                     / delta_r)
     
     if previous_gradient is None:
         previous_gradient = gradient + gradient_error
