@@ -233,7 +233,10 @@ config = IsosterConfig(
     conver=0.05,         # Harmonic convergence threshold
 
     # Photometry
-    full_photometry=True,  # Enable flux integration metrics
+    full_photometry=False,   # Enable flux integration metrics (default: False)
+    compute_cog=False,       # Enable curve-of-growth photometry (default: False)
+    integrator='mean',       # Integration method: 'mean', 'median', or 'adaptive'
+    lsb_sma_threshold=None,  # SMA for switching to median in adaptive mode (pixels)
 )
 ```
 

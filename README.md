@@ -180,11 +180,18 @@ For the full benchmark command matrix and output conventions, see `benchmarks/RE
 ## Repository Structure
 
 - `isoster/`:
+    - `config.py`: Pydantic configuration model (`IsosterConfig`).
+    - `driver.py`: High-level image fitting orchestration.
     - `sampling.py`: Vectorized elliptical coordinate sampling.
     - `fitting.py`: Iterative harmonic fitting and error estimation.
-    - `driver.py`: High-level image fitting orchestration.
-    - `model.py`: 2D image reconstruction.
-    - `plotting.py`: Comparison and analysis visualization.
+    - `model.py`: 2D image reconstruction from isophote profiles.
+    - `cog.py`: Curve-of-growth photometry.
+    - `plotting.py`: QA visualization and comparison figures.
+    - `numba_kernels.py`: Numba-accelerated kernels with numpy fallback.
+    - `utils.py`: FITS I/O and Astropy table conversion utilities.
+    - `cli.py`: Command-line interface entry point.
+    - `output_paths.py`: Output directory resolution helpers.
+- `reference/`: Photutils-compatible reference implementation (excluded from install).
 - `tests/`: Unit/integration/validation tests (`tests/README.md`).
 - `benchmarks/`: Performance and profiling benchmarks (`benchmarks/README.md`).
 - `examples/`: Reproducible mock/realistic workflows (`examples/README.md`).
