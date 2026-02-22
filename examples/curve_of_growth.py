@@ -6,16 +6,11 @@ Generate a mock Sersic profile and verify CoG photometry against analytical tota
 """
 
 import os
-import sys
 import numpy as np
 import matplotlib.pyplot as plt
-from astropy.io import fits
-from scipy.special import gammaincinv, gamma
+from scipy.special import gammaincinv
 
-# Add project root to path
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
-
-from isoster.optimize import fit_image
+import isoster
 from isoster.config import IsosterConfig
 
 def sersic_profile(r, I_e, r_e, n):
@@ -204,7 +199,7 @@ def run_sersic_cog_test():
         fix_eps=True
     )
     
-    results = fit_image(image, mask=None, config=cfg)
+    results = isoster.fit_image(image, mask=None, config=cfg)
     isophotes = results['isophotes']
     
     print(f"   Fitted {len(isophotes)} isophotes")
@@ -296,7 +291,9 @@ def run_sersic_cog_test():
     
     plt.tight_layout()
     
-    qa_path = os.path.join(os.path.dirname(__file__), 'sersic_cog_test.png')
+    output_dir = os.path.join(os.path.dirname(__file__), '..', 'outputs')
+    os.makedirs(output_dir, exist_ok=True)
+    qa_path = os.path.join(output_dir, 'sersic_cog_test.png')
     plt.savefig(qa_path, dpi=150)
     plt.close()
     print(f"Saved plot to {qa_path}")

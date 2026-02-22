@@ -1,3 +1,5 @@
+import warnings
+
 import numpy as np
 from scipy.optimize import leastsq
 from .sampling import extract_isophote_data
@@ -295,7 +297,6 @@ def compute_parameter_errors(phi, intens, x0, y0, sma, eps, pa, gradient, cov_ma
         return x0_err, y0_err, eps_err, pa_err
     except (np.linalg.LinAlgError, ValueError) as e:
         # Singular matrix or numerical instability - return zero errors
-        import warnings
         warnings.warn(
             f"compute_parameter_errors failed (singular matrix or numerical issue): {e}. "
             f"Returning zero errors.",
@@ -343,7 +344,6 @@ def compute_deviations(phi, intens, sma, gradient, order):
     except (np.linalg.LinAlgError, ValueError, TypeError) as e:
         # Singular matrix, numerical instability, or degenerate input - return zeros
         # TypeError can occur from scipy.optimize.leastsq when N_params > N_data
-        import warnings
         warnings.warn(
             f"compute_deviations (order={order}) failed (singular matrix, numerical issue, or degenerate input): {e}. "
             f"Returning zeros.",
@@ -420,7 +420,6 @@ def fit_higher_harmonics_simultaneous(angles, intens, sma, gradient, orders=None
         errors = np.sqrt(np.diagonal(covariance))
 
     except (np.linalg.LinAlgError, ValueError) as e:
-        import warnings
         warnings.warn(
             f"fit_higher_harmonics_simultaneous failed: {e}. Returning zeros.",
             RuntimeWarning
@@ -483,7 +482,7 @@ def compute_gradient(image, mask, geometry, config, previous_gradient=None, curr
         phi_c, intens_c = current_data
     else:
         # Extract current SMA data
-        data_c = extract_isophote_data(image, mask, x0, y0, sma, eps, pa, step, linear_growth, use_eccentric_anomaly)
+        data_c = extract_isophote_data(image, mask, x0, y0, sma, eps, pa, use_eccentric_anomaly=use_eccentric_anomaly)
         phi_c = data_c.angles  # Use angles for fitting (φ in this case)
         intens_c = data_c.intens
     
@@ -501,7 +500,7 @@ def compute_gradient(image, mask, geometry, config, previous_gradient=None, curr
         gradient_sma = sma * (1.0 + step)
         
     # Extract gradient SMA data
-    data_g = extract_isophote_data(image, mask, x0, y0, gradient_sma, eps, pa, step, linear_growth, use_eccentric_anomaly)
+    data_g = extract_isophote_data(image, mask, x0, y0, gradient_sma, eps, pa, use_eccentric_anomaly=use_eccentric_anomaly)
     phi_g = data_g.angles
     intens_g = data_g.intens
     
@@ -539,7 +538,7 @@ def compute_gradient(image, mask, geometry, config, previous_gradient=None, curr
             gradient_sma_2 = sma * (1.0 + 2 * step)
 
         # Extract second gradient SMA
-        data_g2 = extract_isophote_data(image, mask, x0, y0, gradient_sma_2, eps, pa, step, linear_growth, use_eccentric_anomaly)
+        data_g2 = extract_isophote_data(image, mask, x0, y0, gradient_sma_2, eps, pa, use_eccentric_anomaly=use_eccentric_anomaly)
         phi_g2 = data_g2.angles
         intens_g2 = data_g2.intens
 
@@ -690,7 +689,7 @@ def fit_isophote(image, mask, sma, start_geometry, config, going_inwards=False, 
         # Extract isophote data - returns named tuple
         # For EA mode: angles=ψ (for harmonics), phi=φ (for geometry)
         # For regular: angles=φ (for harmonics), phi=φ (same)
-        data = extract_isophote_data(image, mask, x0, y0, sma, eps, pa, astep, linear_growth, use_eccentric_anomaly)
+        data = extract_isophote_data(image, mask, x0, y0, sma, eps, pa, use_eccentric_anomaly=use_eccentric_anomaly)
         
         angles = data.angles  # ψ for EA mode, φ for regular mode
         phi = data.phi        # φ (always available for geometry updates)

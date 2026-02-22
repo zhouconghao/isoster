@@ -12,7 +12,7 @@ import yaml
 import numpy as np
 from astropy.io import fits
 from astropy.table import Table
-from .optimize import fit_image
+from .driver import fit_image
 from .utils import isophote_results_to_fits, isophote_results_to_astropy_tables
 
 def load_config(config_file):
@@ -55,6 +55,7 @@ def main():
         image = hdul[0].data
         if image is None: # Maybe in extension 1?
             image = hdul[1].data
+    image = image.astype(np.float64)
             
     mask = None
     if args.mask:

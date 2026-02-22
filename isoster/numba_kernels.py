@@ -225,9 +225,9 @@ def _compute_ellipse_coords_numba(n_samples, sma, eps, pa, x0, y0, use_ea):
     sin_pa = np.sin(pa)
 
     # Generate uniformly spaced angles
-    delta = two_pi / n_samples
+    # Use (two_pi * i) / n_samples to match numpy linspace precision
     for i in range(n_samples):
-        angles[i] = i * delta
+        angles[i] = two_pi * i / n_samples
 
     if use_ea:
         # Sample uniformly in ψ (eccentric anomaly)
