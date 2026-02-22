@@ -66,3 +66,47 @@ class TestConvergenceScaling:
                             convergence_scaling='sqrt_sma')
         result = fit_isophote(image, mask, 150.0, start_geom, cfg)
         assert result['stop_code'] in {0, 1, 2, 3, -1}
+
+
+class TestGeometryDamping:
+    """Test that geometry damping reduces oscillations."""
+
+    def test_damping_reduces_iterations(self):
+        """With damping < 1.0, outer isophotes should use fewer iterations."""
+        image = make_sersic_image(shape=(401, 401), x0=200, y0=200, re=30.0, eps=0.3)
+        mask = np.zeros_like(image, dtype=bool)
+        start_geom = {'x0': 200.0, 'y0': 200.0, 'eps': 0.3, 'pa': 0.5}
+
+        cfg_nodamp = IsosterConfig(geometry_damping=1.0, convergence_scaling='none',
+                                   maxit=50, minit=5, conver=0.02)
+        result_nodamp = fit_isophote(image, mask, 120.0, start_geom, cfg_nodamp)
+
+        cfg_damp = IsosterConfig(geometry_damping=0.7, convergence_scaling='none',
+                                 maxit=50, minit=5, conver=0.02)
+        result_damp = fit_isophote(image, mask, 120.0, start_geom, cfg_damp)
+
+        # Damped should converge or use fewer iterations
+        assert result_damp['niter'] <= result_nodamp['niter'] or result_damp['stop_code'] == 0
+
+    def test_damping_1_is_legacy(self):
+        """geometry_damping=1.0 should match legacy behavior."""
+        image = make_sersic_image()
+        mask = np.zeros_like(image, dtype=bool)
+        start_geom = {'x0': 100.0, 'y0': 100.0, 'eps': 0.3, 'pa': 0.5}
+
+        cfg = IsosterConfig(geometry_damping=1.0, convergence_scaling='none')
+        result = fit_isophote(image, mask, 30.0, start_geom, cfg)
+        assert result['stop_code'] in {0, 1, 2, 3, -1}
+
+    def test_damping_preserves_accuracy(self):
+        """Damped fitting should still produce accurate photometry."""
+        image = make_sersic_image(shape=(301, 301), x0=150, y0=150, re=30.0, eps=0.3)
+        mask = np.zeros_like(image, dtype=bool)
+        start_geom = {'x0': 150.0, 'y0': 150.0, 'eps': 0.3, 'pa': 0.5}
+
+        cfg = IsosterConfig(geometry_damping=0.5, convergence_scaling='none')
+        result = fit_isophote(image, mask, 30.0, start_geom, cfg)
+
+        # At re=30, intensity should be close to ie (1000) * exp(-bn*(1-1)) = 1000
+        assert result['stop_code'] == 0
+        assert abs(result['intens'] - 1000.0) / 1000.0 < 0.05

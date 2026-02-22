@@ -860,22 +860,25 @@ def fit_isophote(image, mask, sma, start_geometry, config, going_inwards=False, 
                 _attach_full_photometry(best_geometry, image, mask)
             break
             
-        # Update geometry
+        # Update geometry (apply damping to reduce oscillations at large SMA)
+        damping = cfg.geometry_damping
         if max_idx == 0:
-            aux = -max_amp * (1.0 - eps) / gradient
+            aux = -max_amp * (1.0 - eps) / gradient * damping
             x0 -= aux * np.sin(pa)
             y0 += aux * np.cos(pa)
         elif max_idx == 1:
-            aux = -max_amp / gradient
+            aux = -max_amp / gradient * damping
             x0 += aux * np.cos(pa)
             y0 += aux * np.sin(pa)
         elif max_idx == 2:
             # denom = (1-eps)^2 - 1 = -eps*(2-eps), always <= 0 (matches photutils)
             denom = (1.0 - eps)**2 - 1.0
             if abs(denom) < 1e-10: denom = -1e-10  # Avoid division by zero for eps~0
-            pa = (pa + (max_amp * 2.0 * (1.0 - eps) / sma / gradient / denom)) % np.pi
+            pa_corr = max_amp * 2.0 * (1.0 - eps) / sma / gradient / denom * damping
+            pa = (pa + pa_corr) % np.pi
         elif max_idx == 3:
-            eps = min(eps - (max_amp * 2.0 * (1.0 - eps) / sma / gradient), 0.95)
+            eps_corr = max_amp * 2.0 * (1.0 - eps) / sma / gradient * damping
+            eps = min(eps - eps_corr, 0.95)
             if eps < 0.0:
                 eps = min(-eps, 0.95)
                 pa = (pa + np.pi/2) % np.pi
