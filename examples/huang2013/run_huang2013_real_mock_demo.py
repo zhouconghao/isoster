@@ -87,8 +87,12 @@ def parse_arguments() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Run IC2597-style Huang2013 real-mock comparison workflow.",
     )
-    parser.add_argument("--galaxy", required=True, help="Galaxy folder/name, e.g., IC2597")
-    parser.add_argument("--mock-id", type=int, default=1, help="Mock ID suffix in FITS name")
+    parser.add_argument(
+        "--galaxy", required=True, help="Galaxy folder/name, e.g., IC2597"
+    )
+    parser.add_argument(
+        "--mock-id", type=int, default=1, help="Mock ID suffix in FITS name"
+    )
     parser.add_argument(
         "--huang-root",
         type=Path,
@@ -119,19 +123,37 @@ def parse_arguments() -> argparse.Namespace:
         help="Tag used in artifact names to distinguish configurations.",
     )
 
-    parser.add_argument("--redshift", type=float, default=None, help="Override redshift")
+    parser.add_argument(
+        "--redshift", type=float, default=None, help="Override redshift"
+    )
     parser.add_argument("--pixel-scale", type=float, default=None, help="Arcsec/pixel")
-    parser.add_argument("--zeropoint", type=float, default=None, help="Magnitude zeropoint")
-    parser.add_argument("--psf-fwhm", type=float, default=None, help="PSF FWHM in arcsec")
+    parser.add_argument(
+        "--zeropoint", type=float, default=None, help="Magnitude zeropoint"
+    )
+    parser.add_argument(
+        "--psf-fwhm", type=float, default=None, help="PSF FWHM in arcsec"
+    )
 
-    parser.add_argument("--sma0", type=float, default=None, help="Initial SMA in pixels")
-    parser.add_argument("--minsma", type=float, default=1.0, help="Minimum fitted SMA in pixels")
-    parser.add_argument("--maxsma", type=float, default=None, help="Maximum fitted SMA in pixels")
+    parser.add_argument(
+        "--sma0", type=float, default=None, help="Initial SMA in pixels"
+    )
+    parser.add_argument(
+        "--minsma", type=float, default=1.0, help="Minimum fitted SMA in pixels"
+    )
+    parser.add_argument(
+        "--maxsma", type=float, default=None, help="Maximum fitted SMA in pixels"
+    )
     parser.add_argument("--astep", type=float, default=0.1, help="SMA growth step")
-    parser.add_argument("--maxgerr", type=float, default=None, help="Gradient error threshold")
+    parser.add_argument(
+        "--maxgerr", type=float, default=None, help="Gradient error threshold"
+    )
 
-    parser.add_argument("--photutils-nclip", type=int, default=2, help="photutils nclip")
-    parser.add_argument("--photutils-sclip", type=float, default=3.0, help="photutils sclip")
+    parser.add_argument(
+        "--photutils-nclip", type=int, default=2, help="photutils nclip"
+    )
+    parser.add_argument(
+        "--photutils-sclip", type=float, default=3.0, help="photutils sclip"
+    )
     parser.add_argument(
         "--photutils-integrmode",
         default="bilinear",
@@ -265,7 +287,9 @@ def compute_sha256(file_path: Path) -> str:
     return digest.hexdigest()
 
 
-def infer_initial_geometry(header: fits.Header, image_shape: tuple[int, int]) -> dict[str, float]:
+def infer_initial_geometry(
+    header: fits.Header, image_shape: tuple[int, int]
+) -> dict[str, float]:
     """Infer center and initial geometric parameters from FITS header."""
     center_x = (image_shape[1] - 1) / 2.0
     center_y = (image_shape[0] - 1) / 2.0
@@ -328,7 +352,9 @@ def infer_initial_geometry(header: fits.Header, image_shape: tuple[int, int]) ->
     }
 
 
-def run_with_runtime_profile(function_to_run, *args, **kwargs) -> tuple[Any, dict[str, Any], str]:
+def run_with_runtime_profile(
+    function_to_run, *args, **kwargs
+) -> tuple[Any, dict[str, Any], str]:
     """Run callable with wall/cpu timing and cProfile summary."""
     profiler = cProfile.Profile()
     start_wall = time.perf_counter()
@@ -412,7 +438,9 @@ def convert_photutils_isolist(isolist) -> list[dict[str, Any]]:
     return isophotes
 
 
-def run_photutils_fit(image: np.ndarray, fit_config: dict[str, Any]) -> list[dict[str, Any]]:
+def run_photutils_fit(
+    image: np.ndarray, fit_config: dict[str, Any]
+) -> list[dict[str, Any]]:
     """Run photutils.isophote fitting."""
     geometry = EllipseGeometry(
         x0=fit_config["x0"],
@@ -438,14 +466,18 @@ def run_photutils_fit(image: np.ndarray, fit_config: dict[str, Any]) -> list[dic
     return convert_photutils_isolist(isolist)
 
 
-def run_isoster_fit(image: np.ndarray, config_dict: dict[str, Any]) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+def run_isoster_fit(
+    image: np.ndarray, config_dict: dict[str, Any]
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     """Run isoster fitting and return isophotes plus validated config dictionary."""
     config = IsosterConfig(**config_dict)
     results = isoster.fit_image(image, None, config)
     return results["isophotes"], config.model_dump()
 
 
-def ensure_numeric_column(table: Table, column_name: str, default_value: float = np.nan) -> None:
+def ensure_numeric_column(
+    table: Table, column_name: str, default_value: float = np.nan
+) -> None:
     """Ensure table has the requested numeric column."""
     if column_name not in table.colnames:
         table[column_name] = np.full(len(table), default_value, dtype=float)
@@ -565,7 +597,9 @@ def ensure_isoster_style_cog_columns(profile_table: Table) -> None:
     )
 
 
-def harmonize_method_cog_columns(profile_table: Table, method_name: str | None = None) -> None:
+def harmonize_method_cog_columns(
+    profile_table: Table, method_name: str | None = None
+) -> None:
     """Populate method CoG column using method-aware source priority."""
     if len(profile_table) == 0:
         return
@@ -596,7 +630,9 @@ def harmonize_method_cog_columns(profile_table: Table, method_name: str | None =
     if "true_cog_flux" in profile_table.colnames:
         true_cog_flux = np.asarray(profile_table["true_cog_flux"], dtype=float)
         with np.errstate(divide="ignore", invalid="ignore"):
-            profile_table["cog_rel_diff"] = (merged_method_cog - true_cog_flux) / true_cog_flux
+            profile_table["cog_rel_diff"] = (
+                merged_method_cog - true_cog_flux
+            ) / true_cog_flux
 
 
 def prepare_profile_table(
@@ -646,11 +682,11 @@ def prepare_profile_table(
     valid_intensity = np.isfinite(intensity) & (intensity > 0.0)
 
     with np.errstate(divide="ignore", invalid="ignore"):
-        surface_brightness[valid_intensity] = (
-            zeropoint_mag - 2.5 * np.log10(intensity[valid_intensity] / (pixel_scale_arcsec**2))
+        surface_brightness[valid_intensity] = zeropoint_mag - 2.5 * np.log10(
+            intensity[valid_intensity] / (pixel_scale_arcsec**2)
         )
-        surface_brightness_error[valid_intensity] = (
-            (2.5 / np.log(10.0)) * (intensity_error[valid_intensity] / intensity[valid_intensity])
+        surface_brightness_error[valid_intensity] = (2.5 / np.log(10.0)) * (
+            intensity_error[valid_intensity] / intensity[valid_intensity]
         )
 
     table["axis_ratio"] = axis_ratio
@@ -665,7 +701,9 @@ def prepare_profile_table(
     table["sb_mag_arcsec2"] = surface_brightness
     table["sb_err_mag"] = surface_brightness_error
 
-    true_curve_of_growth = compute_true_curve_of_growth(image, table, subpixels=cog_subpixels)
+    true_curve_of_growth = compute_true_curve_of_growth(
+        image, table, subpixels=cog_subpixels
+    )
     table["true_cog_flux"] = true_curve_of_growth
 
     harmonize_method_cog_columns(table, method_name=method_name)
@@ -729,7 +767,9 @@ class _PhotutilsModelIsolistAdapter:
 def extract_photutils_model_columns(profile_table: Table) -> dict[str, np.ndarray]:
     """Extract and sanitize profile columns required by `build_ellipse_model`."""
     required_columns = ["sma", "intens", "eps", "pa", "x0", "y0", "grad"]
-    missing_columns = [name for name in required_columns if name not in profile_table.colnames]
+    missing_columns = [
+        name for name in required_columns if name not in profile_table.colnames
+    ]
     if missing_columns:
         missing_text = ", ".join(missing_columns)
         raise ValueError(f"Missing photutils model columns: {missing_text}")
@@ -740,7 +780,9 @@ def extract_photutils_model_columns(profile_table: Table) -> dict[str, np.ndarra
 
     for harmonic_name in ["a3", "b3", "a4", "b4"]:
         if harmonic_name in profile_table.colnames:
-            model_columns[harmonic_name] = np.asarray(profile_table[harmonic_name], dtype=float)
+            model_columns[harmonic_name] = np.asarray(
+                profile_table[harmonic_name], dtype=float
+            )
         else:
             model_columns[harmonic_name] = np.zeros(len(profile_table), dtype=float)
 
@@ -749,19 +791,27 @@ def extract_photutils_model_columns(profile_table: Table) -> dict[str, np.ndarra
         valid_mask &= np.isfinite(model_columns[column_name])
 
     if int(np.sum(valid_mask)) < 6:
-        raise ValueError("Insufficient valid photutils rows for 2-D model reconstruction")
+        raise ValueError(
+            "Insufficient valid photutils rows for 2-D model reconstruction"
+        )
 
     sort_indices = np.argsort(model_columns["sma"][valid_mask])
     for column_name in model_columns:
-        model_columns[column_name] = model_columns[column_name][valid_mask][sort_indices]
+        model_columns[column_name] = model_columns[column_name][valid_mask][
+            sort_indices
+        ]
 
-    unique_sma_values, unique_indices = np.unique(model_columns["sma"], return_index=True)
+    unique_sma_values, unique_indices = np.unique(
+        model_columns["sma"], return_index=True
+    )
     for column_name in model_columns:
         model_columns[column_name] = model_columns[column_name][unique_indices]
     model_columns["sma"] = unique_sma_values
 
     if model_columns["sma"].size < 6:
-        raise ValueError("Insufficient unique photutils SMA rows for 2-D model reconstruction")
+        raise ValueError(
+            "Insufficient unique photutils SMA rows for 2-D model reconstruction"
+        )
 
     return model_columns
 
@@ -791,7 +841,9 @@ def extract_isoster_model_rows(
         harmonic_orders = [3, 4]
 
     required_columns = ["sma", "intens", "eps", "pa", "x0", "y0"]
-    missing_columns = [name for name in required_columns if name not in profile_table.colnames]
+    missing_columns = [
+        name for name in required_columns if name not in profile_table.colnames
+    ]
     if missing_columns:
         missing_text = ", ".join(missing_columns)
         raise ValueError(f"Missing isoster model columns: {missing_text}")
@@ -811,16 +863,22 @@ def extract_isoster_model_rows(
 
     sort_indices = np.argsort(model_columns["sma"][valid_mask])
     for column_name in required_columns:
-        model_columns[column_name] = model_columns[column_name][valid_mask][sort_indices]
+        model_columns[column_name] = model_columns[column_name][valid_mask][
+            sort_indices
+        ]
 
-    unique_sma_values, unique_indices = np.unique(model_columns["sma"], return_index=True)
+    unique_sma_values, unique_indices = np.unique(
+        model_columns["sma"], return_index=True
+    )
     for column_name in required_columns:
         model_columns[column_name] = model_columns[column_name][unique_indices]
     model_columns["sma"] = unique_sma_values
 
     unique_row_count = int(model_columns["sma"].size)
     if unique_row_count < 6:
-        raise ValueError("Insufficient unique isoster SMA rows for 2-D model reconstruction")
+        raise ValueError(
+            "Insufficient unique isoster SMA rows for 2-D model reconstruction"
+        )
 
     harmonic_columns: dict[str, np.ndarray] = {}
     for harmonic_order in harmonic_orders:
@@ -828,14 +886,18 @@ def extract_isoster_model_rows(
             harmonic_name = f"{harmonic_prefix}{harmonic_order}"
             if harmonic_name in profile_table.colnames:
                 harmonic_values = np.asarray(profile_table[harmonic_name], dtype=float)
-                harmonic_values = harmonic_values[valid_mask][sort_indices][unique_indices]
+                harmonic_values = harmonic_values[valid_mask][sort_indices][
+                    unique_indices
+                ]
                 harmonic_columns[harmonic_name] = np.where(
                     np.isfinite(harmonic_values),
                     harmonic_values,
                     0.0,
                 )
             else:
-                harmonic_columns[harmonic_name] = np.zeros(unique_row_count, dtype=float)
+                harmonic_columns[harmonic_name] = np.zeros(
+                    unique_row_count, dtype=float
+                )
 
     isophote_rows: list[dict[str, float]] = []
     for index in range(unique_row_count):
@@ -872,8 +934,13 @@ def build_model_image(
         return build_photutils_model_image(image_shape, profile_table)
 
     harmonic_orders = [3, 4]
-    isophotes, filter_summary = extract_isoster_model_rows(profile_table, harmonic_orders=harmonic_orders)
-    if filter_summary["invalid_row_count"] > 0 or filter_summary["duplicate_row_count"] > 0:
+    isophotes, filter_summary = extract_isoster_model_rows(
+        profile_table, harmonic_orders=harmonic_orders
+    )
+    if (
+        filter_summary["invalid_row_count"] > 0
+        or filter_summary["duplicate_row_count"] > 0
+    ):
         warnings.warn(
             (
                 "Filtered isoster model rows before 2-D reconstruction: "
@@ -909,7 +976,9 @@ def build_model_image(
     return model_image
 
 
-def compute_fractional_residual_percent(image: np.ndarray, model: np.ndarray) -> np.ndarray:
+def compute_fractional_residual_percent(
+    image: np.ndarray, model: np.ndarray
+) -> np.ndarray:
     """Compute residual map as 100 * (model - data) / data."""
     residual = np.full(image.shape, np.nan, dtype=float)
     valid = np.isfinite(image) & (np.abs(image) > 0.0)
@@ -957,7 +1026,9 @@ def draw_isophote_overlays(
         axis.add_patch(ellipse)
 
 
-def robust_limits(values: np.ndarray, lower_percentile: float = 5.0, upper_percentile: float = 95.0) -> tuple[float, float]:
+def robust_limits(
+    values: np.ndarray, lower_percentile: float = 5.0, upper_percentile: float = 95.0
+) -> tuple[float, float]:
     """Compute robust plotting limits from finite values."""
     finite_values = values[np.isfinite(values)]
     if finite_values.size == 0:
@@ -1038,7 +1109,9 @@ def set_x_limits_with_right_margin(
 
 def configure_qa_plot_style() -> None:
     """Apply shared plotting style for QA figures."""
-    latex_available = platform.system() != "Windows" and shutil.which("latex") is not None
+    latex_available = (
+        platform.system() != "Windows" and shutil.which("latex") is not None
+    )
     plt.rcParams.update(
         {
             "font.family": "serif",
@@ -1081,7 +1154,9 @@ def derive_arcsinh_parameters(
     clipped = np.clip(image_values, low, high)
     shifted = np.clip(clipped - low, 0.0, None)
     positive = shifted[np.isfinite(shifted) & (shifted > 0.0)]
-    scale = float(np.nanpercentile(positive, scale_percentile)) if positive.size else 1.0
+    scale = (
+        float(np.nanpercentile(positive, scale_percentile)) if positive.size else 1.0
+    )
     scale = max(scale, 1e-12)
 
     display = np.arcsinh(shifted / scale)
@@ -1143,7 +1218,9 @@ def plot_profile_by_stop_code(
     """Scatter/errorbar profile points split by stop codes."""
     unique_stop_codes = sorted(
         {int(code) for code in stop_codes[np.isfinite(stop_codes)]},
-        key=lambda code: (0, 0) if code == 0 else (1, code) if code > 0 else (2, abs(code)),
+        key=lambda code: (
+            (0, 0) if code == 0 else (1, code) if code > 0 else (2, abs(code))
+        ),
     )
     for stop_code in unique_stop_codes:
         mask = stop_codes == stop_code
@@ -1210,7 +1287,9 @@ def build_method_qa_figure(
     configure_qa_plot_style()
 
     figure = plt.figure(figsize=(13.6, 11.0), dpi=dpi)
-    outer = gridspec.GridSpec(1, 2, figure=figure, width_ratios=[1.0, 2.01], wspace=0.27)
+    outer = gridspec.GridSpec(
+        1, 2, figure=figure, width_ratios=[1.0, 2.01], wspace=0.27
+    )
     left = gridspec.GridSpecFromSubplotSpec(
         3,
         2,
@@ -1236,15 +1315,19 @@ def build_method_qa_figure(
     )
     figure.suptitle(run_title, fontsize=20, y=0.989)
 
-    reference_low, reference_high, reference_scale, reference_vmax = derive_arcsinh_parameters(image)
+    reference_low, reference_high, reference_scale, reference_vmax = (
+        derive_arcsinh_parameters(image)
+    )
 
     axis_original = figure.add_subplot(left[0, 0])
-    original_display, original_vmin, original_vmax = make_arcsinh_display_from_parameters(
-        image,
-        low=reference_low,
-        high=reference_high,
-        scale=reference_scale,
-        vmax=reference_vmax,
+    original_display, original_vmin, original_vmax = (
+        make_arcsinh_display_from_parameters(
+            image,
+            low=reference_low,
+            high=reference_high,
+            scale=reference_scale,
+            vmax=reference_vmax,
+        )
     )
     original_handle = axis_original.imshow(
         original_display,
@@ -1406,10 +1489,34 @@ def build_method_qa_figure(
     axis_centroid.set_ylabel("center offset [pix]")
     axis_centroid.grid(alpha=0.25)
     centroid_legend_handles = [
-        Line2D([], [], marker="o", linestyle="None", color="black", markerfacecolor="black", markersize=4.8, label="X"),
-        Line2D([], [], marker="o", linestyle="None", color="black", markerfacecolor="none", markersize=4.8, label="Y"),
+        Line2D(
+            [],
+            [],
+            marker="o",
+            linestyle="None",
+            color="black",
+            markerfacecolor="black",
+            markersize=4.8,
+            label="X",
+        ),
+        Line2D(
+            [],
+            [],
+            marker="o",
+            linestyle="None",
+            color="black",
+            markerfacecolor="none",
+            markersize=4.8,
+            label="Y",
+        ),
     ]
-    axis_centroid.legend(handles=centroid_legend_handles, loc="upper right", frameon=True, fontsize=14, ncol=2)
+    axis_centroid.legend(
+        handles=centroid_legend_handles,
+        loc="upper right",
+        frameon=True,
+        fontsize=14,
+        ncol=2,
+    )
 
     axis_ratio = np.asarray(profile_table["axis_ratio"], dtype=float)
     axis_ratio_error = np.full(len(profile_table), np.nan, dtype=float)
@@ -1457,7 +1564,9 @@ def build_method_qa_figure(
     axis_position_angle.set_ylabel("PA [deg]")
     axis_position_angle.grid(alpha=0.25)
 
-    pa_for_limits = pa_norm[valid_radius_mask & np.isfinite(pa_norm) & (stop_codes == 0)]
+    pa_for_limits = pa_norm[
+        valid_radius_mask & np.isfinite(pa_norm) & (stop_codes == 0)
+    ]
     if pa_for_limits.size > 1:
         pa_low, pa_high = robust_limits(pa_for_limits, 3, 97)
         margin = max(3.0, 0.08 * (pa_high - pa_low + 1e-6))
@@ -1487,7 +1596,9 @@ def build_method_qa_figure(
     axis_cog.set_xlabel(r"$R^{1/4}$ [kpc$^{1/4}$]")
     axis_cog.grid(alpha=0.25)
 
-    finite_cog = fitted_cog[valid_radius_mask & np.isfinite(fitted_cog) & (fitted_cog > 0)]
+    finite_cog = fitted_cog[
+        valid_radius_mask & np.isfinite(fitted_cog) & (fitted_cog > 0)
+    ]
     if finite_cog.size > 0 and np.all(finite_cog > 0):
         axis_cog.set_yscale("log")
 
@@ -1495,7 +1606,12 @@ def build_method_qa_figure(
         x_valid = x_values[valid_radius_mask]
         set_x_limits_with_right_margin(axis_cog, x_valid)
 
-    for axis in [axis_surface_brightness, axis_centroid, axis_axis_ratio, axis_position_angle]:
+    for axis in [
+        axis_surface_brightness,
+        axis_centroid,
+        axis_axis_ratio,
+        axis_position_angle,
+    ]:
         axis.tick_params(labelbottom=False)
 
     handles, labels = axis_surface_brightness.get_legend_handles_labels()
@@ -1511,7 +1627,6 @@ def build_method_qa_figure(
     figure.subplots_adjust(left=0.025, right=0.992, bottom=0.05, top=0.940, wspace=0.18)
     figure.savefig(output_path, dpi=dpi)
     plt.close(figure)
-
 
 
 def interpolate_column(
@@ -1530,7 +1645,11 @@ def interpolate_column(
     x_values = reference_sma[finite_mask][sorted_indices]
     y_values = reference_values[finite_mask][sorted_indices]
 
-    target_mask = np.isfinite(target_sma) & (target_sma >= x_values[0]) & (target_sma <= x_values[-1])
+    target_mask = (
+        np.isfinite(target_sma)
+        & (target_sma >= x_values[0])
+        & (target_sma <= x_values[-1])
+    )
     result[target_mask] = np.interp(target_sma[target_mask], x_values, y_values)
     return result
 
@@ -1566,7 +1685,9 @@ def build_comparison_qa_figure(
     configure_qa_plot_style()
 
     figure = plt.figure(figsize=(13.6, 11.0), dpi=dpi)
-    outer = gridspec.GridSpec(1, 2, figure=figure, width_ratios=[1.0, 2.01], wspace=0.27)
+    outer = gridspec.GridSpec(
+        1, 2, figure=figure, width_ratios=[1.0, 2.01], wspace=0.27
+    )
     left = gridspec.GridSpecFromSubplotSpec(
         3,
         2,
@@ -1635,7 +1756,11 @@ def build_comparison_qa_figure(
     colorbar_original.set_label(r"arcsinh((data - p0.5) / scale)")
 
     abs_residual_photutils = np.abs(residual_photutils[np.isfinite(residual_photutils)])
-    residual_limit_photutils = np.nanpercentile(abs_residual_photutils, 99.0) if abs_residual_photutils.size else 1.0
+    residual_limit_photutils = (
+        np.nanpercentile(abs_residual_photutils, 99.0)
+        if abs_residual_photutils.size
+        else 1.0
+    )
     residual_limit_photutils = float(np.clip(residual_limit_photutils, 0.05, 8.0))
 
     axis_residual_photutils = figure.add_subplot(left[1, 0])
@@ -1661,11 +1786,17 @@ def build_comparison_qa_figure(
     )
 
     axis_photutils_colorbar = figure.add_subplot(left[1, 1])
-    colorbar_photutils = figure.colorbar(handle_residual_photutils, cax=axis_photutils_colorbar)
+    colorbar_photutils = figure.colorbar(
+        handle_residual_photutils, cax=axis_photutils_colorbar
+    )
     colorbar_photutils.set_label(latex_safe_text("(model - data) / data [%]"))
 
     abs_residual_isoster = np.abs(residual_isoster[np.isfinite(residual_isoster)])
-    residual_limit_isoster = np.nanpercentile(abs_residual_isoster, 99.0) if abs_residual_isoster.size else 1.0
+    residual_limit_isoster = (
+        np.nanpercentile(abs_residual_isoster, 99.0)
+        if abs_residual_isoster.size
+        else 1.0
+    )
     residual_limit_isoster = float(np.clip(residual_limit_isoster, 0.05, 8.0))
 
     axis_residual_isoster = figure.add_subplot(left[2, 0])
@@ -1691,7 +1822,9 @@ def build_comparison_qa_figure(
     )
 
     axis_isoster_colorbar = figure.add_subplot(left[2, 1])
-    colorbar_isoster = figure.colorbar(handle_residual_isoster, cax=axis_isoster_colorbar)
+    colorbar_isoster = figure.colorbar(
+        handle_residual_isoster, cax=axis_isoster_colorbar
+    )
     colorbar_isoster.set_label(latex_safe_text("(model - data) / data [%]"))
 
     for axis in [axis_original, axis_residual_photutils, axis_residual_isoster]:
@@ -1773,10 +1906,16 @@ def build_comparison_qa_figure(
 
     intensity_photutils = np.asarray(photutils_table["intens"], dtype=float)
     intensity_isoster = np.asarray(isoster_table["intens"], dtype=float)
-    intensity_photutils_interp = interpolate_column(sma_photutils, intensity_photutils, sma_isoster)
+    intensity_photutils_interp = interpolate_column(
+        sma_photutils, intensity_photutils, sma_isoster
+    )
 
     with np.errstate(divide="ignore", invalid="ignore"):
-        relative_sb_intensity_diff = 100.0 * (intensity_isoster - intensity_photutils_interp) / intensity_photutils_interp
+        relative_sb_intensity_diff = (
+            100.0
+            * (intensity_isoster - intensity_photutils_interp)
+            / intensity_photutils_interp
+        )
 
     valid_relative = valid_isoster & np.isfinite(relative_sb_intensity_diff)
     axis_sb_relative.axhline(0.0, color="black", linestyle="--", linewidth=0.8)
@@ -1791,7 +1930,9 @@ def build_comparison_qa_figure(
     )
     axis_sb_relative.set_ylabel(latex_safe_text("dI/I_phot [%]"))
     axis_sb_relative.grid(alpha=0.25)
-    relative_values_for_limits = relative_sb_intensity_diff[valid_relative & np.isfinite(relative_sb_intensity_diff)]
+    relative_values_for_limits = relative_sb_intensity_diff[
+        valid_relative & np.isfinite(relative_sb_intensity_diff)
+    ]
     if relative_values_for_limits.size > 1:
         relative_low, relative_high = robust_limits(relative_values_for_limits, 3, 97)
         relative_amplitude = max(abs(relative_low), abs(relative_high))
@@ -1806,10 +1947,26 @@ def build_comparison_qa_figure(
     x0_iso = np.asarray(isoster_table["x0_offset_pix"], dtype=float)
     y0_iso = np.asarray(isoster_table["y0_offset_pix"], dtype=float)
 
-    x0_err_phot = np.asarray(photutils_table["x0_err"], dtype=float) if "x0_err" in photutils_table.colnames else np.full(len(photutils_table), np.nan, dtype=float)
-    y0_err_phot = np.asarray(photutils_table["y0_err"], dtype=float) if "y0_err" in photutils_table.colnames else np.full(len(photutils_table), np.nan, dtype=float)
-    x0_err_iso = np.asarray(isoster_table["x0_err"], dtype=float) if "x0_err" in isoster_table.colnames else np.full(len(isoster_table), np.nan, dtype=float)
-    y0_err_iso = np.asarray(isoster_table["y0_err"], dtype=float) if "y0_err" in isoster_table.colnames else np.full(len(isoster_table), np.nan, dtype=float)
+    x0_err_phot = (
+        np.asarray(photutils_table["x0_err"], dtype=float)
+        if "x0_err" in photutils_table.colnames
+        else np.full(len(photutils_table), np.nan, dtype=float)
+    )
+    y0_err_phot = (
+        np.asarray(photutils_table["y0_err"], dtype=float)
+        if "y0_err" in photutils_table.colnames
+        else np.full(len(photutils_table), np.nan, dtype=float)
+    )
+    x0_err_iso = (
+        np.asarray(isoster_table["x0_err"], dtype=float)
+        if "x0_err" in isoster_table.colnames
+        else np.full(len(isoster_table), np.nan, dtype=float)
+    )
+    y0_err_iso = (
+        np.asarray(isoster_table["y0_err"], dtype=float)
+        if "y0_err" in isoster_table.colnames
+        else np.full(len(isoster_table), np.nan, dtype=float)
+    )
 
     axis_centroid.errorbar(
         x_photutils[valid_photutils],
@@ -1882,12 +2039,26 @@ def build_comparison_qa_figure(
     if centroid_values_for_limits.size > 1:
         centroid_low, centroid_high = robust_limits(centroid_values_for_limits, 3, 97)
         centroid_margin = max(0.5, 0.12 * (centroid_high - centroid_low + 1e-6))
-        axis_centroid.set_ylim(centroid_low - centroid_margin, centroid_high + centroid_margin)
+        axis_centroid.set_ylim(
+            centroid_low - centroid_margin, centroid_high + centroid_margin
+        )
 
     axis_ratio_photutils = np.asarray(photutils_table["axis_ratio"], dtype=float)
     axis_ratio_isoster = np.asarray(isoster_table["axis_ratio"], dtype=float)
-    axis_ratio_error_phot = np.asarray(photutils_table["ellip_err"], dtype=float) if "ellip_err" in photutils_table.colnames else np.asarray(photutils_table["eps_err"], dtype=float) if "eps_err" in photutils_table.colnames else np.full(len(photutils_table), np.nan, dtype=float)
-    axis_ratio_error_iso = np.asarray(isoster_table["ellip_err"], dtype=float) if "ellip_err" in isoster_table.colnames else np.asarray(isoster_table["eps_err"], dtype=float) if "eps_err" in isoster_table.colnames else np.full(len(isoster_table), np.nan, dtype=float)
+    axis_ratio_error_phot = (
+        np.asarray(photutils_table["ellip_err"], dtype=float)
+        if "ellip_err" in photutils_table.colnames
+        else np.asarray(photutils_table["eps_err"], dtype=float)
+        if "eps_err" in photutils_table.colnames
+        else np.full(len(photutils_table), np.nan, dtype=float)
+    )
+    axis_ratio_error_iso = (
+        np.asarray(isoster_table["ellip_err"], dtype=float)
+        if "ellip_err" in isoster_table.colnames
+        else np.asarray(isoster_table["eps_err"], dtype=float)
+        if "eps_err" in isoster_table.colnames
+        else np.full(len(isoster_table), np.nan, dtype=float)
+    )
     axis_axis_ratio.errorbar(
         x_photutils[valid_photutils],
         axis_ratio_photutils[valid_photutils],
@@ -2011,14 +2182,23 @@ def build_comparison_qa_figure(
     axis_cog.set_xlabel(r"$R^{1/4}$ [kpc$^{1/4}$]")
     axis_cog.grid(alpha=0.25)
 
-    if np.any((cog_photutils > 0) & np.isfinite(cog_photutils)) and np.any((cog_isoster > 0) & np.isfinite(cog_isoster)):
+    if np.any((cog_photutils > 0) & np.isfinite(cog_photutils)) and np.any(
+        (cog_isoster > 0) & np.isfinite(cog_isoster)
+    ):
         axis_cog.set_yscale("log")
 
     x_limits = []
     if np.any(valid_photutils):
-        x_limits.extend([np.nanmin(x_photutils[valid_photutils]), np.nanmax(x_photutils[valid_photutils])])
+        x_limits.extend(
+            [
+                np.nanmin(x_photutils[valid_photutils]),
+                np.nanmax(x_photutils[valid_photutils]),
+            ]
+        )
     if np.any(valid_isoster):
-        x_limits.extend([np.nanmin(x_isoster[valid_isoster]), np.nanmax(x_isoster[valid_isoster])])
+        x_limits.extend(
+            [np.nanmin(x_isoster[valid_isoster]), np.nanmax(x_isoster[valid_isoster])]
+        )
     if x_limits:
         set_x_limits_with_right_margin(axis_cog, np.asarray(x_limits, dtype=float))
 
@@ -2029,7 +2209,9 @@ def build_comparison_qa_figure(
     figure.savefig(output_path, dpi=dpi)
     plt.close(figure)
 
-    valid_relative_for_summary = relative_sb_intensity_diff[np.isfinite(relative_sb_intensity_diff)]
+    valid_relative_for_summary = relative_sb_intensity_diff[
+        np.isfinite(relative_sb_intensity_diff)
+    ]
     if valid_relative_for_summary.size:
         median_abs_rel_sb = float(np.nanmedian(np.abs(valid_relative_for_summary)))
         max_abs_rel_sb = float(np.nanmax(np.abs(valid_relative_for_summary)))
@@ -2041,7 +2223,6 @@ def build_comparison_qa_figure(
         "median_abs_relative_sb_percent": median_abs_rel_sb,
         "max_abs_relative_sb_percent": max_abs_rel_sb,
     }
-
 
 
 def summarize_table(profile_table: Table) -> dict[str, Any]:
@@ -2056,11 +2237,17 @@ def summarize_table(profile_table: Table) -> dict[str, Any]:
 
     stop_codes = np.asarray(profile_table["stop_code"], dtype=int)
     unique_stop, counts = np.unique(stop_codes, return_counts=True)
-    stop_summary = {str(int(code)): int(count) for code, count in zip(unique_stop, counts)}
+    stop_summary = {
+        str(int(code)): int(count) for code, count in zip(unique_stop, counts)
+    }
 
     cog_diff = np.asarray(profile_table["cog_rel_diff"], dtype=float)
     finite_cog_diff = cog_diff[np.isfinite(cog_diff)]
-    median_abs_cog_rel_diff = float(np.nanmedian(np.abs(finite_cog_diff))) if finite_cog_diff.size else float("nan")
+    median_abs_cog_rel_diff = (
+        float(np.nanmedian(np.abs(finite_cog_diff)))
+        if finite_cog_diff.size
+        else float("nan")
+    )
 
     return {
         "isophote_count": int(len(profile_table)),
@@ -2191,12 +2378,26 @@ def main() -> None:
     image, header = read_mock_image(input_fits)
 
     inferred = infer_initial_geometry(header, image.shape)
-    redshift = float(args.redshift if args.redshift is not None else get_header_value(header, "REDSHIFT", DEFAULT_REDSHIFT))
-    pixel_scale_arcsec = float(
-        args.pixel_scale if args.pixel_scale is not None else get_header_value(header, "PIXSCALE", DEFAULT_PIXEL_SCALE_ARCSEC)
+    redshift = float(
+        args.redshift
+        if args.redshift is not None
+        else get_header_value(header, "REDSHIFT", DEFAULT_REDSHIFT)
     )
-    zeropoint_mag = float(args.zeropoint if args.zeropoint is not None else get_header_value(header, "MAGZERO", DEFAULT_ZEROPOINT))
-    psf_fwhm_arcsec = float(args.psf_fwhm if args.psf_fwhm is not None else get_header_value(header, "PSFFWHM", np.nan))
+    pixel_scale_arcsec = float(
+        args.pixel_scale
+        if args.pixel_scale is not None
+        else get_header_value(header, "PIXSCALE", DEFAULT_PIXEL_SCALE_ARCSEC)
+    )
+    zeropoint_mag = float(
+        args.zeropoint
+        if args.zeropoint is not None
+        else get_header_value(header, "MAGZERO", DEFAULT_ZEROPOINT)
+    )
+    psf_fwhm_arcsec = float(
+        args.psf_fwhm
+        if args.psf_fwhm is not None
+        else get_header_value(header, "PSFFWHM", np.nan)
+    )
 
     max_sma = args.maxsma
     if max_sma is None:
@@ -2226,7 +2427,11 @@ def main() -> None:
     method_tables: dict[str, Table] = {}
     method_runtime: dict[str, dict[str, Any]] = {}
 
-    methods_to_run = [args.method] if args.method in {"photutils", "isoster"} else ["photutils", "isoster"]
+    methods_to_run = (
+        [args.method]
+        if args.method in {"photutils", "isoster"}
+        else ["photutils", "isoster"]
+    )
 
     for method_name in methods_to_run:
         stem = f"{prefix}_{method_name}_{config_tag}"
@@ -2287,7 +2492,9 @@ def main() -> None:
             if args.isoster_config_json is not None:
                 user_overrides = json.loads(args.isoster_config_json.read_text())
                 if "pa_deg" in user_overrides and "pa" not in user_overrides:
-                    user_overrides["pa"] = float(np.deg2rad(float(user_overrides.pop("pa_deg"))))
+                    user_overrides["pa"] = float(
+                        np.deg2rad(float(user_overrides.pop("pa_deg")))
+                    )
                 isoster_config.update(user_overrides)
 
             fit_output, runtime_info, profile_text = run_with_runtime_profile(
@@ -2363,22 +2570,37 @@ def main() -> None:
         method_tables[method_name] = profile_table
         method_runtime[method_name] = runtime_info
 
-    if "photutils" not in method_profile_paths and args.photutils_profile_fits is not None:
+    if (
+        "photutils" not in method_profile_paths
+        and args.photutils_profile_fits is not None
+    ):
         method_profile_paths["photutils"] = args.photutils_profile_fits
         method_tables["photutils"] = Table.read(args.photutils_profile_fits)
-        harmonize_method_cog_columns(method_tables["photutils"], method_name="photutils")
-        method_runtime["photutils"] = {"wall_time_seconds": np.nan, "cpu_time_seconds": np.nan}
+        harmonize_method_cog_columns(
+            method_tables["photutils"], method_name="photutils"
+        )
+        method_runtime["photutils"] = {
+            "wall_time_seconds": np.nan,
+            "cpu_time_seconds": np.nan,
+        }
 
     if "isoster" not in method_profile_paths and args.isoster_profile_fits is not None:
         method_profile_paths["isoster"] = args.isoster_profile_fits
         method_tables["isoster"] = Table.read(args.isoster_profile_fits)
         harmonize_method_cog_columns(method_tables["isoster"], method_name="isoster")
-        method_runtime["isoster"] = {"wall_time_seconds": np.nan, "cpu_time_seconds": np.nan}
+        method_runtime["isoster"] = {
+            "wall_time_seconds": np.nan,
+            "cpu_time_seconds": np.nan,
+        }
 
     comparison_summary = None
     comparison_figure_path = None
 
-    if not args.skip_comparison and "photutils" in method_tables and "isoster" in method_tables:
+    if (
+        not args.skip_comparison
+        and "photutils" in method_tables
+        and "isoster" in method_tables
+    ):
         comparison_figure_path = output_dir / f"{prefix}_compare_{config_tag}_qa.png"
 
         photutils_model = build_model_image(
@@ -2409,8 +2631,16 @@ def main() -> None:
             dpi=args.qa_dpi,
         )
 
-    summary_photutils = summarize_table(method_tables["photutils"]) if "photutils" in method_tables else None
-    summary_isoster = summarize_table(method_tables["isoster"]) if "isoster" in method_tables else None
+    summary_photutils = (
+        summarize_table(method_tables["photutils"])
+        if "photutils" in method_tables
+        else None
+    )
+    summary_isoster = (
+        summarize_table(method_tables["isoster"])
+        if "isoster" in method_tables
+        else None
+    )
 
     report_path = output_dir / f"{prefix}_report.md"
     write_markdown_report(
@@ -2428,8 +2658,12 @@ def main() -> None:
         "prefix": prefix,
         "input_fits": str(input_fits),
         "output_dir": str(output_dir),
-        "method_profile_paths": {key: str(value) for key, value in method_profile_paths.items()},
-        "comparison_figure": str(comparison_figure_path) if comparison_figure_path is not None else None,
+        "method_profile_paths": {
+            key: str(value) for key, value in method_profile_paths.items()
+        },
+        "comparison_figure": str(comparison_figure_path)
+        if comparison_figure_path is not None
+        else None,
         "report": str(report_path),
         "run_metadata": run_metadata,
         "comparison_summary": comparison_summary,

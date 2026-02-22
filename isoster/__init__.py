@@ -1,3 +1,4 @@
+from .config import IsosterConfig
 from .optimize import fit_image, fit_isophote
 from .utils import (
     isophote_results_to_astropy_tables,

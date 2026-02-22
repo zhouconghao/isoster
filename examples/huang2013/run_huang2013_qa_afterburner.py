@@ -55,8 +55,12 @@ def parse_arguments() -> argparse.Namespace:
         description="Generate Huang2013 QA/report artifacts from saved profile products.",
     )
 
-    parser.add_argument("--galaxy", required=True, help="Galaxy folder/name, e.g., IC2597")
-    parser.add_argument("--mock-id", type=int, default=1, help="Mock ID suffix in FITS name")
+    parser.add_argument(
+        "--galaxy", required=True, help="Galaxy folder/name, e.g., IC2597"
+    )
+    parser.add_argument(
+        "--mock-id", type=int, default=1, help="Mock ID suffix in FITS name"
+    )
     parser.add_argument(
         "--huang-root",
         type=Path,
@@ -87,35 +91,78 @@ def parse_arguments() -> argparse.Namespace:
         default=DEFAULT_CONFIG_TAG,
         help="Shared config tag used for both methods unless method-specific tag is set.",
     )
-    parser.add_argument("--photutils-tag", default=None, help="Config tag for photutils artifacts")
-    parser.add_argument("--isoster-tag", default=None, help="Config tag for isoster artifacts")
+    parser.add_argument(
+        "--photutils-tag", default=None, help="Config tag for photutils artifacts"
+    )
+    parser.add_argument(
+        "--isoster-tag", default=None, help="Config tag for isoster artifacts"
+    )
 
-    parser.add_argument("--photutils-profile-fits", type=Path, default=None, help="Explicit photutils profile FITS")
-    parser.add_argument("--isoster-profile-fits", type=Path, default=None, help="Explicit isoster profile FITS")
-    parser.add_argument("--photutils-run-json", type=Path, default=None, help="Explicit photutils run JSON")
-    parser.add_argument("--isoster-run-json", type=Path, default=None, help="Explicit isoster run JSON")
+    parser.add_argument(
+        "--photutils-profile-fits",
+        type=Path,
+        default=None,
+        help="Explicit photutils profile FITS",
+    )
+    parser.add_argument(
+        "--isoster-profile-fits",
+        type=Path,
+        default=None,
+        help="Explicit isoster profile FITS",
+    )
+    parser.add_argument(
+        "--photutils-run-json",
+        type=Path,
+        default=None,
+        help="Explicit photutils run JSON",
+    )
+    parser.add_argument(
+        "--isoster-run-json", type=Path, default=None, help="Explicit isoster run JSON"
+    )
 
-    parser.add_argument("--profiles-manifest", type=Path, default=None, help="Extraction manifest path. Default: <prefix>_profiles_manifest.json in output dir.")
+    parser.add_argument(
+        "--profiles-manifest",
+        type=Path,
+        default=None,
+        help="Extraction manifest path. Default: <prefix>_profiles_manifest.json in output dir.",
+    )
     parser.add_argument(
         "--ignore-extraction-status",
         action="store_true",
         help="Ignore extraction manifest method statuses when deciding QA eligibility.",
     )
 
-    parser.add_argument("--redshift", type=float, default=None, help="Override redshift")
+    parser.add_argument(
+        "--redshift", type=float, default=None, help="Override redshift"
+    )
     parser.add_argument(
         "--pixel-scale",
         type=float,
         default=None,
         help="Override pixel scale [arcsec/pix]. Default: FITS header PIXSCALE.",
     )
-    parser.add_argument("--zeropoint", type=float, default=None, help="Override magnitude zeropoint")
-    parser.add_argument("--psf-fwhm", type=float, default=None, help="Override PSF FWHM [arcsec]")
+    parser.add_argument(
+        "--zeropoint", type=float, default=None, help="Override magnitude zeropoint"
+    )
+    parser.add_argument(
+        "--psf-fwhm", type=float, default=None, help="Override PSF FWHM [arcsec]"
+    )
 
-    parser.add_argument("--isophote-overlay-step", type=int, default=10, help="Overlay every Nth isophote")
+    parser.add_argument(
+        "--isophote-overlay-step",
+        type=int,
+        default=10,
+        help="Overlay every Nth isophote",
+    )
     parser.add_argument("--qa-dpi", type=int, default=180, help="DPI for QA figures")
-    parser.add_argument("--skip-comparison", action="store_true", help="Skip cross-method comparison figure")
-    parser.add_argument("--verbose", action="store_true", help="Emit QA stage progress logs.")
+    parser.add_argument(
+        "--skip-comparison",
+        action="store_true",
+        help="Skip cross-method comparison figure",
+    )
+    parser.add_argument(
+        "--verbose", action="store_true", help="Emit QA stage progress logs."
+    )
 
     return parser.parse_args()
 
@@ -124,12 +171,19 @@ def build_input_path(arguments: argparse.Namespace) -> Path:
     """Resolve the input FITS path."""
     if arguments.input_fits is not None:
         return arguments.input_fits
-    return arguments.huang_root / arguments.galaxy / f"{arguments.galaxy}_mock{arguments.mock_id}.fits"
+    return (
+        arguments.huang_root
+        / arguments.galaxy
+        / f"{arguments.galaxy}_mock{arguments.mock_id}.fits"
+    )
 
 
 def load_runtime_from_run_json(run_json_path: Path | None) -> dict[str, float]:
     """Load runtime from per-method run JSON or return NaNs."""
-    default_runtime = {"wall_time_seconds": float("nan"), "cpu_time_seconds": float("nan")}
+    default_runtime = {
+        "wall_time_seconds": float("nan"),
+        "cpu_time_seconds": float("nan"),
+    }
     if run_json_path is None or not run_json_path.exists():
         return default_runtime
 
@@ -182,7 +236,16 @@ def validate_profile_table_for_qa(profile_table: Table) -> tuple[bool, str | Non
     if len(profile_table) == 0:
         return False, "empty_profile_table"
 
-    required_columns = {"x_kpc_quarter", "sma", "stop_code", "intens", "eps", "pa", "x0", "y0"}
+    required_columns = {
+        "x_kpc_quarter",
+        "sma",
+        "stop_code",
+        "intens",
+        "eps",
+        "pa",
+        "x0",
+        "y0",
+    }
     missing_columns = sorted(required_columns - set(profile_table.colnames))
     if missing_columns:
         missing_text = ",".join(missing_columns)
@@ -225,7 +288,9 @@ def build_comparison_isophote_count_warning(
     }
 
 
-def collect_artifact_availability_warnings(artifact_entries: list[dict[str, str]]) -> list[dict[str, str]]:
+def collect_artifact_availability_warnings(
+    artifact_entries: list[dict[str, str]],
+) -> list[dict[str, str]]:
     """Collect missing/empty artifact warnings from expected artifact records."""
     warnings: list[dict[str, str]] = []
     seen_entries: set[tuple[str, str]] = set()
@@ -268,9 +333,13 @@ def prepare_case_output_dir(output_dir: Path, verbose: bool, prefix: str) -> Non
     """Ensure case output directory exists and emit create/skip telemetry."""
     if output_dir.exists():
         if not output_dir.is_dir():
-            raise NotADirectoryError(f"Case output path exists but is not a directory: {output_dir}")
+            raise NotADirectoryError(
+                f"Case output path exists but is not a directory: {output_dir}"
+            )
         if verbose:
-            print(f"[QA] SKIP stage={prefix}:mkdir reason=output_dir_exists path={output_dir}")
+            print(
+                f"[QA] SKIP stage={prefix}:mkdir reason=output_dir_exists path={output_dir}"
+            )
         return
     output_dir.mkdir(parents=True, exist_ok=True)
     if verbose:
@@ -286,14 +355,20 @@ def main() -> None:
         raise FileNotFoundError(f"Input FITS does not exist: {input_fits}")
 
     prefix = build_case_prefix(arguments.galaxy, arguments.mock_id)
-    default_output_dir = build_case_output_dir(arguments.huang_root, arguments.galaxy, arguments.mock_id)
-    output_dir = arguments.output_dir if arguments.output_dir is not None else default_output_dir
+    default_output_dir = build_case_output_dir(
+        arguments.huang_root, arguments.galaxy, arguments.mock_id
+    )
+    output_dir = (
+        arguments.output_dir if arguments.output_dir is not None else default_output_dir
+    )
     prepare_case_output_dir(output_dir, arguments.verbose, prefix)
 
     image, header = read_mock_image(input_fits)
 
     redshift = float(
-        arguments.redshift if arguments.redshift is not None else get_header_value(header, "REDSHIFT", DEFAULT_REDSHIFT)
+        arguments.redshift
+        if arguments.redshift is not None
+        else get_header_value(header, "REDSHIFT", DEFAULT_REDSHIFT)
     )
     pixel_scale_arcsec = float(
         arguments.pixel_scale
@@ -301,21 +376,43 @@ def main() -> None:
         else get_header_value(header, "PIXSCALE", DEFAULT_PIXEL_SCALE_ARCSEC)
     )
     zeropoint_mag = float(
-        arguments.zeropoint if arguments.zeropoint is not None else get_header_value(header, "MAGZERO", DEFAULT_ZEROPOINT)
+        arguments.zeropoint
+        if arguments.zeropoint is not None
+        else get_header_value(header, "MAGZERO", DEFAULT_ZEROPOINT)
     )
     psf_fwhm_arcsec = float(
-        arguments.psf_fwhm if arguments.psf_fwhm is not None else get_header_value(header, "PSFFWHM", np.nan)
+        arguments.psf_fwhm
+        if arguments.psf_fwhm is not None
+        else get_header_value(header, "PSFFWHM", np.nan)
     )
 
     shared_tag = sanitize_label(arguments.config_tag)
-    photutils_tag = sanitize_label(arguments.photutils_tag) if arguments.photutils_tag is not None else shared_tag
-    isoster_tag = sanitize_label(arguments.isoster_tag) if arguments.isoster_tag is not None else shared_tag
+    photutils_tag = (
+        sanitize_label(arguments.photutils_tag)
+        if arguments.photutils_tag is not None
+        else shared_tag
+    )
+    isoster_tag = (
+        sanitize_label(arguments.isoster_tag)
+        if arguments.isoster_tag is not None
+        else shared_tag
+    )
 
     inferred_profiles_manifest = build_profiles_manifest_path(output_dir, prefix)
-    profiles_manifest_path = arguments.profiles_manifest if arguments.profiles_manifest is not None else inferred_profiles_manifest
-    extraction_status_by_method = load_extraction_method_statuses(profiles_manifest_path)
+    profiles_manifest_path = (
+        arguments.profiles_manifest
+        if arguments.profiles_manifest is not None
+        else inferred_profiles_manifest
+    )
+    extraction_status_by_method = load_extraction_method_statuses(
+        profiles_manifest_path
+    )
 
-    methods_to_render = [arguments.method] if arguments.method in {"photutils", "isoster"} else ["photutils", "isoster"]
+    methods_to_render = (
+        [arguments.method]
+        if arguments.method in {"photutils", "isoster"}
+        else ["photutils", "isoster"]
+    )
 
     method_tables: dict[str, Table] = {}
     method_models: dict[str, np.ndarray] = {}
@@ -332,7 +429,11 @@ def main() -> None:
 
     for method_name in methods_to_render:
         extraction_status = extraction_status_by_method.get(method_name)
-        if not arguments.ignore_extraction_status and extraction_status is not None and extraction_status != "success":
+        if (
+            not arguments.ignore_extraction_status
+            and extraction_status is not None
+            and extraction_status != "success"
+        ):
             method_skips.append(
                 {
                     "method": method_name,
@@ -341,12 +442,16 @@ def main() -> None:
                 }
             )
             if arguments.verbose:
-                print(f"[QA] SKIP method={method_name} reason=extraction_status_{extraction_status}")
+                print(
+                    f"[QA] SKIP method={method_name} reason=extraction_status_{extraction_status}"
+                )
             continue
 
         method_tag = photutils_tag if method_name == "photutils" else isoster_tag
         method_stem = build_method_stem(prefix, method_name, method_tag)
-        method_paths = build_method_artifact_paths(output_dir, prefix, method_name, method_tag)
+        method_paths = build_method_artifact_paths(
+            output_dir, prefix, method_name, method_tag
+        )
         expected_artifact_entries.extend(
             [
                 {
@@ -371,8 +476,16 @@ def main() -> None:
                 },
             ]
         )
-        explicit_profile = arguments.photutils_profile_fits if method_name == "photutils" else arguments.isoster_profile_fits
-        explicit_run_json = arguments.photutils_run_json if method_name == "photutils" else arguments.isoster_run_json
+        explicit_profile = (
+            arguments.photutils_profile_fits
+            if method_name == "photutils"
+            else arguments.isoster_profile_fits
+        )
+        explicit_run_json = (
+            arguments.photutils_run_json
+            if method_name == "photutils"
+            else arguments.isoster_run_json
+        )
 
         profile_fits_path, run_json_path = resolve_method_paths(
             method_name=method_name,
@@ -401,7 +514,9 @@ def main() -> None:
         try:
             profile_table = Table.read(profile_fits_path)
             harmonize_method_cog_columns(profile_table, method_name=method_name)
-            is_valid_table, invalid_reason = validate_profile_table_for_qa(profile_table)
+            is_valid_table, invalid_reason = validate_profile_table_for_qa(
+                profile_table
+            )
             if not is_valid_table:
                 method_skips.append(
                     {
@@ -446,7 +561,9 @@ def main() -> None:
                 }
             )
             if arguments.verbose:
-                print(f"[QA] END method={method_name} status=failed error={type(error).__name__}: {error}")
+                print(
+                    f"[QA] END method={method_name} status=failed error={type(error).__name__}: {error}"
+                )
             continue
 
         method_tables[method_name] = profile_table
@@ -470,7 +587,11 @@ def main() -> None:
         and "photutils" in method_tables
         and "isoster" in method_tables
     ):
-        comparison_suffix = f"{photutils_tag}_vs_{isoster_tag}" if photutils_tag != isoster_tag else shared_tag
+        comparison_suffix = (
+            f"{photutils_tag}_vs_{isoster_tag}"
+            if photutils_tag != isoster_tag
+            else shared_tag
+        )
         comparison_qa_path = output_dir / f"{prefix}_compare_{comparison_suffix}_qa.png"
 
         if arguments.verbose:
@@ -496,11 +617,21 @@ def main() -> None:
         if arguments.verbose:
             print("[QA] END comparison status=success")
 
-    summary_photutils = summarize_table(method_tables["photutils"]) if "photutils" in method_tables else None
-    summary_isoster = summarize_table(method_tables["isoster"]) if "isoster" in method_tables else None
+    summary_photutils = (
+        summarize_table(method_tables["photutils"])
+        if "photutils" in method_tables
+        else None
+    )
+    summary_isoster = (
+        summarize_table(method_tables["isoster"])
+        if "isoster" in method_tables
+        else None
+    )
     warning_entries: list[dict] = []
 
-    comparison_warning = build_comparison_isophote_count_warning(summary_photutils, summary_isoster)
+    comparison_warning = build_comparison_isophote_count_warning(
+        summary_photutils, summary_isoster
+    )
     if comparison_warning is not None:
         warning_entries.append(comparison_warning)
         if arguments.verbose:
@@ -536,7 +667,11 @@ def main() -> None:
             if isinstance(run_json_path_text, str)
             else None
         )
-        run_outputs = run_json_payload.get("outputs", {}) if isinstance(run_json_payload, dict) else {}
+        run_outputs = (
+            run_json_payload.get("outputs", {})
+            if isinstance(run_json_payload, dict)
+            else {}
+        )
         if isinstance(run_outputs, dict):
             for field_name in ["profile_fits", "profile_ecsv", "runtime_profile"]:
                 field_value = run_outputs.get(field_name)
@@ -547,7 +682,11 @@ def main() -> None:
                             "artifact_path": field_value,
                         }
                     )
-        run_warnings = run_json_payload.get("warnings", []) if isinstance(run_json_payload, dict) else []
+        run_warnings = (
+            run_json_payload.get("warnings", [])
+            if isinstance(run_json_payload, dict)
+            else []
+        )
         if isinstance(run_warnings, list):
             for warning_text in run_warnings:
                 warning_entries.append(
@@ -566,16 +705,27 @@ def main() -> None:
                 "artifact_path": str(comparison_qa_path),
             }
         )
-    elif not arguments.skip_comparison and set(methods_to_render) == {"photutils", "isoster"}:
-        comparison_suffix = f"{photutils_tag}_vs_{isoster_tag}" if photutils_tag != isoster_tag else shared_tag
+    elif not arguments.skip_comparison and set(methods_to_render) == {
+        "photutils",
+        "isoster",
+    }:
+        comparison_suffix = (
+            f"{photutils_tag}_vs_{isoster_tag}"
+            if photutils_tag != isoster_tag
+            else shared_tag
+        )
         expected_artifact_entries.append(
             {
                 "artifact_role": "comparison_qa",
-                "artifact_path": str(output_dir / f"{prefix}_compare_{comparison_suffix}_qa.png"),
+                "artifact_path": str(
+                    output_dir / f"{prefix}_compare_{comparison_suffix}_qa.png"
+                ),
             }
         )
 
-    warning_entries.extend(collect_artifact_availability_warnings(expected_artifact_entries))
+    warning_entries.extend(
+        collect_artifact_availability_warnings(expected_artifact_entries)
+    )
     run_metadata = {
         "prefix": prefix,
         "input_fits": str(input_fits),
@@ -616,7 +766,9 @@ def main() -> None:
         "input_fits": str(input_fits),
         "output_dir": str(output_dir),
         "report": str(report_path),
-        "comparison_qa": str(comparison_qa_path) if comparison_qa_path is not None else None,
+        "comparison_qa": str(comparison_qa_path)
+        if comparison_qa_path is not None
+        else None,
         "comparison_summary": comparison_summary,
         "method_outputs": method_outputs,
         "method_skips": method_skips,
@@ -664,7 +816,9 @@ def main() -> None:
     print(f"Output directory: {output_dir}")
     print(f"QA manifest: {manifest_path}")
     successful_methods = sorted(method_outputs.keys())
-    print(f"Successful QA methods: {successful_methods if successful_methods else 'none'}")
+    print(
+        f"Successful QA methods: {successful_methods if successful_methods else 'none'}"
+    )
     if method_skips:
         print(f"Skipped methods: {[entry['method'] for entry in method_skips]}")
     if method_failures:

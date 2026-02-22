@@ -23,7 +23,15 @@ ISOSTER is a Python library for elliptical isophote fitting on 2D images, with a
 - `isoster/model.py`: 2D model reconstruction by radial interpolation.
 - `isoster/cog.py`: curve-of-growth computation and crossing flags.
 - `isoster/utils.py`: serialization to/from FITS and Astropy tables.
+- `isoster/plotting.py`: QA visualization (`plot_qa_summary`).
+- `isoster/cli.py`: command-line interface entry point.
+- `isoster/numba_kernels.py`: optional Numba-accelerated kernels with NumPy fallback.
+- `isoster/output_paths.py`: output directory and file path construction helpers.
 - `isoster/optimize.py`: compatibility facade re-exporting driver/fitting APIs.
+
+## Key Constants
+
+- `ACCEPTABLE_STOP_CODES = {0, 1, 2}` (`driver.py`): stop codes considered acceptable for continued fitting (outward/inward growth). Used by `is_acceptable_stop_code()` to gate whether the next SMA step proceeds.
 
 ## Runtime Modes
 

@@ -1,26 +1,444 @@
 """
 Plotting utilities for isophote analysis visualization.
 
-This module provides reusable plotting functions for comparing isophote
-fitting results between photutils and the optimized implementation.
+This module provides reusable plotting functions for QA figures that follow
+the Huang2013 campaign baseline style (build_method_qa_figure convention).
+Key features: stop-code-separated scatter, arcsinh image display with
+colorbars, fractional residual maps, robust axis limits, and PA unwrap.
 """
+
+from __future__ import annotations
+
+import platform
+import shutil
 
 import numpy as np
 import matplotlib.pyplot as plt
-from matplotlib.patches import Ellipse as MPLEllipse
 import matplotlib.gridspec as gridspec
+from matplotlib.lines import Line2D
+from matplotlib.patches import Ellipse as MPLEllipse
+
+# ---------------------------------------------------------------------------
+# Stop-code styling constants
+# ---------------------------------------------------------------------------
+
+STOP_CODE_STYLES = {
+    0: {"color": "#1f77b4", "marker": "o", "label": "stop=0"},
+    1: {"color": "#ff7f0e", "marker": "s", "label": "stop=1"},
+    2: {"color": "#2ca02c", "marker": "^", "label": "stop=2"},
+    3: {"color": "#d62728", "marker": "D", "label": "stop=3"},
+    4: {"color": "#8c564b", "marker": "P", "label": "stop=4"},
+    5: {"color": "#17becf", "marker": "v", "label": "stop=5"},
+    -1: {"color": "#9467bd", "marker": "X", "label": "stop=-1"},
+}
+
+MONOCHROME_STOP_MARKERS = {
+    0: "o",
+    1: "s",
+    2: "^",
+    3: "D",
+    4: "P",
+    5: "v",
+    -1: "X",
+}
+
+MONOCHROME_STOP_COLORS = {
+    0: "#111111",
+    1: "#1f3b73",
+    2: "#1b5e20",
+    3: "#7f1d1d",
+    4: "#8b5a2b",
+    5: "#006d77",
+    -1: "#4b2e83",
+}
+
+
+# ---------------------------------------------------------------------------
+# Style and text helpers
+# ---------------------------------------------------------------------------
+
+def style_for_stop_code(stop_code: int, monochrome: bool = False) -> dict[str, str]:
+    """Return plotting style dict (color, marker, label) for a stop code."""
+    if monochrome:
+        marker = MONOCHROME_STOP_MARKERS.get(stop_code, "o")
+        color = MONOCHROME_STOP_COLORS.get(stop_code, "#374151")
+        return {"color": color, "marker": marker, "label": f"stop={stop_code}"}
+    if stop_code in STOP_CODE_STYLES:
+        return STOP_CODE_STYLES[stop_code]
+    return {"color": "#7f7f7f", "marker": "o", "label": f"stop={stop_code}"}
+
+
+def configure_qa_plot_style() -> None:
+    """Apply shared plotting style for QA figures."""
+    latex_available = (
+        platform.system() != "Windows" and shutil.which("latex") is not None
+    )
+    plt.rcParams.update(
+        {
+            "font.family": "serif",
+            "font.serif": ["Computer Modern Roman", "CMU Serif", "DejaVu Serif"],
+            "mathtext.fontset": "cm",
+            "text.usetex": latex_available,
+            "axes.labelsize": 15,
+            "axes.titlesize": 14,
+            "xtick.labelsize": 11,
+            "ytick.labelsize": 11,
+            "legend.fontsize": 14,
+            "axes.unicode_minus": False,
+        }
+    )
+
+
+def latex_safe_text(label_text: str) -> str:
+    """Escape percent signs when LaTeX text rendering is active."""
+    if plt.rcParams.get("text.usetex", False):
+        return label_text.replace("%", r"\%")
+    return label_text
+
+
+# ---------------------------------------------------------------------------
+# PA normalization (unwrap-aware)
+# ---------------------------------------------------------------------------
+
+def normalize_pa_degrees(pa_degrees: np.ndarray) -> np.ndarray:
+    """Normalize PA values while preserving continuity across 180-degree periodicity.
+
+    Uses double-angle unwrap to avoid spurious jumps larger than 90 degrees.
+    """
+    pa = np.asarray(pa_degrees, dtype=float)
+    output = np.full(pa.shape, np.nan, dtype=float)
+    finite_mask = np.isfinite(pa)
+    if not np.any(finite_mask):
+        return output
+
+    wrapped = np.mod(pa[finite_mask], 180.0)
+    doubled_rad = np.deg2rad(2.0 * wrapped)
+    unwrapped = np.unwrap(doubled_rad)
+    normalized = np.rad2deg(0.5 * unwrapped)
+    output[finite_mask] = np.mod(normalized, 180.0)
+    return output
+
 
 def normalize_angle(angle_rad):
-    """
-    Normalize angle in radians to [0, 180) degrees.
-    Handles the 0/180 ambiguity for ellipses.
-    """
+    """Normalize angle in radians to [0, 180) degrees (legacy compatibility)."""
     deg = np.degrees(angle_rad)
     return np.mod(deg, 180.0)
 
-def plot_qa_summary(title, image, isoster_model, isoster_res, photutils_res=None, mask=None, filename="qa_summary.png"):
+
+# ---------------------------------------------------------------------------
+# Arcsinh display pipeline
+# ---------------------------------------------------------------------------
+
+def derive_arcsinh_parameters(
+    image_values: np.ndarray,
+    lower_percentile: float = 0.05,
+    upper_percentile: float = 99.99,
+    scale_percentile: float = 70.0,
+) -> tuple[float, float, float, float]:
+    """Derive arcsinh display parameters (low, high, scale, vmax) from image statistics."""
+    finite_values = image_values[np.isfinite(image_values)]
+    if finite_values.size == 0:
+        return 0.0, 1.0, 1.0, 1.0
+
+    low = float(np.nanpercentile(finite_values, lower_percentile))
+    high = float(np.nanpercentile(finite_values, upper_percentile))
+    if not np.isfinite(high) or high <= low:
+        high = low + 1.0
+
+    clipped = np.clip(image_values, low, high)
+    shifted = np.clip(clipped - low, 0.0, None)
+    positive = shifted[np.isfinite(shifted) & (shifted > 0.0)]
+    scale = (
+        float(np.nanpercentile(positive, scale_percentile)) if positive.size else 1.0
+    )
+    scale = max(scale, 1e-12)
+
+    display = np.arcsinh(shifted / scale)
+    finite_display = display[np.isfinite(display)]
+    vmax = float(np.nanpercentile(finite_display, 99.8)) if finite_display.size else 1.0
+    vmax = max(vmax, 1e-6)
+
+    return low, high, scale, vmax
+
+
+def make_arcsinh_display_from_parameters(
+    image_values: np.ndarray,
+    low: float,
+    high: float,
+    scale: float,
+    vmax: float,
+) -> tuple[np.ndarray, float, float]:
+    """Build arcsinh display map from explicit scaling parameters.
+
+    Returns (display_array, vmin, vmax).
     """
-    Generate a detailed QA figure comparing isoster results with input and photutils.
+    clipped = np.clip(image_values, low, high)
+    shifted = np.clip(clipped - low, 0.0, None)
+    display = np.arcsinh(shifted / max(scale, 1e-12))
+    return display, 0.0, max(vmax, 1e-6)
+
+
+def make_arcsinh_display(
+    image_values: np.ndarray,
+    lower_percentile: float = 0.05,
+    upper_percentile: float = 99.99,
+    scale_percentile: float = 70.0,
+) -> tuple[np.ndarray, float, float, float]:
+    """Build arcsinh-scaled display map and limits.
+
+    Returns (display_array, vmin, vmax, scale).
+    """
+    low, high, scale, vmax = derive_arcsinh_parameters(
+        image_values,
+        lower_percentile=lower_percentile,
+        upper_percentile=upper_percentile,
+        scale_percentile=scale_percentile,
+    )
+    display, vmin, vmax = make_arcsinh_display_from_parameters(
+        image_values, low=low, high=high, scale=scale, vmax=vmax,
+    )
+    return display, vmin, vmax, scale
+
+
+# ---------------------------------------------------------------------------
+# Residual computation
+# ---------------------------------------------------------------------------
+
+def compute_fractional_residual_percent(
+    image: np.ndarray, model: np.ndarray
+) -> np.ndarray:
+    """Compute residual map as ``100 * (model - data) / data``."""
+    residual = np.full(image.shape, np.nan, dtype=float)
+    valid = np.isfinite(image) & (np.abs(image) > 0.0)
+    residual[valid] = 100.0 * (model[valid] - image[valid]) / image[valid]
+    return residual
+
+
+# ---------------------------------------------------------------------------
+# Robust axis-limit helpers
+# ---------------------------------------------------------------------------
+
+def robust_limits(
+    values: np.ndarray, lower_percentile: float = 5.0, upper_percentile: float = 95.0
+) -> tuple[float, float]:
+    """Compute robust plotting limits from finite values."""
+    finite_values = values[np.isfinite(values)]
+    if finite_values.size == 0:
+        return -1.0, 1.0
+    low = float(np.nanpercentile(finite_values, lower_percentile))
+    high = float(np.nanpercentile(finite_values, upper_percentile))
+    if not np.isfinite(low) or not np.isfinite(high) or low == high:
+        delta = max(abs(low), 1.0)
+        return low - delta, high + delta
+    return low, high
+
+
+def set_axis_limits_from_finite_values(
+    axis,
+    values: np.ndarray,
+    invert: bool = False,
+    margin_fraction: float = 0.08,
+    min_margin: float = 0.05,
+    lower_clip: float | None = None,
+    upper_clip: float | None = None,
+) -> None:
+    """Set y-axis limits from finite data values with a comfortable margin."""
+    finite_values = np.asarray(values, dtype=float)
+    finite_values = finite_values[np.isfinite(finite_values)]
+    if finite_values.size == 0:
+        return
+
+    value_low = float(np.nanmin(finite_values))
+    value_high = float(np.nanmax(finite_values))
+    if value_high <= value_low:
+        margin = max(min_margin, 0.05 * max(abs(value_low), 1.0))
+    else:
+        margin = max(min_margin, margin_fraction * (value_high - value_low))
+
+    limit_low = value_low - margin
+    limit_high = value_high + margin
+    if lower_clip is not None:
+        limit_low = max(limit_low, lower_clip)
+    if upper_clip is not None:
+        limit_high = min(limit_high, upper_clip)
+
+    if limit_high <= limit_low:
+        midpoint = 0.5 * (value_low + value_high)
+        half_width = max(min_margin, 0.02)
+        limit_low = midpoint - half_width
+        limit_high = midpoint + half_width
+        if lower_clip is not None:
+            limit_low = max(limit_low, lower_clip)
+        if upper_clip is not None:
+            limit_high = min(limit_high, upper_clip)
+        if limit_high <= limit_low:
+            return
+
+    if invert:
+        axis.set_ylim(limit_high, limit_low)
+    else:
+        axis.set_ylim(limit_low, limit_high)
+
+
+def set_x_limits_with_right_margin(
+    axis,
+    x_values: np.ndarray,
+    min_margin: float = 0.02,
+    margin_fraction: float = 0.03,
+) -> None:
+    """Set x-axis limits with a small right-edge margin for readability."""
+    finite_values = np.asarray(x_values, dtype=float)
+    finite_values = finite_values[np.isfinite(finite_values)]
+    if finite_values.size == 0:
+        return
+
+    x_low = float(np.nanmin(finite_values))
+    x_high = float(np.nanmax(finite_values))
+    width = max(x_high - x_low, 0.0)
+    right_margin = max(min_margin, margin_fraction * max(width, 1.0))
+    axis.set_xlim(x_low, x_high + right_margin)
+
+
+# ---------------------------------------------------------------------------
+# Isophote overlay drawing
+# ---------------------------------------------------------------------------
+
+def draw_isophote_overlays(
+    axis,
+    isophotes,
+    step: int = 10,
+    line_width: float = 1.0,
+    alpha: float = 0.7,
+    edge_color: str | None = None,
+) -> None:
+    """Overlay selective isophotes on an image axis.
+
+    Parameters
+    ----------
+    isophotes : list of dict
+        Isophote results with keys: sma, x0, y0, eps, pa, stop_code.
+    step : int
+        Draw every *step*-th isophote.
+    edge_color : str or None
+        Fixed color override; if None, color by stop code.
+    """
+    if len(isophotes) == 0:
+        return
+
+    step = max(step, 1)
+    for index in range(0, len(isophotes), step):
+        iso = isophotes[index]
+        sma = float(iso.get("sma", 0.0))
+        if not np.isfinite(sma) or sma <= 1.0:
+            continue
+
+        x0 = float(iso.get("x0", 0.0))
+        y0 = float(iso.get("y0", 0.0))
+        eps = float(iso.get("eps", 0.0))
+        pa_rad = float(iso.get("pa", 0.0))
+        stop_code = int(iso.get("stop_code", 0))
+
+        style = style_for_stop_code(stop_code)
+        color = edge_color if edge_color is not None else style["color"]
+
+        ellipse = MPLEllipse(
+            (x0, y0),
+            2.0 * sma,
+            2.0 * sma * (1.0 - eps),
+            angle=np.rad2deg(pa_rad),
+            fill=False,
+            linewidth=line_width,
+            alpha=alpha,
+            edgecolor=color,
+        )
+        axis.add_patch(ellipse)
+
+
+# ---------------------------------------------------------------------------
+# Scatter-by-stop-code profile plotting
+# ---------------------------------------------------------------------------
+
+def plot_profile_by_stop_code(
+    axis,
+    x_values: np.ndarray,
+    y_values: np.ndarray,
+    stop_codes: np.ndarray,
+    y_errors: np.ndarray | None = None,
+    marker_face: str = "filled",
+    label_prefix: str = "",
+    marker_size: float = 26.0,
+    monochrome: bool = False,
+) -> None:
+    """Scatter/errorbar profile points separated by stop codes.
+
+    Parameters
+    ----------
+    marker_face : str
+        ``"filled"`` for solid markers, ``"open"`` for hollow.
+    monochrome : bool
+        If True, use monochrome palette (non-zero stop codes are hollow).
+    """
+    unique_stop_codes = sorted(
+        {int(code) for code in stop_codes[np.isfinite(stop_codes)]},
+        key=lambda code: (
+            (0, 0) if code == 0 else (1, code) if code > 0 else (2, abs(code))
+        ),
+    )
+    for stop_code in unique_stop_codes:
+        mask = stop_codes == stop_code
+        if not np.any(mask):
+            continue
+        style = style_for_stop_code(stop_code, monochrome=monochrome)
+        if monochrome and stop_code != 0:
+            face_color = "none"
+        else:
+            face_color = style["color"] if marker_face == "filled" else "none"
+
+        if y_errors is not None:
+            sanitized_errors = np.asarray(y_errors[mask], dtype=float)
+            sanitized_errors[sanitized_errors < 0.0] = np.nan
+            axis.errorbar(
+                x_values[mask],
+                y_values[mask],
+                yerr=sanitized_errors,
+                fmt=style["marker"],
+                markersize=4.5,
+                color=style["color"],
+                mfc=face_color,
+                mec=style["color"],
+                capsize=1.8,
+                linewidth=0.7,
+                alpha=0.85,
+                label=f"{label_prefix}{style['label']}",
+            )
+        else:
+            axis.scatter(
+                x_values[mask],
+                y_values[mask],
+                s=marker_size,
+                marker=style["marker"],
+                facecolors=face_color,
+                edgecolors=style["color"],
+                linewidths=0.9,
+                alpha=0.9,
+                label=f"{label_prefix}{style['label']}",
+            )
+
+
+# ---------------------------------------------------------------------------
+# Main QA summary figure
+# ---------------------------------------------------------------------------
+
+def plot_qa_summary(
+    title,
+    image,
+    isoster_model,
+    isoster_res,
+    photutils_res=None,
+    mask=None,
+    filename="qa_summary.png",
+):
+    """Generate a QA figure following the Huang2013 campaign baseline style.
 
     Parameters
     ----------
@@ -31,273 +449,337 @@ def plot_qa_summary(title, image, isoster_model, isoster_res, photutils_res=None
     isoster_model : 2D array
         Reconstructed model from isoster isophotes.
     isoster_res : list of dict
-        Results from isoster fitting.
+        Results from isoster fitting (each dict has sma, intens, eps, pa, etc.).
     photutils_res : photutils.isophote.IsophoteList, optional
-        Results from photutils fitting for comparison.
+        Results from photutils fitting for comparison overlay.
+    mask : 2D bool array, optional
+        Bad-pixel mask (True = masked).
     filename : str
         Output filename.
     """
-    # Create Figure with constrained layout for better spacing control
-    fig = plt.figure(figsize=(20, 17))
-    
-    # Outer GridSpec: 1 row, 2 columns (Images vs Profiles)
-    # Adjust top margin to bring title closer - user layout preserved
-    outer_gs = gridspec.GridSpec(1, 2, width_ratios=[1, 1.3], wspace=0.04, top=0.93, bottom=0.07, left=0.05, right=0.95)
-    
-    fig.suptitle(title, fontsize=25, weight='bold', y=0.98) 
-    
-    # --- Left Column: Images (3 rows) ---
-    left_gs = gridspec.GridSpecFromSubplotSpec(3, 1, subplot_spec=outer_gs[0], hspace=0.01)
-    
-    # Scaling for images (asinh)
-    vmin, vmax = np.percentile(image[~np.isnan(image)], [1, 99])
-    def norm(img):
-        return np.arcsinh((img - vmin) / (vmax - vmin))
+    configure_qa_plot_style()
 
-    # 1. Input Image + Isophotes (and Mask)
-    ax_img = fig.add_subplot(left_gs[0])
-    ax_img.imshow(norm(image), origin='lower', cmap='viridis')
-    
-    if mask is not None:
-        # Overlay mask in red with transparency
-        # distinct color for bad pixels
-        masked_img = np.zeros((*image.shape, 4))
-        masked_img[mask] = [1, 0, 0, 0.4] # Red, alpha=0.4
-        ax_img.imshow(masked_img, origin='lower')
-        
-    ax_img.set_ylabel('Y (pixels)', fontsize=16)
-    # Overplot isophotes (sparse)
-    sorted_iso = sorted(isoster_res, key=lambda x: x['sma'])
-    step = max(1, len(sorted_iso) // 15)
-    for iso in sorted_iso[::step]:
-        if iso['sma'] < 1.0: continue
-        b_over_a = 1.0 - iso['eps']
-        ell = MPLEllipse((iso['x0'], iso['y0']), 
-                         width=2*iso['sma'], 
-                         height=2*iso['sma']*b_over_a,
-                         angle=np.degrees(iso['pa']),
-                         edgecolor='white', facecolor='none', linewidth=0.7, alpha=0.8)
-        ax_img.add_patch(ell)
-    
-    ax_img.text(0.05, 0.95, "Input + Mask + Isophotes", transform=ax_img.transAxes, color='white', weight='bold', va='top', fontsize=20)
-    ax_img.set_xticks([])
-
-    # 2. Model Image
-    ax_mod = fig.add_subplot(left_gs[1], sharex=ax_img, sharey=ax_img)
-    ax_mod.imshow(norm(isoster_model), origin='lower', cmap='viridis')
-    ax_mod.text(0.05, 0.95, "Isoster Model", transform=ax_mod.transAxes, color='white', weight='bold', va='top', fontsize=20)
-    ax_mod.set_xticks([])
-    ax_mod.set_ylabel('Y (pixels)', fontsize=20)
-
-    # 3. Residual Image
-    ax_res = fig.add_subplot(left_gs[2], sharex=ax_img, sharey=ax_img)
-    residual = image - isoster_model
-    # Residual scaling
-    res_std = np.std(residual[~np.isnan(residual)])
-    ax_res.imshow(residual, origin='lower', cmap='viridis', vmin=-3*res_std, vmax=3*res_std)
-    ax_res.text(0.05, 0.95, "Residual", transform=ax_res.transAxes, color='white', weight='bold', va='top', fontsize=20)
-    ax_res.set_xlabel('X (pixels)', fontsize=20)
-    ax_res.set_ylabel('Y (pixels)', fontsize=20)
-
-    # --- Right Column: 1D Profiles (7 rows) ---
-    right_gs = gridspec.GridSpecFromSubplotSpec(7, 1, subplot_spec=outer_gs[1], 
-                                                height_ratios=[2.5, 1, 1, 1, 1, 1, 1], hspace=0.0)
-    
-    # Prepare Data
-    def get_arr(key, default=0.0):
+    # --- Extract isoster arrays ------------------------------------------------
+    def get_arr(key, default=np.nan):
         return np.array([r.get(key, default) for r in isoster_res])
 
-    i_sma = get_arr('sma')
-    mask = i_sma > 1.5
-    
-    i_intens = get_arr('intens', np.nan)[mask]
-    i_intens_err = get_arr('intens_err', np.nan)[mask]
-    i_eps = get_arr('eps')[mask]
-    i_eps_err = get_arr('eps_err', np.nan)[mask]
-    i_pa = get_arr('pa')[mask]
-    i_pa_err = get_arr('pa_err', np.nan)[mask]
-    i_x0 = get_arr('x0')[mask]
-    i_x0_err = get_arr('x0_err', np.nan)[mask]
-    i_y0 = get_arr('y0')[mask]
-    i_y0_err = get_arr('y0_err', np.nan)[mask]
-    i_a3 = get_arr('a3')[mask]
-    i_b3 = get_arr('b3')[mask]
-    i_a4 = get_arr('a4')[mask]
-    i_b4 = get_arr('b4')[mask]
+    i_sma = get_arr("sma")
+    i_intens = get_arr("intens")
+    i_intens_err = get_arr("intens_err")
+    i_eps = get_arr("eps")
+    i_eps_err = get_arr("eps_err")
+    i_pa = get_arr("pa")
+    i_pa_err = get_arr("pa_err")
+    i_x0 = get_arr("x0")
+    i_x0_err = get_arr("x0_err")
+    i_y0 = get_arr("y0")
+    i_y0_err = get_arr("y0_err")
+    i_a3 = get_arr("a3")
+    i_b3 = get_arr("b3")
+    i_a4 = get_arr("a4")
+    i_b4 = get_arr("b4")
+    i_stop = get_arr("stop_code", 0).astype(int)
 
-    x_axis = i_sma[mask]**0.25
-    
-    # Photutils Data
-    p_intens_interp = None
-    if photutils_res:
-        p_sma = np.array([iso.sma for iso in photutils_res])
-        p_mask = p_sma > 1.5
-        p_x_axis = p_sma[p_mask]**0.25
-        
-        p_intens = np.array([iso.intens for iso in photutils_res])
-        p_intens_err = np.array([iso.int_err for iso in photutils_res])
-        p_eps = np.array([iso.eps for iso in photutils_res])
-        p_eps_err = np.array([iso.ellip_err for iso in photutils_res])
-        p_pa = np.array([iso.pa for iso in photutils_res])
-        p_pa_err = np.array([iso.pa_err for iso in photutils_res])
-        p_x0 = np.array([iso.x0 for iso in photutils_res])
-        p_x0_err = np.array([iso.x0_err for iso in photutils_res])
-        p_y0 = np.array([iso.y0 for iso in photutils_res])
-        p_y0_err = np.array([iso.y0_err for iso in photutils_res])
-        p_a3 = np.array([iso.a3 for iso in photutils_res])
-        p_b3 = np.array([iso.b3 for iso in photutils_res])
-        p_a4 = np.array([iso.a4 for iso in photutils_res])
-        p_b4 = np.array([iso.b4 for iso in photutils_res])
+    # Derived columns
+    x_axis = i_sma ** 0.25
+    valid_mask = np.isfinite(x_axis) & (i_sma > 1.0)
 
-        # Interpolate photutils to isoster SMA grid for difference calculation
-        p_intens_interp = np.interp(i_sma[mask], p_sma, p_intens)
+    i_ba = 1.0 - i_eps
+    i_pa_deg = normalize_pa_degrees(np.degrees(i_pa))
+    i_pa_err_deg = np.degrees(i_pa_err)
 
-    axes_profiles = []
-    
-    # Common plot settings
-    scatter_kwargs_iso = {'fmt': 'o', 'color': 'red', 'markersize': 6, 'label': 'Isoster', 'elinewidth': 1}
-    scatter_kwargs_phot = {'fmt': 'o', 'markerfacecolor': 'none', 'markeredgecolor': 'black', 'color': 'black', 'markersize': 6,
-                           'label': 'Photutils', 'elinewidth': 1, 'linewidth': 2, 'alpha': 0.8}
-    
-    # Helper to set Y limits based on data points only (ignoring errorbars)
-    def set_ylim_data(ax, data1, data2=None, pad=0.1):
-        d1 = data1[~np.isnan(data1)]
-        vmin, vmax = np.min(d1), np.max(d1)
-        if data2 is not None:
-            d2 = data2[~np.isnan(data2)]
-            if len(d2) > 0:
-                vmin = min(vmin, np.min(d2))
-                vmax = max(vmax, np.max(d2))
-        
-        rng = vmax - vmin
-        if rng == 0: rng = 1.0
-        ax.set_ylim(vmin - rng*pad, vmax + rng*pad)
+    # Center offsets relative to median
+    median_x0 = np.nanmedian(i_x0[valid_mask]) if np.any(valid_mask) else 0.0
+    median_y0 = np.nanmedian(i_y0[valid_mask]) if np.any(valid_mask) else 0.0
+    i_dx = i_x0 - median_x0
+    i_dy = i_y0 - median_y0
 
-    # 1. Surface Brightness
-    ax1 = fig.add_subplot(right_gs[0])
-    
-    y_iso = np.log10(i_intens)
-    # Correct error prop for log10: err_log10 = err / (I * ln(10))
-    yerr_iso = i_intens_err / (i_intens * np.log(10))
-    
-    ax1.errorbar(x_axis, y_iso, yerr=yerr_iso, **scatter_kwargs_iso)
-    
-    if photutils_res:
-        y_phot = np.log10(p_intens[p_mask]) # Re-slice masked array
-        yerr_phot = p_intens_err[p_mask] / (p_intens[p_mask] * np.log(10))
-        ax1.errorbar(p_x_axis, y_phot, yerr=yerr_phot, **scatter_kwargs_phot)
-        
-    ax1.set_ylabel(r'$\log_{10}(I)$', fontsize=20)
-    ax1.legend(loc='upper right', fontsize=20)
-    ax1.grid(True, alpha=0.5)
-    ax1.set_xticklabels([])
-    axes_profiles.append(ax1)
+    # Determine panel count: base 5 + optional harmonics + optional CoG
+    has_harmonics = np.any(np.isfinite(i_a3)) or np.any(np.isfinite(i_a4))
+    has_cog = any("cog" in r for r in isoster_res)
 
-    # 2. Relative Difference
-    ax2 = fig.add_subplot(right_gs[1], sharex=ax1)
-    if photutils_res:
-        diff = ((i_intens - p_intens_interp) / p_intens_interp) * 100.0
-        ax2.plot(x_axis, diff, 'b-', lw=2)
-        ax2.axhline(0, color='gray', ls=':')
-    ax2.set_ylabel(r'$\Delta I/I$ (%)', fontsize=20)
-    ax2.grid(True, alpha=0.5)
-    ax2.set_xticklabels([])
-    axes_profiles.append(ax2)
+    n_panels = 4  # SB, centroid, b/a, PA
+    if has_harmonics:
+        n_panels += 1
+    if has_cog:
+        n_panels += 1
 
-    # 3. Center X & Y
-    ax3 = fig.add_subplot(right_gs[2], sharex=ax1)
-    ax3.errorbar(x_axis, i_x0, yerr=i_x0_err, fmt='o', color='red', markersize=6, label='X', elinewidth=1)
-    ax3.errorbar(x_axis, i_y0, yerr=i_y0_err, fmt='s', color='blue', markersize=6, label='Y', elinewidth=1)
-    
-    if photutils_res:
-        ax3.errorbar(p_x_axis, p_x0[p_mask], yerr=p_x0_err[p_mask], fmt='o', markerfacecolor='none', markeredgecolor='black', color='black', alpha=0.5, markersize=5)
-        ax3.errorbar(p_x_axis, p_y0[p_mask], yerr=p_y0_err[p_mask], fmt='s', markerfacecolor='none', markeredgecolor='gray', color='gray', alpha=0.5, markersize=5)
-    
-    # Auto-scale Y based on data only
-    set_ylim_data(ax3, np.concatenate([i_x0, i_y0]), 
-                 np.concatenate([p_x0[p_mask], p_y0[p_mask]]) if photutils_res else None)
-        
-    ax3.set_ylabel('Center', fontsize=20)
-    ax3.legend(fontsize=20, loc='best')
-    ax3.grid(True, alpha=0.5)
-    ax3.set_xticklabels([])
+    # Height ratios: SB panel 2.2x, rest 1.0x, last 1.2x
+    height_ratios = [2.2] + [1.0] * (n_panels - 2) + [1.2]
 
-    # 4. Axis Ratio (1 - eps)
-    ax4 = fig.add_subplot(right_gs[3], sharex=ax1)
-    # Error prop: err(1-eps) = err(eps)
-    y_ba_iso = 1.0 - i_eps
-    ax4.errorbar(x_axis, y_ba_iso, yerr=i_eps_err, **scatter_kwargs_iso)
-    
-    y_ba_phot = None
-    if photutils_res:
-        y_ba_phot = 1.0 - p_eps[p_mask]
-        ax4.errorbar(p_x_axis, y_ba_phot, yerr=p_eps_err[p_mask], **scatter_kwargs_phot)
-    
-    set_ylim_data(ax4, y_ba_iso, y_ba_phot)
-        
-    ax4.set_ylabel('b/a', fontsize=20)
-    ax4.grid(True, alpha=0.5)
-    ax4.set_xticklabels([])
+    # --- Figure layout ---------------------------------------------------------
+    fig = plt.figure(figsize=(13.6, 11.0))
+    outer = gridspec.GridSpec(
+        1, 2, figure=fig, width_ratios=[1.0, 2.01], wspace=0.27,
+    )
 
-    # 5. Position Angle
-    ax5 = fig.add_subplot(right_gs[4], sharex=ax1)
-    y_pa_iso = normalize_angle(i_pa)
-    yerr_pa_iso = np.degrees(i_pa_err)
-    
-    ax5.errorbar(x_axis, y_pa_iso, yerr=yerr_pa_iso, **scatter_kwargs_iso)
-    
-    y_pa_phot = None
-    if photutils_res:
-        y_pa_phot = normalize_angle(p_pa[p_mask])
-        yerr_pa_phot = np.degrees(p_pa_err[p_mask])
-        ax5.errorbar(p_x_axis, y_pa_phot, yerr=yerr_pa_phot, **scatter_kwargs_phot)
+    # Left column: 3 image rows, each with a colorbar sliver
+    left = gridspec.GridSpecFromSubplotSpec(
+        3, 2, subplot_spec=outer[0],
+        width_ratios=[1.0, 0.04], hspace=0.10, wspace=-0.20,
+    )
 
-    set_ylim_data(ax5, y_pa_iso, y_pa_phot)
+    # Right column: 1-D profile panels
+    right = gridspec.GridSpecFromSubplotSpec(
+        n_panels, 1, subplot_spec=outer[1],
+        height_ratios=height_ratios, hspace=0.0,
+    )
 
-    ax5.set_ylabel('PA (deg)', fontsize=20)
-    ax5.grid(True, alpha=0.5)
-    ax5.set_xticklabels([])
+    fig.suptitle(title, fontsize=20, y=0.989)
 
-    # 6. A3 / B3
-    ax6 = fig.add_subplot(right_gs[5], sharex=ax1)
-    ax6.scatter(x_axis, i_a3, c='red', marker='o', s=25, label='A3')
-    ax6.scatter(x_axis, i_b3, c='blue', marker='o', s=25, label='B3')
-    
-    phot_harm3 = None
-    if photutils_res:
-        ax6.scatter(p_x_axis, p_a3[p_mask], facecolors='none', edgecolors='red', marker='o', s=25, alpha=0.5)
-        ax6.scatter(p_x_axis, p_b3[p_mask], facecolors='none', edgecolors='blue', marker='o', s=25, alpha=0.5)
-        phot_harm3 = np.concatenate([p_a3[p_mask], p_b3[p_mask]])
-        
-    set_ylim_data(ax6, np.concatenate([i_a3, i_b3]), phot_harm3)
-    
-    ax6.set_ylabel('A3/B3', fontsize=20)
-    ax6.legend(fontsize=20, loc='best')
-    ax6.grid(True, alpha=0.5)
-    ax6.set_xticklabels([])
+    # --- Left column: 2-D panels ----------------------------------------------
+    # Shared arcsinh parameters derived from the data image
+    ref_low, ref_high, ref_scale, ref_vmax = derive_arcsinh_parameters(image)
 
-    # 7. A4 / B4
-    ax7 = fig.add_subplot(right_gs[6], sharex=ax1)
-    ax7.scatter(x_axis, i_a4, c='red', marker='o', s=25, label='A4')
-    ax7.scatter(x_axis, i_b4, c='blue', marker='o', s=25, label='B4')
-    
-    phot_harm4 = None
-    if photutils_res:
-        ax7.scatter(p_x_axis, p_a4[p_mask], facecolors='none', edgecolors='red', marker='o', s=25, alpha=0.5)
-        ax7.scatter(p_x_axis, p_b4[p_mask], facecolors='none', edgecolors='blue', marker='o', s=25, alpha=0.5)
-        phot_harm4 = np.concatenate([p_a4[p_mask], p_b4[p_mask]])
+    # Panel 1: Data + isophotes
+    ax_img = fig.add_subplot(left[0, 0])
+    img_display, img_vmin, img_vmax = make_arcsinh_display_from_parameters(
+        image, low=ref_low, high=ref_high, scale=ref_scale, vmax=ref_vmax,
+    )
+    h_img = ax_img.imshow(
+        img_display, origin="lower", cmap="viridis",
+        vmin=img_vmin, vmax=img_vmax, interpolation="none",
+    )
+    if mask is not None:
+        mask_overlay = np.zeros((*image.shape, 4))
+        mask_overlay[mask] = [1, 0, 0, 0.4]
+        ax_img.imshow(mask_overlay, origin="lower")
 
-    set_ylim_data(ax7, np.concatenate([i_a4, i_b4]), phot_harm4)
+    overlay_step = max(1, len(isoster_res) // 15)
+    draw_isophote_overlays(
+        ax_img, isoster_res, step=overlay_step,
+        line_width=1.2, alpha=0.8, edge_color="orangered",
+    )
+    ax_img.text(
+        0.15, 0.9, "Data", fontsize=18, color="w",
+        transform=ax_img.transAxes, ha="center", va="center",
+        weight="bold", alpha=0.85,
+    )
 
-    ax7.set_ylabel('A4/B4', fontsize=20)
-    ax7.legend(fontsize=20, loc='best')
-    ax7.grid(True, alpha=0.5)
-    ax7.set_xlabel(r'SMA$^{0.25}$ (pixel$^{0.25}$)', fontsize=20)
-    
-    # Ensure tick labels are visible - Force it
-    plt.setp(ax7.get_xticklabels(), visible=True)
+    ax_img_cb = fig.add_subplot(left[0, 1])
+    fig.colorbar(h_img, cax=ax_img_cb).set_label(r"arcsinh((data $-$ p0.5) / scale)")
 
-    # Save
-    plt.savefig(filename, dpi=150)
+    # Panel 2: Model
+    ax_mod = fig.add_subplot(left[1, 0])
+    mod_display, mod_vmin, mod_vmax = make_arcsinh_display_from_parameters(
+        isoster_model, low=ref_low, high=ref_high, scale=ref_scale, vmax=ref_vmax,
+    )
+    h_mod = ax_mod.imshow(
+        mod_display, origin="lower", cmap="viridis",
+        vmin=mod_vmin, vmax=mod_vmax, interpolation="none",
+    )
+    ax_mod.text(
+        0.15, 0.9, "Model", fontsize=18, color="w",
+        transform=ax_mod.transAxes, ha="center", va="center",
+        weight="bold", alpha=0.85,
+    )
+
+    ax_mod_cb = fig.add_subplot(left[1, 1])
+    fig.colorbar(h_mod, cax=ax_mod_cb).set_label(r"arcsinh((model $-$ p0.5) / scale)")
+
+    # Panel 3: Fractional residual (coolwarm)
+    ax_res = fig.add_subplot(left[2, 0])
+    residual = compute_fractional_residual_percent(image, isoster_model)
+    abs_res = np.abs(residual[np.isfinite(residual)])
+    res_limit = np.nanpercentile(abs_res, 99.0) if abs_res.size else 1.0
+    res_limit = float(np.clip(res_limit, 0.05, 8.0))
+    h_res = ax_res.imshow(
+        residual, origin="lower", cmap="coolwarm",
+        vmin=-res_limit, vmax=res_limit, interpolation="nearest",
+    )
+    ax_res.text(
+        0.18, 0.9, "Residual", fontsize=18, color="k",
+        transform=ax_res.transAxes, ha="center", va="center",
+        weight="bold", alpha=0.85,
+    )
+
+    ax_res_cb = fig.add_subplot(left[2, 1])
+    fig.colorbar(h_res, cax=ax_res_cb).set_label(
+        latex_safe_text("(model - data) / data [%]")
+    )
+
+    for ax in [ax_img, ax_mod, ax_res]:
+        ax.set_xlabel("x [pixel]")
+        ax.set_ylabel("y [pixel]")
+
+    # --- Right column: 1-D profiles -------------------------------------------
+    panel_idx = 0
+
+    # 1. Surface brightness (log10 I)
+    ax_sb = fig.add_subplot(right[panel_idx])
+    panel_idx += 1
+
+    sb_valid = valid_mask & np.isfinite(i_intens) & (i_intens > 0)
+    y_sb = np.full_like(i_intens, np.nan)
+    y_sb[sb_valid] = np.log10(i_intens[sb_valid])
+    y_sb_err = np.full_like(i_intens_err, np.nan)
+    y_sb_err[sb_valid] = i_intens_err[sb_valid] / (i_intens[sb_valid] * np.log(10))
+
+    plot_profile_by_stop_code(
+        ax_sb, x_axis[sb_valid], y_sb[sb_valid], i_stop[sb_valid],
+        y_errors=y_sb_err[sb_valid], marker_face="filled", monochrome=True,
+    )
+
+    if photutils_res is not None:
+        _overlay_photutils_sb(ax_sb, photutils_res)
+
+    ax_sb.set_ylabel(r"$\log_{10}(I)$")
+    ax_sb.set_title("Surface brightness profile")
+    ax_sb.grid(alpha=0.25)
+    sb_for_limits = y_sb[sb_valid & np.isfinite(y_sb)]
+    if sb_for_limits.size > 0:
+        set_axis_limits_from_finite_values(
+            ax_sb, sb_for_limits, margin_fraction=0.06, min_margin=0.2,
+        )
+    handles, labels = ax_sb.get_legend_handles_labels()
+    if handles:
+        ax_sb.legend(handles[:8], labels[:8], loc="upper right", fontsize=14, ncol=1)
+
+    # 2. Center offset
+    ax_cen = fig.add_subplot(right[panel_idx], sharex=ax_sb)
+    panel_idx += 1
+
+    plot_profile_by_stop_code(
+        ax_cen, x_axis[valid_mask], i_dx[valid_mask], i_stop[valid_mask],
+        y_errors=i_x0_err[valid_mask], marker_face="filled",
+        label_prefix="dx ", monochrome=True,
+    )
+    plot_profile_by_stop_code(
+        ax_cen, x_axis[valid_mask], i_dy[valid_mask], i_stop[valid_mask],
+        y_errors=i_y0_err[valid_mask], marker_face="open",
+        label_prefix="dy ", monochrome=True,
+    )
+    ax_cen.axhline(0.0, color="black", linestyle="--", linewidth=0.8, alpha=0.7)
+    ax_cen.set_ylabel("center offset [pix]")
+    ax_cen.grid(alpha=0.25)
+    centroid_legend = [
+        Line2D([], [], marker="o", linestyle="None", color="black",
+               markerfacecolor="black", markersize=4.8, label="X"),
+        Line2D([], [], marker="o", linestyle="None", color="black",
+               markerfacecolor="none", markersize=4.8, label="Y"),
+    ]
+    ax_cen.legend(handles=centroid_legend, loc="upper right", frameon=True,
+                  fontsize=14, ncol=2)
+
+    # 3. Axis ratio (b/a)
+    ax_ba = fig.add_subplot(right[panel_idx], sharex=ax_sb)
+    panel_idx += 1
+
+    plot_profile_by_stop_code(
+        ax_ba, x_axis[valid_mask], i_ba[valid_mask], i_stop[valid_mask],
+        y_errors=i_eps_err[valid_mask], marker_face="filled", monochrome=True,
+    )
+    ba_for_limits = i_ba[valid_mask & np.isfinite(i_ba)]
+    set_axis_limits_from_finite_values(
+        ax_ba, ba_for_limits, margin_fraction=0.08, min_margin=0.03,
+        lower_clip=0.0, upper_clip=1.0,
+    )
+    ax_ba.set_ylabel("axis ratio")
+    ax_ba.grid(alpha=0.25)
+
+    # 4. Position angle
+    ax_pa = fig.add_subplot(right[panel_idx], sharex=ax_sb)
+    panel_idx += 1
+
+    plot_profile_by_stop_code(
+        ax_pa, x_axis[valid_mask], i_pa_deg[valid_mask], i_stop[valid_mask],
+        y_errors=i_pa_err_deg[valid_mask], marker_face="filled", monochrome=True,
+    )
+    pa_for_limits = i_pa_deg[valid_mask & np.isfinite(i_pa_deg) & (i_stop == 0)]
+    if pa_for_limits.size > 1:
+        pa_low, pa_high = robust_limits(pa_for_limits, 3, 97)
+        pa_margin = max(3.0, 0.08 * (pa_high - pa_low + 1e-6))
+        ax_pa.set_ylim(pa_low - pa_margin, pa_high + pa_margin)
+    ax_pa.set_ylabel("PA [deg]")
+    ax_pa.grid(alpha=0.25)
+
+    # 5. Harmonics (A3/B3, A4/B4) — optional
+    ax_harm = None
+    if has_harmonics:
+        ax_harm = fig.add_subplot(right[panel_idx], sharex=ax_sb)
+        panel_idx += 1
+
+        ax_harm.scatter(
+            x_axis[valid_mask], i_a3[valid_mask], s=20, marker="o",
+            facecolors="#1f77b4", edgecolors="#1f77b4", alpha=0.7, label="A3",
+        )
+        ax_harm.scatter(
+            x_axis[valid_mask], i_b3[valid_mask], s=20, marker="s",
+            facecolors="none", edgecolors="#1f77b4", alpha=0.7, label="B3",
+        )
+        ax_harm.scatter(
+            x_axis[valid_mask], i_a4[valid_mask], s=20, marker="^",
+            facecolors="#d62728", edgecolors="#d62728", alpha=0.7, label="A4",
+        )
+        ax_harm.scatter(
+            x_axis[valid_mask], i_b4[valid_mask], s=20, marker="D",
+            facecolors="none", edgecolors="#d62728", alpha=0.7, label="B4",
+        )
+        harm_values = np.concatenate([
+            i_a3[valid_mask], i_b3[valid_mask],
+            i_a4[valid_mask], i_b4[valid_mask],
+        ])
+        set_axis_limits_from_finite_values(
+            ax_harm, harm_values, margin_fraction=0.10, min_margin=0.005,
+        )
+        ax_harm.axhline(0.0, color="gray", linestyle=":", linewidth=0.8, alpha=0.6)
+        ax_harm.set_ylabel("A/B harmonics")
+        ax_harm.legend(loc="upper right", fontsize=12, ncol=4)
+        ax_harm.grid(alpha=0.25)
+
+    # 6. Curve of growth — optional
+    ax_cog = None
+    if has_cog:
+        ax_cog = fig.add_subplot(right[panel_idx], sharex=ax_sb)
+        panel_idx += 1
+
+        cog_values = get_arr("cog")
+        plot_profile_by_stop_code(
+            ax_cog, x_axis[valid_mask], cog_values[valid_mask], i_stop[valid_mask],
+            marker_face="filled", label_prefix="fit ", monochrome=True,
+        )
+        finite_cog = cog_values[valid_mask & np.isfinite(cog_values) & (cog_values > 0)]
+        if finite_cog.size > 0 and np.all(finite_cog > 0):
+            ax_cog.set_yscale("log")
+        ax_cog.set_ylabel("CoG flux")
+        ax_cog.grid(alpha=0.25)
+
+    # X-axis label on bottom panel only, suppress tick labels on others
+    all_right_axes = [ax_sb, ax_cen, ax_ba, ax_pa]
+    if ax_harm is not None:
+        all_right_axes.append(ax_harm)
+    if ax_cog is not None:
+        all_right_axes.append(ax_cog)
+
+    for ax in all_right_axes[:-1]:
+        ax.tick_params(labelbottom=False)
+    all_right_axes[-1].set_xlabel(r"SMA$^{0.25}$ (pixel$^{0.25}$)")
+
+    # X-limit with right margin
+    if np.any(valid_mask):
+        set_x_limits_with_right_margin(all_right_axes[-1], x_axis[valid_mask])
+
+    # --- Final layout adjustment and save --------------------------------------
+    fig.subplots_adjust(left=0.025, right=0.992, bottom=0.05, top=0.940, wspace=0.18)
+    fig.savefig(filename, dpi=150)
     plt.close(fig)
-    print(f"Saved detailed QA figure to {filename}")
+    print(f"Saved QA figure to {filename}")
+
+
+def _overlay_photutils_sb(ax, photutils_res):
+    """Overlay photutils surface brightness on the SB panel (open markers)."""
+    p_sma = np.array([iso.sma for iso in photutils_res])
+    p_intens = np.array([iso.intens for iso in photutils_res])
+    p_intens_err = np.array([iso.int_err for iso in photutils_res])
+
+    p_mask = (p_sma > 1.5) & np.isfinite(p_intens) & (p_intens > 0)
+    p_x = p_sma[p_mask] ** 0.25
+    p_y = np.log10(p_intens[p_mask])
+    p_yerr = p_intens_err[p_mask] / (p_intens[p_mask] * np.log(10))
+
+    ax.errorbar(
+        p_x, p_y, yerr=p_yerr,
+        fmt="o", mfc="none", mec="black", color="black",
+        markersize=4, capsize=1.8, linewidth=0.7, alpha=0.8,
+        label="photutils",
+    )
