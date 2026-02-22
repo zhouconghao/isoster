@@ -234,6 +234,9 @@ def compute_parameter_errors(phi, intens, x0, y0, sma, eps, pa, gradient, cov_ma
     # Guard against zero/None gradient to prevent division errors
     if gradient is None or abs(gradient) < 1e-10:
         return 0.0, 0.0, 0.0, 0.0
+    # Guard against too few data points for the harmonic model (5 params)
+    if len(intens) <= 5:
+        return 0.0, 0.0, 0.0, 0.0
     try:
         if cov_matrix is None:
             # Fallback to leastsq if covariance not provided
@@ -255,7 +258,10 @@ def compute_parameter_errors(phi, intens, x0, y0, sma, eps, pa, gradient, cov_ma
 
             model = (coeffs[0] + coeffs[1]*s1 + coeffs[2]*c1 +
                     coeffs[3]*s2 + coeffs[4]*c2)
-            var_residual = np.std(intens - model, ddof=len(coeffs))**2
+            n_params = len(coeffs)
+            if len(intens) <= n_params:
+                return 0.0, 0.0, 0.0, 0.0
+            var_residual = np.std(intens - model, ddof=n_params)**2
             covariance = cov_matrix * var_residual
             errors = np.sqrt(np.diagonal(covariance))
         else:
@@ -265,7 +271,10 @@ def compute_parameter_errors(phi, intens, x0, y0, sma, eps, pa, gradient, cov_ma
                 coeffs, _ = fit_first_and_second_harmonics(phi, intens)
 
             model = harmonic_function(phi, coeffs)
-            var_residual = np.var(intens - model, ddof=5)
+            n_params = 5  # [y0, A1, B1, A2, B2]
+            if len(intens) <= n_params:
+                return 0.0, 0.0, 0.0, 0.0
+            var_residual = np.var(intens - model, ddof=n_params)
             covariance = cov_matrix * var_residual
             errors = np.sqrt(np.diagonal(covariance))
         
@@ -315,6 +324,8 @@ def compute_deviations(phi, intens, sma, gradient, order):
             return 0.0, 0.0, 0.0, 0.0
             
         model = coeffs[0] + coeffs[1]*s_n + coeffs[2]*c_n
+        if len(intens) <= len(coeffs):
+            return 0.0, 0.0, 0.0, 0.0
         var_residual = np.std(intens - model, ddof=len(coeffs))**2
         covariance = cov_matrix * var_residual
         errors = np.sqrt(np.diagonal(covariance))
@@ -400,6 +411,8 @@ def fit_higher_harmonics_simultaneous(angles, intens, sma, gradient, orders=None
 
         # Compute model and residual variance
         model = np.dot(A, coeffs)
+        if len(intens) <= n_params:
+            return {n: (0.0, 0.0, 0.0, 0.0) for n in orders}
         var_residual = np.var(intens - model, ddof=n_params)
 
         # Coefficient errors from covariance
@@ -696,7 +709,7 @@ def fit_isophote(image, mask, sma, start_geometry, config, going_inwards=False, 
             phi = angles  # In regular mode, angles and phi are identical
         actual_points = len(angles)
         
-        if actual_points < (total_points * fflag):
+        if actual_points < (total_points * (1.0 - fflag)):
             if best_geometry is not None:
                 best_geometry['stop_code'], best_geometry['niter'] = 1, niter  # STOP_CODE 1: Too many flagged pixels
                 return best_geometry
