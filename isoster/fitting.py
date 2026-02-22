@@ -98,7 +98,7 @@ def extract_forced_photometry(image, mask, x0, y0, sma, eps, pa, integrator='mea
             'a3': 0.0, 'b3': 0.0, 'a3_err': 0.0, 'b3_err': 0.0,
             'a4': 0.0, 'b4': 0.0, 'a4_err': 0.0, 'b4_err': 0.0,
             'tflux_e': np.nan, 'tflux_c': np.nan, 'npix_e': 0, 'npix_c': 0,
-            'stop_code': 3, 'niter': 0  # STOP_CODE 3: Too few points (no usable samples)
+            'stop_code': 3, 'niter': 0, 'valid': False
         }
     
     # Sigma clipping
@@ -122,7 +122,7 @@ def extract_forced_photometry(image, mask, x0, y0, sma, eps, pa, integrator='mea
         'a3': 0.0, 'b3': 0.0, 'a3_err': 0.0, 'b3_err': 0.0,
         'a4': 0.0, 'b4': 0.0, 'a4_err': 0.0, 'b4_err': 0.0,
         'tflux_e': np.nan, 'tflux_c': np.nan, 'npix_e': 0, 'npix_c': 0,
-        'stop_code': 0, 'niter': 0  # STOP_CODE 0: Success (forced photometry)
+        'stop_code': 0, 'niter': 0, 'valid': True
     }
 
 def fit_first_and_second_harmonics(phi, intensity):

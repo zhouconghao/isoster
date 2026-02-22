@@ -151,6 +151,21 @@ class TestForcedMode:
         assert result['sma'] == 10.0
         assert result['stop_code'] == 0
         assert abs(result['intens'] - 100.0) < 1.0  # Should be ~100
+        assert result['valid'] is True, "Successful forced photometry should have valid=True"
+
+    def test_forced_photometry_has_valid_field_on_failure(self):
+        """Regression test for I7: forced photometry with no data should have valid=False."""
+        image = np.ones((100, 100)) * 100.0
+        mask = np.ones((100, 100), dtype=bool)  # Everything masked
+
+        result = extract_forced_photometry(
+            image, mask, sma=10.0, x0=50.0, y0=50.0,
+            eps=0.2, pa=0.5, use_eccentric_anomaly=False
+        )
+
+        assert 'valid' in result, "Forced photometry result must include 'valid' field"
+        assert result['valid'] is False
+        assert result['stop_code'] == 3
 
 
 class TestCoGMode:
