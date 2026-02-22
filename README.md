@@ -1,4 +1,4 @@
-# ISOSTER: ISOphote fitting with Speedy Templated Extraction and Regression
+# ISOSTER: ISOphote on STERoid
 
 ISOSTER is an accelerated Python library for elliptical isophote fitting in galaxy images. It provides a significant performance boost over standard implementations while maintaining scientific accuracy and compatibility.
 
