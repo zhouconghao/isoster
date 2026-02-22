@@ -7,4 +7,4 @@ from .utils import (
     isophote_results_from_fits
 )
 from .plotting import plot_qa_summary
-from .model import build_isoster_model, build_ellipse_model  # build_ellipse_model is deprecated
+from .model import build_isoster_model, build_ellipse_model  # deprecated, removal planned for v0.3

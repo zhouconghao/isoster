@@ -207,27 +207,21 @@ def test_model_building():
     for key, val in stats.items():
         print(f"{key:25s}: {val:8.3f}%")
 
-    # Check against CLAUDE.md criteria
-    print("\n" + "="*60)
-    print("CLAUDE.md Criteria Check (0.5-4 Re for noiseless):")
-    print("="*60)
-
+    # Check against CLAUDE.md criteria for noiseless mock (0.5-4 Re range)
     mid_max = stats['mid_max_abs_frac']
     mid_median = stats['mid_median_abs_frac']
 
-    if mid_max < 1.0 and mid_median < 0.5:
-        print(f"✅ EXCELLENT: Max {mid_max:.3f}% < 1%, Median {mid_median:.3f}% < 0.5%")
-    elif mid_max < 5.0 and mid_median < 2.0:
-        print(f"⚠️  ACCEPTABLE: Max {mid_max:.3f}% < 5%, Median {mid_median:.3f}% < 2%")
-    else:
-        print(f"❌ POOR: Max {mid_max:.3f}% or Median {mid_median:.3f}% too high")
-        print("   This suggests issues in build_ellipse_model()")
+    print(f"\n0.5-4 Re: max |frac| = {mid_max:.3f}%, median |frac| = {mid_median:.3f}%")
 
     # Create diagnostic plot
     output_dir = resolve_output_directory("tests_validation", "model_residuals")
     plot_residual_analysis(data, model, R_e, x0, y0, stats, output_dir / 'model_residuals_current.png')
 
-    return stats, mid_max, mid_median
+    # Assertions: noiseless Sersic n=4 model should reconstruct well in 0.5-4 Re
+    assert np.isfinite(mid_max), "mid_max_abs_frac is not finite"
+    assert np.isfinite(mid_median), "mid_median_abs_frac is not finite"
+    assert mid_max < 5.0, f"Max |fractional residual| in 0.5-4 Re = {mid_max:.3f}% exceeds 5%"
+    assert mid_median < 2.0, f"Median |fractional residual| in 0.5-4 Re = {mid_median:.3f}% exceeds 2%"
 
 
 if __name__ == '__main__':

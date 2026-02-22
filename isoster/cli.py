@@ -5,6 +5,31 @@ Command Line Interface for ISOSTER.
 This module provides the entry point for running isophote analysis from the command line.
 It handles argument parsing, configuration loading, data loading, running the analysis,
 and saving the results.
+
+Usage::
+
+    # Basic usage with CLI overrides
+    isoster image.fits --output isophotes.fits --x0 100 --y0 100 --sma0 10
+
+    # Advanced usage with YAML configuration file
+    isoster image.fits --config config.yaml --output isophotes.fits
+
+The ``--config`` YAML file accepts any field from ``IsosterConfig``. Example::
+
+    # config.yaml
+    sma0: 10.0
+    eps: 0.3
+    pa: 0.5
+    use_eccentric_anomaly: true
+    maxgerr: 0.5
+    conver: 0.05
+    simultaneous_harmonics: false
+    harmonic_orders: [3, 4]
+    full_photometry: false
+    compute_cog: false
+
+CLI flags (``--x0``, ``--y0``, ``--sma0``, etc.) override values from the YAML file.
+See ``IsosterConfig`` in ``isoster/config.py`` for the full list of supported fields.
 """
 
 import argparse
