@@ -46,12 +46,13 @@ class IsosterConfig(BaseModel):
 
     # Geometry update control
     geometry_damping: float = Field(
-        default=1.0,
+        default=0.7,
         gt=0.0,
         le=1.0,
         description="Damping factor for geometry updates (0 < d <= 1). "
                     "Each geometry correction is multiplied by this factor. "
-                    "1.0 = no damping (legacy). 0.5 = half-step corrections."
+                    "Default 0.7 stabilizes oscillations at outer isophotes. "
+                    "Use 1.0 for no damping (legacy behavior)."
     )
     geometry_convergence: bool = Field(
         default=False,
