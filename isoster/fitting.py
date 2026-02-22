@@ -98,7 +98,7 @@ def extract_forced_photometry(image, mask, x0, y0, sma, eps, pa, integrator='mea
             'a3': 0.0, 'b3': 0.0, 'a3_err': 0.0, 'b3_err': 0.0,
             'a4': 0.0, 'b4': 0.0, 'a4_err': 0.0, 'b4_err': 0.0,
             'tflux_e': np.nan, 'tflux_c': np.nan, 'npix_e': 0, 'npix_c': 0,
-            'stop_code': 3, 'niter': 0  # STOP_CODE 3: Too few points (no usable samples)
+            'stop_code': 3, 'niter': 0, 'valid': False
         }
     
     # Sigma clipping
@@ -122,7 +122,7 @@ def extract_forced_photometry(image, mask, x0, y0, sma, eps, pa, integrator='mea
         'a3': 0.0, 'b3': 0.0, 'a3_err': 0.0, 'b3_err': 0.0,
         'a4': 0.0, 'b4': 0.0, 'a4_err': 0.0, 'b4_err': 0.0,
         'tflux_e': np.nan, 'tflux_c': np.nan, 'npix_e': 0, 'npix_c': 0,
-        'stop_code': 0, 'niter': 0  # STOP_CODE 0: Success (forced photometry)
+        'stop_code': 0, 'niter': 0, 'valid': True
     }
 
 def fit_first_and_second_harmonics(phi, intensity):
@@ -512,12 +512,13 @@ def compute_gradient(image, mask, geometry, config, previous_gradient=None, curr
         mean_g = np.median(intens_g)
     else:
         mean_g = np.mean(intens_g)
-    gradient = (mean_g - mean_c) / sma / step
-    
+    delta_r = step if linear_growth else sma * step
+    gradient = (mean_g - mean_c) / delta_r
+
     sigma_c = np.std(intens_c)
     sigma_g = np.std(intens_g)
-    gradient_error = (np.sqrt(sigma_c**2 / len(intens_c) + sigma_g**2 / len(intens_g)) 
-                     / sma / step)
+    gradient_error = (np.sqrt(sigma_c**2 / len(intens_c) + sigma_g**2 / len(intens_g))
+                     / delta_r)
     
     if previous_gradient is None:
         previous_gradient = gradient + gradient_error
@@ -884,6 +885,25 @@ def fit_isophote(image, mask, sma, start_geometry, config, going_inwards=False, 
 
     if niter >= maxit and stop_code == 0 and not converged:
         stop_code = 2  # STOP_CODE 2: Reached max iterations without convergence
+        # Best-effort harmonic deviations from the last iteration
+        if compute_deviations_flag and best_geometry is not None:
+            if simultaneous_harmonics:
+                harmonics = fit_higher_harmonics_simultaneous(
+                    angles, intens, sma, gradient, harmonic_orders
+                )
+                for n in harmonic_orders:
+                    an, bn, an_err, bn_err = harmonics.get(n, (0.0, 0.0, 0.0, 0.0))
+                    best_geometry[f'a{n}'] = an
+                    best_geometry[f'b{n}'] = bn
+                    best_geometry[f'a{n}_err'] = an_err
+                    best_geometry[f'b{n}_err'] = bn_err
+            else:
+                for n in harmonic_orders:
+                    an, bn, an_err, bn_err = compute_deviations(angles, intens, sma, gradient, n)
+                    best_geometry[f'a{n}'] = an
+                    best_geometry[f'b{n}'] = bn
+                    best_geometry[f'a{n}_err'] = an_err
+                    best_geometry[f'b{n}_err'] = bn_err
         if full_photometry:
             _attach_full_photometry(best_geometry, image, mask)
 

@@ -185,6 +185,14 @@ def add_cog_to_isophotes(isophotes, cog_results):
         isophotes (list of dict): Isophote fitting results
         cog_results (dict): Results from compute_cog()
     """
+    n_iso = len(isophotes)
+    n_cog = len(cog_results['cog'])
+    if n_iso != n_cog:
+        raise ValueError(
+            f"Length mismatch: {n_iso} isophotes vs {n_cog} CoG entries. "
+            "Ensure compute_cog() was called with the same isophote list."
+        )
+
     for i, iso in enumerate(isophotes):
         iso['cog'] = cog_results['cog'][i]
         iso['cog_annulus'] = cog_results['cog_annulus'][i]

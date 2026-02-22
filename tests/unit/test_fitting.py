@@ -92,6 +92,61 @@ def test_fit_isophote_emits_stop_code_2_and_photometry_on_maxit_exhaustion():
     assert np.isfinite(result["tflux_e"])
     assert result["npix_e"] > 0
 
+
+def test_stop_code_2_computes_harmonic_deviations():
+    """Regression test for I8: stop_code=2 should still compute harmonic deviations.
+
+    When maxit is reached without convergence, the code should compute best-effort
+    a3/b3/a4/b4 from the last iteration rather than leaving them as zeros.
+    """
+    image_size = 80
+    y_coords, x_coords = np.mgrid[:image_size, :image_size]
+    center_x = image_size / 2.0
+    center_y = image_size / 2.0
+    radius = np.hypot(x_coords - center_x, y_coords - center_y)
+    # Add a boxy/disky perturbation so a4 is non-zero
+    theta = np.arctan2(y_coords - center_y, x_coords - center_x)
+    # Add noise so leastsq returns a non-None covariance matrix
+    np.random.seed(42)
+    image = np.exp(-radius / 8.0) * (1.0 + 0.1 * np.cos(4 * theta))
+    image += np.random.normal(0, 0.005, image.shape)
+
+    config = IsosterConfig(
+        x0=center_x,
+        y0=center_y,
+        eps=0.2,
+        pa=0.0,
+        sma0=8.0,
+        maxit=1,
+        minit=1,
+        conver=1e-8,
+        maxgerr=1.0,
+        full_photometry=False,
+        compute_errors=False,
+        compute_deviations=True,
+        harmonic_orders=[3, 4],
+        sclip=3.0,
+        nclip=0,
+    )
+    start_geometry = {"x0": center_x, "y0": center_y, "eps": 0.2, "pa": 0.0}
+    result = fit_isophote(
+        image,
+        mask=None,
+        sma=8.0,
+        start_geometry=start_geometry,
+        config=config,
+    )
+
+    assert result["stop_code"] == 2, f"Expected stop_code=2, got {result['stop_code']}"
+    # Harmonic fields should exist and be finite
+    for key in ('a3', 'b3', 'a4', 'b4', 'a3_err', 'b3_err', 'a4_err', 'b4_err'):
+        assert key in result, f"Missing harmonic field '{key}' in stop_code=2 result"
+        assert np.isfinite(result[key]), f"Non-finite {key}={result[key]} in stop_code=2 result"
+    # The boxy perturbation should produce a non-trivial a4 or b4
+    assert abs(result['a4']) > 1e-6 or abs(result['b4']) > 1e-6, \
+        f"Expected non-zero a4/b4 from boxy image, got a4={result['a4']}, b4={result['b4']}"
+
+
 if __name__ == '__main__':
     unittest.main()
 
@@ -840,4 +895,64 @@ class TestVarResidualDdofGuard(unittest.TestCase):
 
         for val in result:
             self.assertTrue(np.isfinite(val), f"Expected finite value, got {val}")
+
+
+class TestGradientLinearGrowth(unittest.TestCase):
+    """Regression tests for I3: gradient formula in linear growth mode."""
+
+    def _make_image(self):
+        """Create a constant-slope radial image: I = 1000 - 5*r."""
+        size = 200
+        cx, cy = size / 2, size / 2
+        y, x = np.mgrid[:size, :size]
+        r = np.sqrt((x - cx) ** 2 + (y - cy) ** 2)
+        image = np.clip(1000.0 - 5.0 * r, 0.0, None)
+        mask = np.zeros_like(image, dtype=bool)
+        return image, mask, cx, cy
+
+    def test_linear_gradient_independent_of_sma(self):
+        """For a constant-slope profile, linear-growth gradient should not depend on SMA.
+
+        Before the fix, gradient was divided by sma*step; with the fix it divides
+        by step only. On I(r) = 1000 - 5r, dI/dr = -5, so gradient ~ -5 at all radii.
+        """
+        from isoster.fitting import compute_gradient
+        image, mask, cx, cy = self._make_image()
+        step = 3.0
+
+        config = IsosterConfig(
+            x0=cx, y0=cy, eps=0.0, pa=0.0,
+            sma0=10.0, minsma=3.0, maxsma=80.0,
+            astep=step, linear_growth=True,
+            integrator='mean', use_eccentric_anomaly=False
+        )
+
+        geom_15 = {'x0': cx, 'y0': cy, 'sma': 15.0, 'eps': 0.0, 'pa': 0.0}
+        geom_30 = {'x0': cx, 'y0': cy, 'sma': 30.0, 'eps': 0.0, 'pa': 0.0}
+
+        grad_15, _ = compute_gradient(image, mask, geom_15, config, previous_gradient=-1.0)
+        grad_30, _ = compute_gradient(image, mask, geom_30, config, previous_gradient=-1.0)
+
+        ratio = grad_30 / grad_15
+        self.assertAlmostEqual(ratio, 1.0, delta=0.15,
+                               msg=f"Linear gradient should not depend on SMA, ratio={ratio:.3f}")
+
+    def test_linear_gradient_magnitude(self):
+        """On I(r) = 1000 - 5r, linear-growth gradient should be approximately -5."""
+        from isoster.fitting import compute_gradient
+        image, mask, cx, cy = self._make_image()
+        step = 3.0
+
+        config = IsosterConfig(
+            x0=cx, y0=cy, eps=0.0, pa=0.0,
+            sma0=10.0, minsma=3.0, maxsma=80.0,
+            astep=step, linear_growth=True,
+            integrator='mean', use_eccentric_anomaly=False
+        )
+
+        geom = {'x0': cx, 'y0': cy, 'sma': 20.0, 'eps': 0.0, 'pa': 0.0}
+        grad, _ = compute_gradient(image, mask, geom, config, previous_gradient=-1.0)
+
+        self.assertAlmostEqual(grad, -5.0, delta=0.5,
+                               msg=f"Expected gradient ~ -5.0, got {grad:.3f}")
 

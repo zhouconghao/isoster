@@ -151,6 +151,21 @@ class TestForcedMode:
         assert result['sma'] == 10.0
         assert result['stop_code'] == 0
         assert abs(result['intens'] - 100.0) < 1.0  # Should be ~100
+        assert result['valid'] is True, "Successful forced photometry should have valid=True"
+
+    def test_forced_photometry_has_valid_field_on_failure(self):
+        """Regression test for I7: forced photometry with no data should have valid=False."""
+        image = np.ones((100, 100)) * 100.0
+        mask = np.ones((100, 100), dtype=bool)  # Everything masked
+
+        result = extract_forced_photometry(
+            image, mask, sma=10.0, x0=50.0, y0=50.0,
+            eps=0.2, pa=0.5, use_eccentric_anomaly=False
+        )
+
+        assert 'valid' in result, "Forced photometry result must include 'valid' field"
+        assert result['valid'] is False
+        assert result['stop_code'] == 3
 
 
 class TestCoGMode:
@@ -216,6 +231,26 @@ class TestCoGMode:
         for iso_no, iso_yes in zip(results_no_cog['isophotes'], results_cog['isophotes']):
             if iso_no['stop_code'] in {0, 1, 2} and iso_yes['stop_code'] in {0, 1, 2}:
                 assert abs(iso_no['intens'] - iso_yes['intens']) < 1e-10
+
+
+class TestAddCogLengthCheck:
+    """Regression test for I6: add_cog_to_isophotes length mismatch."""
+
+    def test_length_mismatch_raises(self):
+        """Mismatched isophote and CoG list lengths should raise ValueError."""
+        from isoster.cog import add_cog_to_isophotes
+
+        isophotes = [{'sma': 10.0}, {'sma': 20.0}, {'sma': 30.0}]
+        cog_results = {
+            'cog': [1.0, 2.0],
+            'cog_annulus': [0.5, 1.0],
+            'area_annulus': [100.0, 200.0],
+            'flag_cross': [False, False],
+            'flag_negative_area': [False, False],
+        }
+
+        with pytest.raises(ValueError, match="Length mismatch"):
+            add_cog_to_isophotes(isophotes, cog_results)
 
 
 class TestMaskedImages:
