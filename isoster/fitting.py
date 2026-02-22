@@ -683,6 +683,17 @@ def fit_isophote(image, mask, sma, start_geometry, config, going_inwards=False, 
     converged = False
     min_amplitude, previous_gradient, lexceed = np.inf, None, False
     
+    # Compute convergence scale factor once (sma is constant within the loop)
+    if cfg.convergence_scaling == 'sector_area':
+        n_samples = max(64, int(2 * np.pi * sma))
+        angular_width = 2 * np.pi / n_samples
+        delta_sma = sma * astep if not linear_growth else astep
+        convergence_scale = max(1.0, sma * delta_sma * angular_width)
+    elif cfg.convergence_scaling == 'sqrt_sma':
+        convergence_scale = max(1.0, np.sqrt(sma))
+    else:  # 'none'
+        convergence_scale = 1.0
+    
     for i in range(maxit):
         niter = i + 1
         
@@ -816,7 +827,7 @@ def fit_isophote(image, mask, sma, start_geometry, config, going_inwards=False, 
                                       'grad_error': gradient_error if gradient_error is not None else np.nan,
                                       'grad_r_error': gradient_relative_error if gradient_relative_error is not None else np.nan})
             
-        if abs(max_amp) < conver * rms and i >= minit:
+        if abs(max_amp) < conver * convergence_scale * rms and i >= minit:
             stop_code = 0  # STOP_CODE 0: Converged successfully
             converged = True
             # Already updated best_geometry in min_amplitude check, but let's ensure deviations
