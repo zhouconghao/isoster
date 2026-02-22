@@ -35,7 +35,44 @@ class IsosterConfig(BaseModel):
     maxit: int = Field(50, gt=0, description="Maximum iterations per isophote.")
     minit: int = Field(10, gt=0, description="Minimum iterations per isophote.")
     conver: float = Field(0.05, gt=0.0, description="Convergence threshold (max harmonic amplitude / rms).")
-    
+    convergence_scaling: str = Field(
+        default='none',
+        pattern='^(none|sector_area|sqrt_sma)$',
+        description="Scale convergence threshold with SMA. "
+                    "'sector_area': multiply by approximate sector area (matches photutils behavior). "
+                    "'sqrt_sma': multiply by sqrt(sma). "
+                    "'none': constant threshold (legacy behavior)."
+    )
+
+    # Geometry update control
+    geometry_damping: float = Field(
+        default=1.0,
+        gt=0.0,
+        le=1.0,
+        description="Damping factor for geometry updates (0 < d <= 1). "
+                    "Each geometry correction is multiplied by this factor. "
+                    "1.0 = no damping (legacy). 0.5 = half-step corrections."
+    )
+    geometry_convergence: bool = Field(
+        default=False,
+        description="Enable secondary convergence based on geometry stability. "
+                    "Declares convergence when geometry changes fall below tolerance "
+                    "for consecutive iterations, even if harmonic criterion is not met."
+    )
+    geometry_tolerance: float = Field(
+        default=0.01,
+        gt=0.0,
+        description="Threshold for geometry convergence. Convergence declared when "
+                    "max(|delta_eps|, |delta_pa/pi|, |delta_x0/sma|, |delta_y0/sma|) "
+                    "< geometry_tolerance for geometry_stable_iters consecutive iterations."
+    )
+    geometry_stable_iters: int = Field(
+        default=3,
+        ge=2,
+        description="Number of consecutive iterations with small geometry changes "
+                    "required to trigger geometry-based convergence."
+    )
+
     # Quality control
     sclip: float = Field(3.0, gt=0.0, description="Sigma clipping threshold.")
     nclip: int = Field(0, ge=0, description="Number of sigma clipping iterations.")
