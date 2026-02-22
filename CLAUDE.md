@@ -123,7 +123,7 @@ Follow these rules for all Python environment and dependency work in this reposi
 
 - **Central regularization**: When `use_central_regularization=True`, applies geometry regularization in low S/N central regions (SMA < `central_reg_sma_threshold`) to stabilize fitting by penalizing large geometry changes.
 
-- **Stop codes**: 0=converged, 1=too many flagged pixels, 3=too few points, -1=gradient error
+- **Stop codes**: 0=converged, 1=too many flagged pixels, 2=max iterations reached, 3=too few points, -1=gradient error
 
 ### Directory Layout
 
