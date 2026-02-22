@@ -36,10 +36,10 @@ class IsosterConfig(BaseModel):
     minit: int = Field(10, gt=0, description="Minimum iterations per isophote.")
     conver: float = Field(0.05, gt=0.0, description="Convergence threshold (max harmonic amplitude / rms).")
     convergence_scaling: str = Field(
-        default='none',
+        default='sector_area',
         pattern='^(none|sector_area|sqrt_sma)$',
         description="Scale convergence threshold with SMA. "
-                    "'sector_area': multiply by approximate sector area (matches photutils behavior). "
+                    "'sector_area': multiply by approximate sector area (matches photutils behavior, default). "
                     "'sqrt_sma': multiply by sqrt(sma). "
                     "'none': constant threshold (legacy behavior)."
     )
