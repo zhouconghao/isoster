@@ -27,7 +27,7 @@ from huang2013_campaign_contract import (
     load_method_statuses_from_profiles_manifest,
     read_json_dict_if_exists,
 )
-from run_huang2013_real_mock_demo import (
+from huang2013_shared import (
     DEFAULT_CONFIG_TAG,
     DEFAULT_PIXEL_SCALE_ARCSEC,
     DEFAULT_REDSHIFT,

@@ -22,7 +22,7 @@ import run_huang2013_campaign as campaign  # noqa: E402
 import huang2013_campaign_contract as campaign_contract  # noqa: E402
 import run_huang2013_profile_extraction as profile_extraction  # noqa: E402
 import run_huang2013_qa_afterburner as qa_afterburner  # noqa: E402
-import run_huang2013_real_mock_demo as real_mock_demo  # noqa: E402
+import huang2013_shared as real_mock_demo  # noqa: E402
 
 
 def _build_method_paths(base_dir: Path) -> dict[str, Path]:

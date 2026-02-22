@@ -22,7 +22,7 @@ from typing import Any
 import numpy as np
 
 from huang2013_campaign_contract import build_case_output_dir, build_case_prefix
-from run_huang2013_real_mock_demo import (
+from huang2013_shared import (
     DEFAULT_CONFIG_TAG,
     DEFAULT_PIXEL_SCALE_ARCSEC,
     DEFAULT_REDSHIFT,
