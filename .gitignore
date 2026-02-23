@@ -1,6 +1,7 @@
 reference/
 vibe/
 temp/
+.worktrees/
 .claude/
 .vscode/
 .cursor/
