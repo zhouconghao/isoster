@@ -172,13 +172,12 @@ def save_condition_qa(
     isophotes = results["isophotes"]
     config: IsosterConfig = results["config"]
 
-    # Reconstruct 2D model
+    # Reconstruct 2D model (auto-detects harmonic orders and EA mode from isophotes)
     try:
         model = isoster.build_isoster_model(
             image.shape,
             isophotes,
             use_harmonics=True,
-            harmonic_orders=config.harmonic_orders,
         )
     except Exception as exc:  # noqa: BLE001
         warnings.warn(f"Model reconstruction failed for {condition_label}: {exc}")

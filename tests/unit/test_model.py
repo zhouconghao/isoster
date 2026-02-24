@@ -144,6 +144,151 @@ class TestModel(unittest.TestCase):
         self.assertEqual(n_nonfinite, 0,
                          f"Model has {n_nonfinite} non-finite pixels from NaN harmonics")
 
+    # ------------------------------------------------------------------
+    # Issue 1: Auto-detect harmonic orders from isophote keys
+    # ------------------------------------------------------------------
+
+    def test_auto_detect_harmonic_orders_from_keys(self):
+        """When harmonic_orders=None, auto-detect available orders from isophote keys."""
+        shape = (100, 100)
+        # Isophotes with orders 3, 4, 5, 6 present
+        isos = [
+            {'x0': 50.0, 'y0': 50.0, 'sma': 10.0, 'eps': 0.0, 'pa': 0.0,
+             'intens': 100.0,
+             'a3': 0.02, 'b3': 0.01, 'a4': 0.03, 'b4': -0.02,
+             'a5': 0.01, 'b5': 0.005, 'a6': 0.008, 'b6': -0.003},
+            {'x0': 50.0, 'y0': 50.0, 'sma': 30.0, 'eps': 0.0, 'pa': 0.0,
+             'intens': 50.0,
+             'a3': 0.02, 'b3': 0.01, 'a4': 0.03, 'b4': -0.02,
+             'a5': 0.01, 'b5': 0.005, 'a6': 0.008, 'b6': -0.003},
+        ]
+
+        # With harmonic_orders=None (default), all available orders should be used
+        model_auto = build_isoster_model(shape, isos, use_harmonics=True,
+                                         harmonic_orders=None)
+        # With explicit all orders
+        model_explicit = build_isoster_model(shape, isos, use_harmonics=True,
+                                             harmonic_orders=[3, 4, 5, 6])
+
+        # These should be identical
+        np.testing.assert_array_almost_equal(
+            model_auto, model_explicit,
+            decimal=10,
+            err_msg="Auto-detected orders should match explicit [3,4,5,6]"
+        )
+
+    def test_auto_detect_does_not_silently_drop_higher_orders(self):
+        """Default harmonic_orders=None must not silently drop orders > 4."""
+        shape = (100, 100)
+        # Isophotes with strong a5 signal — dropping it changes the model
+        isos = [
+            {'x0': 50.0, 'y0': 50.0, 'sma': 10.0, 'eps': 0.0, 'pa': 0.0,
+             'intens': 100.0,
+             'a3': 0.0, 'b3': 0.0, 'a4': 0.0, 'b4': 0.0,
+             'a5': 0.1, 'b5': 0.0},
+            {'x0': 50.0, 'y0': 50.0, 'sma': 30.0, 'eps': 0.0, 'pa': 0.0,
+             'intens': 50.0,
+             'a3': 0.0, 'b3': 0.0, 'a4': 0.0, 'b4': 0.0,
+             'a5': 0.1, 'b5': 0.0},
+        ]
+
+        # Default (harmonic_orders=None) should include a5
+        model_default = build_isoster_model(shape, isos, use_harmonics=True)
+        # Model with only [3,4] would miss a5 entirely
+        model_34_only = build_isoster_model(shape, isos, use_harmonics=True,
+                                            harmonic_orders=[3, 4])
+
+        # They must differ because a5=0.1 is significant
+        max_diff = np.max(np.abs(model_default - model_34_only))
+        self.assertGreater(max_diff, 0.1,
+                           "Default should include a5, producing different model than [3,4] only")
+
+    def test_auto_detect_with_no_harmonics_present(self):
+        """When no harmonic keys present, auto-detect should gracefully use no harmonics."""
+        shape = (100, 100)
+        isos = [
+            {'x0': 50.0, 'y0': 50.0, 'sma': 10.0, 'eps': 0.0, 'pa': 0.0,
+             'intens': 100.0},
+            {'x0': 50.0, 'y0': 50.0, 'sma': 30.0, 'eps': 0.0, 'pa': 0.0,
+             'intens': 50.0},
+        ]
+
+        # Should not raise, should produce same result as use_harmonics=False
+        model_auto = build_isoster_model(shape, isos, use_harmonics=True,
+                                         harmonic_orders=None)
+        model_no_harm = build_isoster_model(shape, isos, use_harmonics=False)
+
+        np.testing.assert_array_almost_equal(model_auto, model_no_harm, decimal=10)
+
+    # ------------------------------------------------------------------
+    # Issue 2: EA mode angle space mismatch
+    # ------------------------------------------------------------------
+
+    def test_ea_mode_angle_space_for_harmonics(self):
+        """Harmonics fitted in ψ-space (EA mode) must be evaluated in ψ-space in model.
+
+        When use_eccentric_anomaly=True in isophote fitting, harmonic coefficients
+        (a3, b3, a4, b4...) are fitted against eccentric anomaly ψ, not position
+        angle φ. The model must use ψ = arctan2(y_rot/(1-eps), x_rot) to evaluate
+        these harmonics correctly.
+        """
+        shape = (200, 200)
+        eps = 0.6  # High ellipticity to make φ vs ψ difference large
+
+        # Create isophotes with strong b4 (boxy/disky) signal, marked as EA mode
+        isos = [
+            {'x0': 100.0, 'y0': 100.0, 'sma': 20.0, 'eps': eps, 'pa': 0.0,
+             'intens': 100.0, 'a4': 0.0, 'b4': 0.08,
+             'use_eccentric_anomaly': True},
+            {'x0': 100.0, 'y0': 100.0, 'sma': 60.0, 'eps': eps, 'pa': 0.0,
+             'intens': 50.0, 'a4': 0.0, 'b4': 0.08,
+             'use_eccentric_anomaly': True},
+        ]
+
+        # Build model with EA-aware angle computation
+        model_ea = build_isoster_model(shape, isos, use_harmonics=True,
+                                       harmonic_orders=[4])
+
+        # Build model forcing φ-space (wrong for EA-fitted data)
+        isos_phi = [dict(iso, use_eccentric_anomaly=False) for iso in isos]
+        model_phi = build_isoster_model(shape, isos_phi, use_harmonics=True,
+                                        harmonic_orders=[4])
+
+        # At eps=0.6, ψ and φ differ significantly along minor axis.
+        # The two models should differ meaningfully.
+        max_diff = np.max(np.abs(model_ea - model_phi))
+        self.assertGreater(max_diff, 0.1,
+                           f"EA vs φ models should differ at eps={eps}, got max_diff={max_diff:.4f}")
+
+    def test_ea_mode_explicit_parameter_override(self):
+        """Explicit use_eccentric_anomaly parameter overrides isophote-stored flag."""
+        shape = (200, 200)
+        eps = 0.6
+
+        isos = [
+            {'x0': 100.0, 'y0': 100.0, 'sma': 20.0, 'eps': eps, 'pa': 0.0,
+             'intens': 100.0, 'a4': 0.0, 'b4': 0.08,
+             'use_eccentric_anomaly': True},
+            {'x0': 100.0, 'y0': 100.0, 'sma': 60.0, 'eps': eps, 'pa': 0.0,
+             'intens': 50.0, 'a4': 0.0, 'b4': 0.08,
+             'use_eccentric_anomaly': True},
+        ]
+
+        # Explicit override to False should use φ-space despite isophote flag
+        model_override = build_isoster_model(shape, isos, use_harmonics=True,
+                                             harmonic_orders=[4],
+                                             use_eccentric_anomaly=False)
+
+        # This should match φ-space model
+        isos_phi = [dict(iso, use_eccentric_anomaly=False) for iso in isos]
+        model_phi = build_isoster_model(shape, isos_phi, use_harmonics=True,
+                                        harmonic_orders=[4])
+
+        np.testing.assert_array_almost_equal(
+            model_override, model_phi, decimal=10,
+            err_msg="Explicit use_eccentric_anomaly=False should override isophote flag"
+        )
+
 
 if __name__ == '__main__':
     unittest.main()

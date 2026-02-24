@@ -98,13 +98,18 @@ results_r = fit_image(
 ```python
 from isoster import build_isoster_model
 
+# Auto-detect harmonic orders and EA mode from isophote results
 model = build_isoster_model(
     image.shape,
     results["isophotes"],
     use_harmonics=True,
-    harmonic_orders=[3, 4],
 )
 ```
+
+`build_isoster_model` parameters for harmonic reconstruction:
+
+- `harmonic_orders` (default `None`): When `None`, auto-detects which harmonic orders are present by scanning isophote dicts for `a{n}` keys (n >= 3). Pass an explicit list like `[3, 4]` to restrict to specific orders.
+- `use_eccentric_anomaly` (default `None`): When `None`, auto-detects from the `use_eccentric_anomaly` flag stored in isophote dicts by `fit_isophote()`. When `True`, evaluates harmonics in eccentric anomaly (psi) space; when `False`, uses position angle (phi) space. Must match the angle space used during fitting for correct reconstruction.
 
 ## Serialization Helpers
 

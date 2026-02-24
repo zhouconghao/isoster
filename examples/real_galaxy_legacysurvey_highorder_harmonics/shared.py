@@ -295,17 +295,11 @@ def plot_harmonic_comparison_qa(
         if cond in condition_models:
             models[cond] = condition_models[cond]
         else:
-            # Build model on the fly from isophote results
+            # Build model on the fly (auto-detects harmonic orders and EA mode)
             res = condition_results[cond]
-            # Detect harmonic orders present
-            orders = []
-            for order in [3, 4, 5, 6, 7]:
-                if any(np.isfinite(r.get(f"a{order}", np.nan)) for r in res):
-                    orders.append(order)
             models[cond] = build_isoster_model(
                 image.shape, res,
-                use_harmonics=bool(orders),
-                harmonic_orders=orders if orders else [3, 4],
+                use_harmonics=True,
             )
 
     # --------------------------------------------------------------------------

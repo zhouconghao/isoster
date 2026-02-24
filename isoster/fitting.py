@@ -947,7 +947,8 @@ def fit_isophote(image, mask, sma, start_geometry, config, going_inwards=False, 
                 
             best_geometry = {'x0': x0, 'y0': y0, 'eps': eps, 'pa': pa, 'sma': sma, 'intens': reported_intens, 'rms': rms, 'intens_err': intens_err,
                              'x0_err': x0_err, 'y0_err': y0_err, 'eps_err': eps_err, 'pa_err': pa_err,
-                             'tflux_e': np.nan, 'tflux_c': np.nan, 'npix_e': 0, 'npix_c': 0}
+                             'tflux_e': np.nan, 'tflux_c': np.nan, 'npix_e': 0, 'npix_c': 0,
+                             'use_eccentric_anomaly': use_eccentric_anomaly}
             # Initialize harmonics for all requested orders (default: [3, 4])
             for n in harmonic_orders:
                 best_geometry[f'a{n}'] = 0.0
@@ -1078,7 +1079,8 @@ def fit_isophote(image, mask, sma, start_geometry, config, going_inwards=False, 
     if best_geometry is None:
         best_geometry = {'x0': x0, 'y0': y0, 'eps': eps, 'pa': pa, 'sma': sma, 'intens': np.nan, 'rms': np.nan, 'intens_err': np.nan,
                          'x0_err': 0.0, 'y0_err': 0.0, 'eps_err': 0.0, 'pa_err': 0.0,
-                         'tflux_e': np.nan, 'tflux_c': np.nan, 'npix_e': 0, 'npix_c': 0}
+                         'tflux_e': np.nan, 'tflux_c': np.nan, 'npix_e': 0, 'npix_c': 0,
+                         'use_eccentric_anomaly': use_eccentric_anomaly}
         # Initialize harmonics for all requested orders (default: [3, 4])
         for n in harmonic_orders:
             best_geometry[f'a{n}'] = 0.0

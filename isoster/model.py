@@ -5,12 +5,15 @@ This module provides functions to reconstruct 2D galaxy images from isophote
 fitting results using radial interpolation.
 """
 
+import re
+
 import numpy as np
 from scipy.interpolate import interp1d
 
 
 def build_isoster_model(image_shape, isophote_results, fill=0.0, interp_kind='linear',
-                        use_harmonics=True, harmonic_orders=None):
+                        use_harmonics=True, harmonic_orders=None,
+                        use_eccentric_anomaly=None):
     """
     Reconstruct a 2D galaxy image model from fitted isophotes.
 
@@ -46,9 +49,16 @@ def build_isoster_model(image_shape, isophote_results, fill=0.0, interp_kind='li
         If True (default), include harmonic deviations in the model reconstruction.
         Harmonics modify the effective elliptical radius to capture isophote shape
         deviations (diskiness, boxiness, etc.).
-    harmonic_orders : list of int, optional
-        Harmonic orders to include. Default: [3, 4]. Can include higher orders
-        like [3, 4, 5, 6, 7, 8, 9, 10] if available in the isophote results.
+    harmonic_orders : list of int or None, optional
+        Harmonic orders to include. If None (default), auto-detects available
+        orders by scanning isophote keys for ``a{n}`` patterns where n >= 3.
+        Can be explicitly set to e.g. [3, 4, 5, 6] to override auto-detection.
+    use_eccentric_anomaly : bool or None, optional
+        Whether harmonics were fitted in eccentric anomaly (ψ) space. If None
+        (default), auto-detects from the ``use_eccentric_anomaly`` key stored
+        in the isophote results by ``fit_isophote()``. Set explicitly to
+        override auto-detection. When True, uses ψ = arctan2(y_rot/(1-eps),
+        x_rot) instead of φ = arctan2(y_rot, x_rot) for harmonic evaluation.
 
     Returns
     -------
@@ -72,7 +82,17 @@ def build_isoster_model(image_shape, isophote_results, fill=0.0, interp_kind='li
     >>> residual = image - model
     """
     if harmonic_orders is None:
-        harmonic_orders = [3, 4]
+        # Auto-detect available harmonic orders from isophote keys
+        detected_orders = set()
+        for iso in isophote_results:
+            for key in iso:
+                match = re.match(r'^a(\d+)$', key)
+                if match:
+                    n = int(match.group(1))
+                    if n >= 3:
+                        detected_orders.add(n)
+        harmonic_orders = sorted(detected_orders) if detected_orders else []
+
     h, w = image_shape
     model = np.full((h, w), fill, dtype=np.float64)
 
@@ -193,17 +213,29 @@ def build_isoster_model(image_shape, isophote_results, fill=0.0, interp_kind='li
         r_ell = r_ell_new
 
     # Apply harmonic deviations if requested
-    if use_harmonics and len(sorted_isos) >= 2:
+    if use_harmonics and harmonic_orders and len(sorted_isos) >= 2:
         # Check if any harmonic coefficients are present
         has_harmonics = any(
             f'a{n}' in sorted_isos[0] for n in harmonic_orders
         )
 
         if has_harmonics:
-            # Compute position angle theta for each pixel (angle on the ellipse)
-            # theta = arctan2(y_rot * (1 - eps), x_rot) gives the eccentric anomaly
-            # For harmonics, we use the position angle: theta = arctan2(y_rot, x_rot)
-            theta = np.arctan2(y_rot, x_rot)
+            # Determine angle space: eccentric anomaly (ψ) or position angle (φ)
+            # If use_eccentric_anomaly is None, auto-detect from isophote results
+            ea_mode = use_eccentric_anomaly
+            if ea_mode is None:
+                ea_mode = any(
+                    iso.get('use_eccentric_anomaly', False)
+                    for iso in sorted_isos
+                )
+
+            if ea_mode:
+                # Eccentric anomaly: ψ = arctan2(y_rot / (1 - eps), x_rot)
+                # This matches the angle space used during fitting in EA mode
+                theta = np.arctan2(y_rot / (1.0 - eps_safe), x_rot)
+            else:
+                # Position angle: φ = arctan2(y_rot, x_rot)
+                theta = np.arctan2(y_rot, x_rot)
 
             # Create interpolators for harmonic coefficients
             harm_interps = {}

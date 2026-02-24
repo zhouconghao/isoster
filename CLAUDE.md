@@ -162,8 +162,9 @@ results = isoster.isophote_results_from_fits("output.fits")
 model = isoster.build_isoster_model(
     image.shape,
     results['isophotes'],
-    use_harmonics=True,      # Include harmonic deviations (default: True)
-    harmonic_orders=[3, 4]   # Which harmonics to use (default: [3, 4])
+    use_harmonics=True,              # Include harmonic deviations (default: True)
+    harmonic_orders=None,            # None = auto-detect from isophote keys (default)
+    use_eccentric_anomaly=None,      # None = auto-detect from isophote dicts (default)
 )
 
 # Convert to Astropy table

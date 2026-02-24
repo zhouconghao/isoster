@@ -20,7 +20,7 @@ ISOSTER is a Python library for elliptical isophote fitting on 2D images, with a
 - `isoster/fitting.py`: per-isophote fitting loop, gradient checks, geometry updates.
 - `isoster/sampling.py`: vectorized ellipse sampling via `scipy.ndimage.map_coordinates`.
 - `isoster/config.py`: `IsosterConfig` schema and validators.
-- `isoster/model.py`: 2D model reconstruction by radial interpolation.
+- `isoster/model.py`: 2D model reconstruction by radial interpolation. `build_isoster_model()` supports `harmonic_orders=None` (auto-detect from isophote keys) and `use_eccentric_anomaly=None` (auto-detect from isophote dicts, or explicit `True`/`False` override) for correct harmonic evaluation in EA-mode fits.
 - `isoster/cog.py`: curve-of-growth computation and crossing flags.
 - `isoster/utils.py`: serialization to/from FITS and Astropy tables.
 - `isoster/plotting.py`: QA visualization (`plot_qa_summary`).

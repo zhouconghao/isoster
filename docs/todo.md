@@ -40,6 +40,12 @@ Phases 1-22 are complete. Detailed history has been archived to keep this file o
 
 - **Resolved in I4**: NaN intensities and geometry now filtered before interpolation.
 
+### Model reconstruction fixes (Session 6, 2026-02-24)
+
+- **Resolved**: `harmonic_orders=None` auto-detects from isophote `a{n}` keys — no more silent dropping of higher orders.
+- **Resolved**: `use_eccentric_anomaly` param on `build_isoster_model()` — auto-detects from isophote dicts for correct EA-mode harmonic evaluation.
+- 5 new unit tests added in `tests/unit/test_model.py`.
+
 ## Review Notes
 
 - Long-term upgrades and deferred research items: `docs/future.md`
