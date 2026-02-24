@@ -766,6 +766,370 @@ def plot_qa_summary(
     print(f"Saved QA figure to {filename}")
 
 
+# ---------------------------------------------------------------------------
+# Extended QA figure with per-order harmonic amplitude panels
+# ---------------------------------------------------------------------------
+
+def plot_qa_summary_extended(
+    title,
+    image,
+    isoster_model,
+    isoster_res,
+    *,
+    harmonic_orders: list[int] | None = None,
+    harmonic_mode: str = "coefficients",
+    normalize_harmonics: bool = False,
+    relative_residual: bool = False,
+    mask=None,
+    filename="qa_summary_extended.png",
+):
+    """QA figure with extended harmonic visualization panels.
+
+    Extends :func:`plot_qa_summary` with two harmonic-specific panels:
+
+    * **Odd harmonics** — orders 3, 5, 7 (if present)
+    * **Even harmonics** — orders 4, 6 (if present)
+
+    Parameters
+    ----------
+    title : str
+        Figure title.
+    image : 2D array
+        Original input image.
+    isoster_model : 2D array
+        Reconstructed 2D model from isoster isophotes.
+    isoster_res : list of dict
+        Isoster fitting results.
+    harmonic_orders : list of int or None
+        Which harmonic orders to show.  Auto-detected from the
+        available ``a3``/``b3`` … ``a7``/``b7`` keys when None.
+    harmonic_mode : str
+        ``'coefficients'`` (default) shows individual ``a_n`` (filled) and
+        ``b_n`` (open) per order.  ``'amplitude'`` shows
+        ``A_n = sqrt(a_n^2 + b_n^2)`` per order.
+    normalize_harmonics : bool
+        Only used when ``harmonic_mode='amplitude'``.  When True, shows
+        ``A_n / I`` instead of raw ``A_n``.
+    relative_residual : bool
+        When False (default), the residual map shows ``data - model``
+        (absolute).  When True, shows ``(data - model) / data``
+        (fractional).
+    mask : 2D bool array, optional
+        Bad-pixel mask (True = masked) for the data panel overlay.
+    filename : str
+        Output path.
+    """
+    configure_qa_plot_style()
+
+    def get_arr(key, default=np.nan):
+        return np.array([r.get(key, default) for r in isoster_res])
+
+    i_sma = get_arr("sma")
+    i_intens = get_arr("intens")
+    i_intens_err = get_arr("intens_err")
+    i_eps = get_arr("eps")
+    i_eps_err = get_arr("eps_err")
+    i_pa = get_arr("pa")
+    i_pa_err = get_arr("pa_err")
+    i_x0 = get_arr("x0")
+    i_x0_err = get_arr("x0_err")
+    i_y0 = get_arr("y0")
+    i_y0_err = get_arr("y0_err")
+    i_stop = get_arr("stop_code", 0).astype(int)
+
+    # Determine which harmonic orders are present
+    if harmonic_orders is None:
+        harmonic_orders = []
+        for order in [3, 4, 5, 6, 7]:
+            key = f"a{order}"
+            if any(np.isfinite(r.get(key, np.nan)) for r in isoster_res):
+                harmonic_orders.append(order)
+
+    # Pre-load harmonic arrays for all orders
+    harm_data: dict[int, tuple[np.ndarray, np.ndarray]] = {}
+    for order in harmonic_orders:
+        harm_data[order] = (get_arr(f"a{order}"), get_arr(f"b{order}"))
+
+    # Split into odd and even orders
+    odd_orders = [o for o in harmonic_orders if o % 2 == 1]
+    even_orders = [o for o in harmonic_orders if o % 2 == 0]
+
+    x_axis = i_sma ** 0.25
+    valid_mask = np.isfinite(x_axis) & (i_sma > 1.0)
+
+    i_ba = 1.0 - i_eps
+    i_pa_deg = normalize_pa_degrees(np.degrees(i_pa))
+    i_pa_err_deg = np.degrees(i_pa_err)
+
+    median_x0 = np.nanmedian(i_x0[valid_mask]) if np.any(valid_mask) else 0.0
+    median_y0 = np.nanmedian(i_y0[valid_mask]) if np.any(valid_mask) else 0.0
+    i_dx = i_x0 - median_x0
+    i_dy = i_y0 - median_y0
+
+    safe_intens = np.where(np.isfinite(i_intens) & (i_intens > 0.0), i_intens, np.nan)
+
+    # 6 panels: SB, centroid, b/a, PA, odd harmonics, even harmonics
+    n_panels = 6
+    height_ratios = [2.2, 1.0, 1.0, 1.0, 1.4, 1.4]
+
+    fig = plt.figure(figsize=(13.6, 13.0))
+    outer = gridspec.GridSpec(
+        1, 2, figure=fig, width_ratios=[1.0, 2.01], wspace=0.27,
+    )
+    left = gridspec.GridSpecFromSubplotSpec(
+        3, 2, subplot_spec=outer[0],
+        width_ratios=[1.0, 0.04], hspace=0.10, wspace=-0.20,
+    )
+    right = gridspec.GridSpecFromSubplotSpec(
+        n_panels, 1, subplot_spec=outer[1],
+        height_ratios=height_ratios, hspace=0.0,
+    )
+    fig.suptitle(title, fontsize=20, y=0.989)
+
+    # --- Left panels: data / model / residual ---------------------------------
+    ref_low, ref_high, ref_scale, ref_vmax = derive_arcsinh_parameters(image)
+
+    ax_img = fig.add_subplot(left[0, 0])
+    img_display, img_vmin, img_vmax = make_arcsinh_display_from_parameters(
+        image, low=ref_low, high=ref_high, scale=ref_scale, vmax=ref_vmax,
+    )
+    h_img = ax_img.imshow(
+        img_display, origin="lower", cmap="viridis",
+        vmin=img_vmin, vmax=img_vmax, interpolation="none",
+    )
+    if mask is not None:
+        mask_overlay = np.zeros((*image.shape, 4))
+        mask_overlay[mask] = [1, 0, 0, 0.4]
+        ax_img.imshow(mask_overlay, origin="lower")
+    overlay_step = max(1, len(isoster_res) // 15)
+    draw_isophote_overlays(
+        ax_img, isoster_res, step=overlay_step,
+        line_width=1.2, alpha=0.8, edge_color="orangered",
+    )
+    ax_img.text(0.15, 0.9, "Data", fontsize=18, color="w",
+                transform=ax_img.transAxes, ha="center", va="center",
+                weight="bold", alpha=0.85)
+    ax_img_cb = fig.add_subplot(left[0, 1])
+    fig.colorbar(h_img, cax=ax_img_cb).set_label(r"arcsinh((data $-$ p0.5) / scale)")
+
+    ax_mod = fig.add_subplot(left[1, 0])
+    mod_display, mod_vmin, mod_vmax = make_arcsinh_display_from_parameters(
+        isoster_model, low=ref_low, high=ref_high, scale=ref_scale, vmax=ref_vmax,
+    )
+    h_mod = ax_mod.imshow(
+        mod_display, origin="lower", cmap="viridis",
+        vmin=mod_vmin, vmax=mod_vmax, interpolation="none",
+    )
+    ax_mod.text(0.15, 0.9, "Model", fontsize=18, color="w",
+                transform=ax_mod.transAxes, ha="center", va="center",
+                weight="bold", alpha=0.85)
+    ax_mod_cb = fig.add_subplot(left[1, 1])
+    fig.colorbar(h_mod, cax=ax_mod_cb).set_label(r"arcsinh((model $-$ p0.5) / scale)")
+
+    # Residual panel — absolute (default) or fractional
+    ax_res = fig.add_subplot(left[2, 0])
+    if relative_residual:
+        residual_map = compute_fractional_residual_percent(image, isoster_model)
+        res_label = latex_safe_text("(data - model) / data [%]")
+    else:
+        residual_map = np.where(np.isfinite(image), image - isoster_model, np.nan)
+        res_label = "data $-$ model"
+
+    abs_res = np.abs(residual_map[np.isfinite(residual_map)])
+    res_limit = float(np.clip(
+        np.nanpercentile(abs_res, 99.0) if abs_res.size else 1.0, 0.05, None,
+    ))
+    h_res = ax_res.imshow(
+        residual_map, origin="lower", cmap="coolwarm",
+        vmin=-res_limit, vmax=res_limit, interpolation="nearest",
+    )
+    ax_res.text(0.18, 0.9, "Residual", fontsize=18, color="k",
+                transform=ax_res.transAxes, ha="center", va="center",
+                weight="bold", alpha=0.85)
+    ax_res_cb = fig.add_subplot(left[2, 1])
+    fig.colorbar(h_res, cax=ax_res_cb).set_label(res_label)
+
+    for ax in [ax_img, ax_mod, ax_res]:
+        ax.set_xlabel("x [pixel]")
+        ax.set_ylabel("y [pixel]")
+
+    # --- Right panels: 1-D profiles ------------------------------------------
+    panel_idx = 0
+
+    # 1. Surface brightness
+    ax_sb = fig.add_subplot(right[panel_idx])
+    panel_idx += 1
+    sb_valid = valid_mask & np.isfinite(i_intens) & (i_intens > 0)
+    y_sb = np.full_like(i_intens, np.nan)
+    y_sb[sb_valid] = np.log10(i_intens[sb_valid])
+    y_sb_err = np.full_like(i_intens_err, np.nan)
+    y_sb_err[sb_valid] = i_intens_err[sb_valid] / (i_intens[sb_valid] * np.log(10))
+    plot_profile_by_stop_code(
+        ax_sb, x_axis[sb_valid], y_sb[sb_valid], i_stop[sb_valid],
+        y_errors=y_sb_err[sb_valid], marker_face="filled", monochrome=True,
+    )
+    ax_sb.set_ylabel(r"$\log_{10}(I)$")
+    ax_sb.set_title("Surface brightness profile")
+    ax_sb.grid(alpha=0.25)
+    sb_for_limits = y_sb[sb_valid & np.isfinite(y_sb)]
+    if sb_for_limits.size > 0:
+        set_axis_limits_from_finite_values(ax_sb, sb_for_limits, margin_fraction=0.06, min_margin=0.2)
+    handles, labels = ax_sb.get_legend_handles_labels()
+    if handles:
+        ax_sb.legend(handles[:8], labels[:8], loc="upper right", fontsize=12, ncol=1)
+
+    # 2. Center offset
+    ax_cen = fig.add_subplot(right[panel_idx], sharex=ax_sb)
+    panel_idx += 1
+    plot_profile_by_stop_code(
+        ax_cen, x_axis[valid_mask], i_dx[valid_mask], i_stop[valid_mask],
+        y_errors=i_x0_err[valid_mask], marker_face="filled",
+        label_prefix="dx ", monochrome=True,
+    )
+    plot_profile_by_stop_code(
+        ax_cen, x_axis[valid_mask], i_dy[valid_mask], i_stop[valid_mask],
+        y_errors=i_y0_err[valid_mask], marker_face="open",
+        label_prefix="dy ", monochrome=True,
+    )
+    ax_cen.axhline(0.0, color="black", linestyle="--", linewidth=0.8, alpha=0.7)
+    ax_cen.set_ylabel("center [pix]")
+    ax_cen.grid(alpha=0.25)
+
+    # 3. Axis ratio
+    ax_ba = fig.add_subplot(right[panel_idx], sharex=ax_sb)
+    panel_idx += 1
+    plot_profile_by_stop_code(
+        ax_ba, x_axis[valid_mask], i_ba[valid_mask], i_stop[valid_mask],
+        y_errors=i_eps_err[valid_mask], marker_face="filled", monochrome=True,
+    )
+    ba_for_limits = i_ba[valid_mask & np.isfinite(i_ba)]
+    set_axis_limits_from_finite_values(
+        ax_ba, ba_for_limits, margin_fraction=0.08, min_margin=0.03,
+        lower_clip=0.0, upper_clip=1.0,
+    )
+    ax_ba.set_ylabel("axis ratio")
+    ax_ba.grid(alpha=0.25)
+
+    # 4. PA
+    ax_pa = fig.add_subplot(right[panel_idx], sharex=ax_sb)
+    panel_idx += 1
+    plot_profile_by_stop_code(
+        ax_pa, x_axis[valid_mask], i_pa_deg[valid_mask], i_stop[valid_mask],
+        y_errors=i_pa_err_deg[valid_mask], marker_face="filled", monochrome=True,
+    )
+    pa_for_limits = i_pa_deg[valid_mask & np.isfinite(i_pa_deg) & (i_stop == 0)]
+    if pa_for_limits.size > 1:
+        pa_low, pa_high = robust_limits(pa_for_limits, 3, 97)
+        pa_margin = max(3.0, 0.08 * (pa_high - pa_low + 1e-6))
+        ax_pa.set_ylim(pa_low - pa_margin, pa_high + pa_margin)
+    ax_pa.set_ylabel("PA [deg]")
+    ax_pa.grid(alpha=0.25)
+
+    # Colour cycle for harmonic orders
+    order_colors = ["#1f77b4", "#d62728", "#2ca02c", "#9467bd", "#8c564b"]
+    order_markers = ["o", "^", "s", "D", "v"]
+
+    def _plot_harmonic_panel(ax, orders, panel_label):
+        """Plot harmonic data on a panel for the given orders."""
+        all_values = []
+        for idx_o, order in enumerate(orders):
+            if order not in harm_data:
+                continue
+            an, bn = harm_data[order]
+            col = order_colors[idx_o % len(order_colors)]
+            mrk = order_markers[idx_o % len(order_markers)]
+
+            if harmonic_mode == "amplitude":
+                # A_n = sqrt(a_n^2 + b_n^2), optionally normalized by I
+                amplitude = np.sqrt(
+                    np.where(np.isfinite(an), an, 0.0) ** 2
+                    + np.where(np.isfinite(bn), bn, 0.0) ** 2
+                )
+                amplitude[~(np.isfinite(an) & np.isfinite(bn))] = np.nan
+                if normalize_harmonics:
+                    amplitude = amplitude / safe_intens
+                show = valid_mask & np.isfinite(amplitude)
+                if np.any(show):
+                    ax.scatter(
+                        x_axis[show], amplitude[show],
+                        s=18, marker=mrk, facecolors=col, edgecolors=col,
+                        alpha=0.75, label=f"$A_{{{order}}}$",
+                    )
+                    all_values.append(amplitude[show])
+            else:
+                # Coefficients mode: a_n (filled) and b_n (open)
+                show_a = valid_mask & np.isfinite(an)
+                show_b = valid_mask & np.isfinite(bn)
+                if np.any(show_a):
+                    ax.scatter(
+                        x_axis[show_a], an[show_a],
+                        s=18, marker=mrk, facecolors=col, edgecolors=col,
+                        alpha=0.75, label=f"$a_{{{order}}}$",
+                    )
+                    all_values.append(an[show_a])
+                if np.any(show_b):
+                    ax.scatter(
+                        x_axis[show_b], bn[show_b],
+                        s=18, marker=mrk, facecolors="none", edgecolors=col,
+                        linewidths=0.9, alpha=0.75, label=f"$b_{{{order}}}$",
+                    )
+                    all_values.append(bn[show_b])
+
+        ax.axhline(0.0, color="gray", linestyle=":", linewidth=0.8, alpha=0.6)
+        if all_values:
+            cat = np.concatenate(all_values)
+            set_axis_limits_from_finite_values(
+                ax, cat, margin_fraction=0.12, min_margin=0.001,
+            )
+
+        # Y-axis label
+        if harmonic_mode == "amplitude":
+            if normalize_harmonics:
+                ax.set_ylabel(f"$A_n / I$ ({panel_label})")
+            else:
+                ax.set_ylabel(f"$A_n$ ({panel_label})")
+        else:
+            ax.set_ylabel(f"$a_n, b_n$ ({panel_label})")
+
+        ax.legend(loc="upper right", fontsize=9, ncol=min(len(orders) * 2, 6))
+        ax.grid(alpha=0.25)
+
+    # 5. Odd harmonics panel
+    ax_odd = fig.add_subplot(right[panel_idx], sharex=ax_sb)
+    panel_idx += 1
+    if odd_orders:
+        _plot_harmonic_panel(ax_odd, odd_orders, "odd")
+    else:
+        ax_odd.set_ylabel(f"$a_n, b_n$ (odd)")
+        ax_odd.text(0.5, 0.5, "no odd orders", color="gray", fontsize=10,
+                    transform=ax_odd.transAxes, ha="center", va="center")
+        ax_odd.grid(alpha=0.25)
+
+    # 6. Even harmonics panel
+    ax_even = fig.add_subplot(right[panel_idx], sharex=ax_sb)
+    panel_idx += 1
+    if even_orders:
+        _plot_harmonic_panel(ax_even, even_orders, "even")
+    else:
+        ax_even.set_ylabel(f"$a_n, b_n$ (even)")
+        ax_even.text(0.5, 0.5, "no even orders", color="gray", fontsize=10,
+                     transform=ax_even.transAxes, ha="center", va="center")
+        ax_even.grid(alpha=0.25)
+
+    # X-axis housekeeping
+    all_right_axes = [ax_sb, ax_cen, ax_ba, ax_pa, ax_odd, ax_even]
+    for ax in all_right_axes[:-1]:
+        ax.tick_params(labelbottom=False)
+    all_right_axes[-1].set_xlabel(r"SMA$^{0.25}$ (pixel$^{0.25}$)")
+    if np.any(valid_mask):
+        set_x_limits_with_right_margin(all_right_axes[-1], x_axis[valid_mask])
+
+    fig.subplots_adjust(left=0.025, right=0.992, bottom=0.04, top=0.940, wspace=0.18)
+    fig.savefig(filename, dpi=150)
+    plt.close(fig)
+    print(f"Saved extended QA figure to {filename}")
+
+
 def _overlay_photutils_sb(ax, photutils_res):
     """Overlay photutils surface brightness on the SB panel (open markers)."""
     p_sma = np.array([iso.sma for iso in photutils_res])
