@@ -17,7 +17,7 @@ import numpy as np
 from astropy.convolution import Gaussian2DKernel, convolve
 from astropy.io import fits
 from photutils.background import Background2D, MedianBackground
-from photutils.segmentation import SourceCatalog, detect_sources
+from photutils.segmentation import SourceCatalog, deblend_sources, detect_sources
 
 
 # ---------------------------------------------------------------------------
@@ -34,11 +34,12 @@ def make_object_mask(
     nsigma: float = 1.5,
     npixels: int = 5,
     dilate_fwhm: float = 12.0,
+    deblend: bool = True,
     # Stage-2 on-galaxy compact sources
     on_galaxy: bool = False,
     on_galaxy_box: int = 8,
     on_galaxy_filter: int = 3,
-    on_galaxy_nsigma: float = 1.5,
+    on_galaxy_nsigma: float = 3.0,
     on_galaxy_npixels: int = 5,
     on_galaxy_dilate_fwhm: float = 10.0,
     # Center of target galaxy (image coordinates, 0-indexed)
@@ -62,14 +63,20 @@ def make_object_mask(
         Minimum connected pixels required to form a source.
     dilate_fwhm : float
         FWHM (pixels) of dilation kernel applied to Stage-1 contaminant segments.
+    deblend : bool
+        When True, apply ``deblend_sources`` after initial detection to separate
+        blended sources.  Improves detection of compact objects near the galaxy.
     on_galaxy : bool
         When True, also run Stage-2 to detect compact on-galaxy sources.
     on_galaxy_box : int
-        Box size for Stage-2 local background (should be small, e.g. 4–8).
+        Box size for Stage-2 local background (should be small, e.g. 4–8,
+        to track local galaxy gradients).
     on_galaxy_filter : int
         Filter size for Stage-2 background mesh smoothing.
     on_galaxy_nsigma : float
         Detection threshold for Stage-2 compact-source detection.
+        Default 3.0 avoids masking galaxy structure while catching
+        genuine compact contaminants.
     on_galaxy_npixels : int
         Minimum connected pixels for Stage-2 sources.
     on_galaxy_dilate_fwhm : float
@@ -99,6 +106,7 @@ def make_object_mask(
         nsigma=nsigma,
         npixels=npixels,
         dilate_fwhm=dilate_fwhm,
+        deblend=deblend,
     )
 
     combined_mask = mask_stage1.copy()
@@ -187,6 +195,7 @@ def _detect_field_contaminants(
     nsigma: float,
     npixels: int,
     dilate_fwhm: float,
+    deblend: bool = True,
 ) -> np.ndarray:
     """Stage-1: detect and dilate field contaminants, excluding the target galaxy."""
     bkg, rms = _build_background(image, box_size=box_size, filter_size=filter_size)
@@ -202,6 +211,16 @@ def _detect_field_contaminants(
 
     if segmap is None or segmap.nlabels == 0:
         return np.zeros(image.shape, dtype=bool)
+
+    # Deblend overlapping sources for better separation
+    if deblend and segmap.nlabels > 1:
+        try:
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                segmap = deblend_sources(convolved, segmap, npixels=npixels)
+        except Exception:  # noqa: BLE001
+            # scikit-image may not be installed; skip deblending gracefully
+            pass
 
     catalog = SourceCatalog(subtracted, segmap)
     target_label = _find_target_label(catalog, center_xy)

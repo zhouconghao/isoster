@@ -43,7 +43,11 @@ outputs/legacysurvey_highorder_harmonics/<galaxy>/band_<N>/
 │   ├── isophotes.fits       # Full isophote table (FITS binary table)
 │   ├── isophotes.ecsv       # Astropy-readable ASCII ECSV
 │   └── qa.png               # Per-condition extended QA figure
-└── comparison_qa.png        # All-condition comparison figure
+├── comparison_qa.png        # All-condition comparison figure
+└── qa_figures/              # Flat directory with all QA PNGs
+    ├── <galaxy>_band<N>_mask_qa.png
+    ├── <galaxy>_band<N>_<condition>_qa.png  (one per condition)
+    └── <galaxy>_band<N>_comparison_qa.png
 ```
 
 ## CLI Options
@@ -57,11 +61,49 @@ outputs/legacysurvey_highorder_harmonics/<galaxy>/band_<N>/
 --conditions [...]              Run only specified conditions
 ```
 
+## Harmonic Display Modes
+
+The per-condition QA figure (`plot_qa_summary_extended`) and comparison figure
+(`plot_harmonic_comparison_qa`) support two harmonic display modes:
+
+### Default: Coefficients mode (`harmonic_mode='coefficients'`)
+
+Shows individual `a_n` (filled markers) and `b_n` (open markers) per harmonic
+order, split into **odd** (3, 5, 7) and **even** (4, 6) panels.  Each order
+gets its own colour; `a_n` uses filled markers, `b_n` uses open markers of
+the same colour.
+
+### Alternative: Amplitude mode (`harmonic_mode='amplitude'`)
+
+Shows `A_n = sqrt(a_n^2 + b_n^2)` per order.  Optionally normalize by
+intensity with `normalize_harmonics=True` to get `A_n / I`.
+
+### a4 panel
+
+A dedicated `a4` panel always shows the **raw** `a4` coefficient (not
+normalized) as the canonical boxy/disky morphology indicator:
+positive = disky, negative = boxy.
+
+## Residual Map
+
+The per-condition QA figure shows a residual map panel.  By default it displays
+the **absolute** residual `data - model`.  Set `relative_residual=True` to show
+the fractional residual `(data - model) / data` instead.
+
+## Masking
+
+The two-stage photutils masking pipeline (`masking.py`) uses:
+
+- **Stage 1**: Field contaminant detection with source deblending
+- **Stage 2**: On-galaxy compact source detection using small-box (`box=8`)
+  local background subtraction with `nsigma=3.0` to avoid masking galaxy
+  structure while catching genuine contaminants
+
 ## Files
 
 | File | Purpose |
 |------|---------|
-| `masking.py` | Two-stage photutils masking pipeline (migrated from confeti) |
+| `masking.py` | Two-stage photutils masking pipeline with deblending |
 | `shared.py` | Galaxy metadata, config factory, comparison QA function |
 | `run_example.py` | Main CLI script |
 
@@ -72,5 +114,3 @@ outputs/legacysurvey_highorder_harmonics/<galaxy>/band_<N>/
 - Baseline conditions have `simultaneous_harmonics=False`; the [3, 4] harmonics
   are still stored post-hoc but do not influence the geometry fit.
 - EA (eccentric-anomaly) mode is recommended for high-ellipticity objects.
-- The `a4/intens` panel in the comparison figure is the canonical boxy/disky
-  morphology indicator:  positive = disky disk, negative = boxy bulge.

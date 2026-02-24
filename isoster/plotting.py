@@ -777,18 +777,18 @@ def plot_qa_summary_extended(
     isoster_res,
     *,
     harmonic_orders: list[int] | None = None,
+    harmonic_mode: str = "coefficients",
+    normalize_harmonics: bool = False,
+    relative_residual: bool = False,
     mask=None,
     filename="qa_summary_extended.png",
 ):
     """QA figure with extended harmonic visualization panels.
 
-    Extends :func:`plot_qa_summary` by replacing the single combined harmonics
-    panel with two purpose-built panels:
+    Extends :func:`plot_qa_summary` with two harmonic-specific panels:
 
-    * **Panel A** — fractional amplitude per order:
-      ``Aₙ = sqrt(aₙ² + bₙ²) / intens``, one scatter series per order.
-    * **Panel B** — ``a4 / intens`` signed panel (disky > 0, boxy < 0),
-      stop-code coloured.
+    * **Odd harmonics** — orders 3, 5, 7 (if present)
+    * **Even harmonics** — orders 4, 6 (if present)
 
     Parameters
     ----------
@@ -801,8 +801,19 @@ def plot_qa_summary_extended(
     isoster_res : list of dict
         Isoster fitting results.
     harmonic_orders : list of int or None
-        Which harmonic orders to show in Panel A.  Auto-detected from the
+        Which harmonic orders to show.  Auto-detected from the
         available ``a3``/``b3`` … ``a7``/``b7`` keys when None.
+    harmonic_mode : str
+        ``'coefficients'`` (default) shows individual ``a_n`` (filled) and
+        ``b_n`` (open) per order.  ``'amplitude'`` shows
+        ``A_n = sqrt(a_n^2 + b_n^2)`` per order.
+    normalize_harmonics : bool
+        Only used when ``harmonic_mode='amplitude'``.  When True, shows
+        ``A_n / I`` instead of raw ``A_n``.
+    relative_residual : bool
+        When False (default), the residual map shows ``data - model``
+        (absolute).  When True, shows ``(data - model) / data``
+        (fractional).
     mask : 2D bool array, optional
         Bad-pixel mask (True = masked) for the data panel overlay.
     filename : str
@@ -839,6 +850,10 @@ def plot_qa_summary_extended(
     for order in harmonic_orders:
         harm_data[order] = (get_arr(f"a{order}"), get_arr(f"b{order}"))
 
+    # Split into odd and even orders
+    odd_orders = [o for o in harmonic_orders if o % 2 == 1]
+    even_orders = [o for o in harmonic_orders if o % 2 == 0]
+
     x_axis = i_sma ** 0.25
     valid_mask = np.isfinite(x_axis) & (i_sma > 1.0)
 
@@ -851,11 +866,13 @@ def plot_qa_summary_extended(
     i_dx = i_x0 - median_x0
     i_dy = i_y0 - median_y0
 
-    # 6 panels: SB, centroid, b/a, PA, harmonic amplitudes, a4/intens
-    n_panels = 6
-    height_ratios = [2.2, 1.0, 1.0, 1.0, 1.2, 1.2]
+    safe_intens = np.where(np.isfinite(i_intens) & (i_intens > 0.0), i_intens, np.nan)
 
-    fig = plt.figure(figsize=(13.6, 12.5))
+    # 6 panels: SB, centroid, b/a, PA, odd harmonics, even harmonics
+    n_panels = 6
+    height_ratios = [2.2, 1.0, 1.0, 1.0, 1.4, 1.4]
+
+    fig = plt.figure(figsize=(13.6, 13.0))
     outer = gridspec.GridSpec(
         1, 2, figure=fig, width_ratios=[1.0, 2.01], wspace=0.27,
     )
@@ -909,10 +926,19 @@ def plot_qa_summary_extended(
     ax_mod_cb = fig.add_subplot(left[1, 1])
     fig.colorbar(h_mod, cax=ax_mod_cb).set_label(r"arcsinh((model $-$ p0.5) / scale)")
 
+    # Residual panel — absolute (default) or fractional
     ax_res = fig.add_subplot(left[2, 0])
-    residual_map = compute_fractional_residual_percent(image, isoster_model)
+    if relative_residual:
+        residual_map = compute_fractional_residual_percent(image, isoster_model)
+        res_label = latex_safe_text("(data - model) / data [%]")
+    else:
+        residual_map = np.where(np.isfinite(image), image - isoster_model, np.nan)
+        res_label = "data $-$ model"
+
     abs_res = np.abs(residual_map[np.isfinite(residual_map)])
-    res_limit = float(np.clip(np.nanpercentile(abs_res, 99.0) if abs_res.size else 1.0, 0.05, 8.0))
+    res_limit = float(np.clip(
+        np.nanpercentile(abs_res, 99.0) if abs_res.size else 1.0, 0.05, None,
+    ))
     h_res = ax_res.imshow(
         residual_map, origin="lower", cmap="coolwarm",
         vmin=-res_limit, vmax=res_limit, interpolation="nearest",
@@ -921,9 +947,7 @@ def plot_qa_summary_extended(
                 transform=ax_res.transAxes, ha="center", va="center",
                 weight="bold", alpha=0.85)
     ax_res_cb = fig.add_subplot(left[2, 1])
-    fig.colorbar(h_res, cax=ax_res_cb).set_label(
-        latex_safe_text("(model - data) / data [%]")
-    )
+    fig.colorbar(h_res, cax=ax_res_cb).set_label(res_label)
 
     for ax in [ax_img, ax_mod, ax_res]:
         ax.set_xlabel("x [pixel]")
@@ -1001,77 +1025,106 @@ def plot_qa_summary_extended(
     ax_pa.set_ylabel("PA [deg]")
     ax_pa.grid(alpha=0.25)
 
-    # 5. Panel A — per-order fractional amplitudes
-    ax_amp = fig.add_subplot(right[panel_idx], sharex=ax_sb)
-    panel_idx += 1
-
     # Colour cycle for harmonic orders
     order_colors = ["#1f77b4", "#d62728", "#2ca02c", "#9467bd", "#8c564b"]
     order_markers = ["o", "^", "s", "D", "v"]
-    amp_all_values = []
-    safe_intens = np.where(np.isfinite(i_intens) & (i_intens > 0.0), i_intens, np.nan)
-    for idx_o, order in enumerate(harmonic_orders):
-        an, bn = harm_data[order]
-        amplitude = np.sqrt(np.where(np.isfinite(an), an, 0.0) ** 2
-                            + np.where(np.isfinite(bn), bn, 0.0) ** 2) / safe_intens
-        amplitude[~(np.isfinite(an) & np.isfinite(bn))] = np.nan
-        show = valid_mask & np.isfinite(amplitude)
-        if not np.any(show):
-            continue
-        col = order_colors[idx_o % len(order_colors)]
-        mrk = order_markers[idx_o % len(order_markers)]
-        ax_amp.scatter(
-            x_axis[show], amplitude[show],
-            s=18, marker=mrk, facecolors=col, edgecolors=col,
-            alpha=0.75, label=f"$A_{{{order}}}$",
-        )
-        amp_all_values.append(amplitude[show])
 
-    ax_amp.axhline(0.0, color="gray", linestyle=":", linewidth=0.8, alpha=0.6)
-    if amp_all_values:
-        all_amp = np.concatenate(amp_all_values)
-        set_axis_limits_from_finite_values(ax_amp, all_amp, margin_fraction=0.12, min_margin=0.001)
-    ax_amp.set_ylabel(r"$A_n / I$")
-    ax_amp.legend(loc="upper right", fontsize=10, ncol=min(len(harmonic_orders), 5))
-    ax_amp.grid(alpha=0.25)
+    def _plot_harmonic_panel(ax, orders, panel_label):
+        """Plot harmonic data on a panel for the given orders."""
+        all_values = []
+        for idx_o, order in enumerate(orders):
+            if order not in harm_data:
+                continue
+            an, bn = harm_data[order]
+            col = order_colors[idx_o % len(order_colors)]
+            mrk = order_markers[idx_o % len(order_markers)]
 
-    # 6. Panel B — a4/intens (boxy/disky indicator)
-    ax_a4 = fig.add_subplot(right[panel_idx], sharex=ax_sb)
+            if harmonic_mode == "amplitude":
+                # A_n = sqrt(a_n^2 + b_n^2), optionally normalized by I
+                amplitude = np.sqrt(
+                    np.where(np.isfinite(an), an, 0.0) ** 2
+                    + np.where(np.isfinite(bn), bn, 0.0) ** 2
+                )
+                amplitude[~(np.isfinite(an) & np.isfinite(bn))] = np.nan
+                if normalize_harmonics:
+                    amplitude = amplitude / safe_intens
+                show = valid_mask & np.isfinite(amplitude)
+                if np.any(show):
+                    ax.scatter(
+                        x_axis[show], amplitude[show],
+                        s=18, marker=mrk, facecolors=col, edgecolors=col,
+                        alpha=0.75, label=f"$A_{{{order}}}$",
+                    )
+                    all_values.append(amplitude[show])
+            else:
+                # Coefficients mode: a_n (filled) and b_n (open)
+                show_a = valid_mask & np.isfinite(an)
+                show_b = valid_mask & np.isfinite(bn)
+                if np.any(show_a):
+                    ax.scatter(
+                        x_axis[show_a], an[show_a],
+                        s=18, marker=mrk, facecolors=col, edgecolors=col,
+                        alpha=0.75, label=f"$a_{{{order}}}$",
+                    )
+                    all_values.append(an[show_a])
+                if np.any(show_b):
+                    ax.scatter(
+                        x_axis[show_b], bn[show_b],
+                        s=18, marker=mrk, facecolors="none", edgecolors=col,
+                        linewidths=0.9, alpha=0.75, label=f"$b_{{{order}}}$",
+                    )
+                    all_values.append(bn[show_b])
+
+        ax.axhline(0.0, color="gray", linestyle=":", linewidth=0.8, alpha=0.6)
+        if all_values:
+            cat = np.concatenate(all_values)
+            set_axis_limits_from_finite_values(
+                ax, cat, margin_fraction=0.12, min_margin=0.001,
+            )
+
+        # Y-axis label
+        if harmonic_mode == "amplitude":
+            if normalize_harmonics:
+                ax.set_ylabel(f"$A_n / I$ ({panel_label})")
+            else:
+                ax.set_ylabel(f"$A_n$ ({panel_label})")
+        else:
+            ax.set_ylabel(f"$a_n, b_n$ ({panel_label})")
+
+        ax.legend(loc="upper right", fontsize=9, ncol=min(len(orders) * 2, 6))
+        ax.grid(alpha=0.25)
+
+    # 5. Odd harmonics panel
+    ax_odd = fig.add_subplot(right[panel_idx], sharex=ax_sb)
     panel_idx += 1
-
-    if 4 in harmonic_orders:
-        a4_vals, _ = harm_data[4]
+    if odd_orders:
+        _plot_harmonic_panel(ax_odd, odd_orders, "odd")
     else:
-        a4_vals = get_arr("a4")  # may be NaN if not fitted
+        ax_odd.set_ylabel(f"$a_n, b_n$ (odd)")
+        ax_odd.text(0.5, 0.5, "no odd orders", color="gray", fontsize=10,
+                    transform=ax_odd.transAxes, ha="center", va="center")
+        ax_odd.grid(alpha=0.25)
 
-    a4_frac = a4_vals / safe_intens
-    show_a4 = valid_mask & np.isfinite(a4_frac)
-    if np.any(show_a4):
-        plot_profile_by_stop_code(
-            ax_a4, x_axis[show_a4], a4_frac[show_a4], i_stop[show_a4],
-            marker_face="filled", monochrome=False,
-        )
-        a4_lim_vals = a4_frac[show_a4 & (i_stop == 0) & np.isfinite(a4_frac)]
-        if a4_lim_vals.size > 1:
-            set_axis_limits_from_finite_values(ax_a4, a4_lim_vals, margin_fraction=0.12, min_margin=0.001)
-
-    ax_a4.axhline(0.0, color="gray", linestyle="--", linewidth=0.8, alpha=0.7)
-    ax_a4.set_ylabel(r"$a_4 / I$")
-    ax_a4.text(0.01, 0.92, "disky", color="gray", fontsize=9,
-               transform=ax_a4.transAxes, va="top")
-    ax_a4.text(0.01, 0.08, "boxy", color="gray", fontsize=9,
-               transform=ax_a4.transAxes, va="bottom")
-    ax_a4.grid(alpha=0.25)
+    # 6. Even harmonics panel
+    ax_even = fig.add_subplot(right[panel_idx], sharex=ax_sb)
+    panel_idx += 1
+    if even_orders:
+        _plot_harmonic_panel(ax_even, even_orders, "even")
+    else:
+        ax_even.set_ylabel(f"$a_n, b_n$ (even)")
+        ax_even.text(0.5, 0.5, "no even orders", color="gray", fontsize=10,
+                     transform=ax_even.transAxes, ha="center", va="center")
+        ax_even.grid(alpha=0.25)
 
     # X-axis housekeeping
-    all_right_axes = [ax_sb, ax_cen, ax_ba, ax_pa, ax_amp, ax_a4]
+    all_right_axes = [ax_sb, ax_cen, ax_ba, ax_pa, ax_odd, ax_even]
     for ax in all_right_axes[:-1]:
         ax.tick_params(labelbottom=False)
     all_right_axes[-1].set_xlabel(r"SMA$^{0.25}$ (pixel$^{0.25}$)")
     if np.any(valid_mask):
         set_x_limits_with_right_margin(all_right_axes[-1], x_axis[valid_mask])
 
-    fig.subplots_adjust(left=0.025, right=0.992, bottom=0.05, top=0.940, wspace=0.18)
+    fig.subplots_adjust(left=0.025, right=0.992, bottom=0.04, top=0.940, wspace=0.18)
     fig.savefig(filename, dpi=150)
     plt.close(fig)
     print(f"Saved extended QA figure to {filename}")

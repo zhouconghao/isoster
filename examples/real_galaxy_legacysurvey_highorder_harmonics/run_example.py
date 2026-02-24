@@ -32,6 +32,7 @@ Output layout
 from __future__ import annotations
 
 import argparse
+import shutil
 import sys
 import time
 import warnings
@@ -210,6 +211,10 @@ def main() -> None:
     band_dir = output_dir / galaxy / f"band_{band_index}"
     band_dir.mkdir(parents=True, exist_ok=True)
 
+    # Flat QA directory — all PNG figures copied here with descriptive names
+    qa_flat_dir = band_dir / "qa_figures"
+    qa_flat_dir.mkdir(parents=True, exist_ok=True)
+
     band_name = BAND_NAMES[galaxy][band_index]
     print(f"\n{'='*60}")
     print(f"  Galaxy : {galaxy}")
@@ -258,6 +263,10 @@ def main() -> None:
         print(f"  Saved mask → {mask_fits_path}")
 
     save_mask_qa(image, mask, mask_qa_path)
+    shutil.copy2(
+        mask_qa_path,
+        qa_flat_dir / f"{galaxy}_band{band_index}_mask_qa.png",
+    )
 
     # ------------------------------------------------------------------
     # 3. Build IsosterConfig objects for all conditions
@@ -313,6 +322,10 @@ def main() -> None:
         # Per-condition QA
         save_condition_qa(image, mask, results, condition_label, qa_out)
         print(f"    → saved QA : {qa_out}")
+        shutil.copy2(
+            qa_out,
+            qa_flat_dir / f"{galaxy}_band{band_index}_{condition_label}_qa.png",
+        )
 
         all_results[condition_label] = isophotes
 
@@ -331,10 +344,15 @@ def main() -> None:
                 condition_results=all_results,
                 filename=str(comp_qa_path),
             )
+        shutil.copy2(
+            comp_qa_path,
+            qa_flat_dir / f"{galaxy}_band{band_index}_comparison_qa.png",
+        )
     else:
         print("\nSkipping comparison QA (fewer than 2 conditions).")
 
-    print(f"\nDone.  Outputs in: {band_dir}\n")
+    print(f"\nDone.  Outputs in: {band_dir}")
+    print(f"  Flat QA figures: {qa_flat_dir}\n")
 
 
 if __name__ == "__main__":
