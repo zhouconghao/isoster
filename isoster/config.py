@@ -112,9 +112,12 @@ class IsosterConfig(BaseModel):
     # Higher-Order Harmonics Fitting
     simultaneous_harmonics: bool = Field(
         False,
-        description="Use simultaneous fitting for higher-order harmonics (n >= 3). "
-                    "ISOFIT-style approach from Ciambur 2015 that accounts for cross-correlations "
-                    "between harmonics and provides better error estimates."
+        description="Enable true ISOFIT simultaneous harmonic fitting (Ciambur 2015). "
+                    "When True, higher-order harmonics (specified by harmonic_orders) are fitted "
+                    "jointly with the geometry harmonics (orders 1-2) inside the iteration loop, "
+                    "accounting for cross-correlations and yielding cleaner RMS estimates. "
+                    "Falls back to 5-param fit when insufficient sample points. "
+                    "When False, harmonics are fitted post-hoc after geometry convergence."
     )
 
     harmonic_orders: List[int] = Field(

@@ -86,7 +86,7 @@ results_r = fit_image(
 
 - `compute_deviations=True`: enables higher-order deviation outputs (`a{n}`, `b{n}`).
 - `harmonic_orders=[3, 4, ...]`: harmonic orders to compute.
-- `simultaneous_harmonics=True`: single combined least-squares solve for higher-order terms.
+- `simultaneous_harmonics=True`: true ISOFIT (Ciambur 2015) — fits higher-order harmonics jointly with geometry harmonics inside the iteration loop via a single extended design matrix. Accounts for cross-correlations and produces cleaner RMS estimates. Falls back to 5-param fit when insufficient sample points for the full design matrix.
 
 ### Photometry Outputs
 

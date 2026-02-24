@@ -117,7 +117,7 @@ Follow these rules for all Python environment and dependency work in this reposi
 
 - **Template-based forced mode**: When `template_isophotes` is provided to `fit_image()`, applies variable geometry (one per SMA) from the template to new image. Enables consistent multiband photometry by using geometry from one band (e.g., g-band) for other bands (r, i, z).
 
-- **Simultaneous harmonics fitting**: When `simultaneous_harmonics=True`, uses ISOFIT-style simultaneous fitting of higher-order harmonics (orders specified by `harmonic_orders=[3, 4, ...]`) that accounts for cross-correlations.
+- **Simultaneous harmonics fitting**: When `simultaneous_harmonics=True`, uses true ISOFIT (Ciambur 2015) simultaneous fitting of higher-order harmonics (orders specified by `harmonic_orders=[3, 4, ...]`) jointly with geometry harmonics inside the iteration loop. This accounts for cross-correlations and yields cleaner RMS. Falls back to 5-param when sample points are insufficient for the extended design matrix.
 
 - **Permissive geometry mode**: When `permissive_geometry=True`, enables photutils-style "best effort" geometry updates that continue even from failed fits, preventing cascading failures in challenging data.
 
@@ -257,7 +257,7 @@ config = IsosterConfig(
 - **High ellipticity**: For ε > 0.6, use relaxed `maxgerr=1.0` or higher to prevent excessive failures
 - **Challenging data**: Enable `permissive_geometry=True` to continue fitting through convergence issues
 - **Low S/N centers**: Enable `use_central_regularization=True` with appropriate threshold and strength
-- **Morphological features**: Enable `simultaneous_harmonics=True` to capture higher-order deviations
+- **Morphological features**: Enable `simultaneous_harmonics=True` for true ISOFIT joint fitting of higher-order harmonics within the iteration loop (better for boxy/disky galaxies)
 - **Convergence scaling**: Default `convergence_scaling='sector_area'` matches photutils behavior; use `'none'` to revert to legacy constant threshold
 - **Geometry damping**: Default `geometry_damping=0.7` stabilizes most cases; use `0.5` for severely oscillating fits, or `1.0` for legacy undamped behavior
 - **Geometry-based convergence**: Enable `geometry_convergence=True` as supplementary convergence criterion for challenging outer isophotes
