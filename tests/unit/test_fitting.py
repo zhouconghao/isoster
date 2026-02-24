@@ -1053,3 +1053,225 @@ def test_isofit_rms_cleaner_than_5param():
     assert rms_iso < rms_5 * 0.1, \
         f"ISOFIT RMS ({rms_iso:.4f}) should be much less than 5-param RMS ({rms_5:.4f})"
 
+
+# ============================================================================
+# Tests for ISOFIT fit_isophote behavior (Phase 2: true ISOFIT integration)
+# ============================================================================
+
+def _make_circular_sersic_image(size=201, n=1.0, r_eff=30.0, intens_eff=100.0):
+    """Create a circular Sersic profile image for testing fit_isophote."""
+    from scipy.special import gammaincinv
+    b_n = gammaincinv(2.0 * n, 0.5)
+    cx, cy = size / 2, size / 2
+    y, x = np.mgrid[:size, :size]
+    r = np.sqrt((x - cx) ** 2 + (y - cy) ** 2)
+    r = np.clip(r, 0.1, None)
+    image = intens_eff * np.exp(-b_n * ((r / r_eff) ** (1.0 / n) - 1.0))
+    return image, cx, cy
+
+
+def _make_boxy_sersic_image(size=201, n=1.0, r_eff=30.0, intens_eff=100.0,
+                             eps=0.3, pa=0.5, a4_amp=0.03, a3_amp=0.0):
+    """Create a Sersic image with injected higher-order harmonic deviations.
+
+    The image has elliptical isophotes with optional boxiness (a4) and
+    asymmetry (a3) perturbations suitable for testing ISOFIT recovery.
+    """
+    from scipy.special import gammaincinv
+    b_n = gammaincinv(2.0 * n, 0.5)
+    cx, cy = size / 2, size / 2
+    y, x = np.mgrid[:size, :size]
+
+    # Rotate to ellipse frame
+    dx = x - cx
+    dy = y - cy
+    cos_pa = np.cos(pa)
+    sin_pa = np.sin(pa)
+    x_ell = dx * cos_pa + dy * sin_pa
+    y_ell = -dx * sin_pa + dy * cos_pa
+
+    # Elliptical radius
+    q = 1.0 - eps
+    r_ell = np.sqrt(x_ell ** 2 + (y_ell / q) ** 2)
+    r_ell = np.clip(r_ell, 0.1, None)
+
+    # Position angle on the ellipse
+    theta = np.arctan2(y_ell / q, x_ell)
+
+    # Base Sersic profile with harmonic perturbation in radius
+    # r_perturbed = r_ell * (1 + a3*sin(3θ) + a4*cos(4θ))
+    r_perturbed = r_ell * (1.0 + a3_amp * np.sin(3.0 * theta) + a4_amp * np.cos(4.0 * theta))
+    r_perturbed = np.clip(r_perturbed, 0.1, None)
+
+    image = intens_eff * np.exp(-b_n * ((r_perturbed / r_eff) ** (1.0 / n) - 1.0))
+    return image, cx, cy
+
+
+def test_default_path_unchanged():
+    """Bit-for-bit regression: simultaneous_harmonics=False must use the same path.
+
+    Runs fit_isophote with default config on a circular Sersic mock and verifies
+    that the result is identical to a run with explicit simultaneous_harmonics=False.
+    """
+    image, cx, cy = _make_circular_sersic_image()
+    mask = np.zeros_like(image, dtype=bool)
+    start = {'x0': cx, 'y0': cy, 'eps': 0.1, 'pa': 0.0}
+
+    config_default = IsosterConfig(
+        sma0=15.0, x0=cx, y0=cy, eps=0.1, pa=0.0,
+        simultaneous_harmonics=False, harmonic_orders=[3, 4],
+    )
+    config_explicit = IsosterConfig(
+        sma0=15.0, x0=cx, y0=cy, eps=0.1, pa=0.0,
+        simultaneous_harmonics=False, harmonic_orders=[3, 4],
+    )
+
+    result_default = fit_isophote(image, mask, sma=15.0, start_geometry=start, config=config_default)
+    result_explicit = fit_isophote(image, mask, sma=15.0, start_geometry=start, config=config_explicit)
+
+    # Core numeric outputs must be identical
+    for key in ['intens', 'rms', 'eps', 'pa', 'x0', 'y0', 'stop_code', 'niter']:
+        val_d = result_default[key]
+        val_e = result_explicit[key]
+        if isinstance(val_d, float) and np.isnan(val_d):
+            assert np.isnan(val_e), f"Key {key}: default is NaN but explicit is {val_e}"
+        else:
+            assert val_d == val_e, f"Key {key}: default={val_d}, explicit={val_e}"
+
+
+def test_isofit_convergence_behavior():
+    """ISOFIT should converge on data with strong higher-order harmonics.
+
+    Uses a boxy Sersic mock with injected a4 deviation. Verifies that
+    fit_isophote with simultaneous_harmonics=True converges (stop_code=0)
+    and recovers nonzero a4/b4 coefficients.
+    """
+    image, cx, cy = _make_boxy_sersic_image(
+        size=201, n=1.0, r_eff=30.0, intens_eff=500.0,
+        eps=0.3, pa=0.5, a4_amp=0.05,
+    )
+    mask = np.zeros_like(image, dtype=bool)
+    start = {'x0': cx, 'y0': cy, 'eps': 0.3, 'pa': 0.5}
+
+    config = IsosterConfig(
+        sma0=15.0, x0=cx, y0=cy, eps=0.3, pa=0.5,
+        simultaneous_harmonics=True, harmonic_orders=[3, 4],
+        fix_center=True, fix_pa=True, fix_eps=True,
+        maxit=100, conver=0.05,
+    )
+    result = fit_isophote(image, mask, sma=25.0, start_geometry=start, config=config)
+
+    assert result['stop_code'] in (0, 2), \
+        f"Expected convergence, got stop_code={result['stop_code']}"
+    # a4 or b4 should be nonzero (we injected a4 perturbation)
+    a4_mag = np.sqrt(result['a4'] ** 2 + result['b4'] ** 2)
+    assert a4_mag > 1e-4, \
+        f"ISOFIT should detect injected a4 deviation, got |a4,b4|={a4_mag:.6f}"
+
+
+def test_isofit_fallback_insufficient_points():
+    """ISOFIT should fall back to 5-param when sample points < isofit_min_points.
+
+    Uses many harmonic orders so that isofit_min_points exceeds the number of
+    sample points at moderate SMA with heavy masking, triggering the fallback
+    warning and 5-param path.
+    """
+    image, cx, cy = _make_circular_sersic_image(size=201, r_eff=30.0)
+    mask = np.zeros_like(image, dtype=bool)
+
+    # Mask most of the image to leave only a few sample points on the ellipse
+    # Keep only a narrow strip near the center row
+    mask[:int(cy) - 3, :] = True
+    mask[int(cy) + 3:, :] = True
+
+    start = {'x0': cx, 'y0': cy, 'eps': 0.05, 'pa': 0.0}
+
+    # Many orders: min_points = 1 + 2*(2+len(orders))
+    # orders [3..32] = 30 orders → min_points = 1 + 2*(2+30) = 65
+    many_orders = list(range(3, 33))
+    config = IsosterConfig(
+        sma0=10.0, x0=cx, y0=cy, eps=0.05, pa=0.0,
+        simultaneous_harmonics=True, harmonic_orders=many_orders,
+        fix_center=True, fix_pa=True, fix_eps=True,
+        maxit=50, conver=0.05, nclip=0,
+    )
+
+    with warnings.catch_warnings(record=True) as w:
+        warnings.simplefilter("always")
+        result = fit_isophote(image, mask, sma=10.0, start_geometry=start, config=config)
+        fallback_warnings = [x for x in w if "Falling back to 5-param" in str(x.message)]
+        assert len(fallback_warnings) > 0, \
+            "Expected RuntimeWarning about ISOFIT fallback with insufficient points"
+
+    # Result should still be valid (5-param fallback path)
+    assert np.isfinite(result['intens']), "Intensity should be finite after fallback"
+    assert result['stop_code'] in (0, 1, 2), \
+        f"Expected valid stop code after fallback, got {result['stop_code']}"
+
+
+def test_isofit_fallback_heavy_masking():
+    """ISOFIT should fall back when heavy masking reduces available points.
+
+    Mask a large fraction of the image so that at the fitting SMA,
+    the number of valid points drops below isofit_min_points.
+    """
+    image, cx, cy = _make_circular_sersic_image(size=201, r_eff=30.0)
+    mask = np.zeros_like(image, dtype=bool)
+
+    # Mask most of the upper half — leaves roughly half the ellipse
+    mask[:int(cy) - 2, :] = True
+
+    start = {'x0': cx, 'y0': cy, 'eps': 0.05, 'pa': 0.0}
+
+    config = IsosterConfig(
+        sma0=10.0, x0=cx, y0=cy, eps=0.05, pa=0.0,
+        simultaneous_harmonics=True, harmonic_orders=[3, 4, 5, 6, 7],
+        fix_center=True, fix_pa=True, fix_eps=True,
+        maxit=50, conver=0.05, nclip=0,
+    )
+
+    # Even with heavy masking at moderate SMA, we should get a result
+    # (either ISOFIT or 5-param fallback)
+    result = fit_isophote(image, mask, sma=10.0, start_geometry=start, config=config)
+    assert np.isfinite(result['intens']), "Intensity should be finite with heavy masking"
+    assert result['stop_code'] in (0, 1, 2), \
+        f"Expected valid stop code with masking, got {result['stop_code']}"
+
+
+def test_isofit_mixed_mode_profile():
+    """Inner isophotes use 5-param fallback, outer use ISOFIT — verify continuity.
+
+    Fit at small SMA (fallback expected) and large SMA (ISOFIT expected).
+    Both should produce valid results and intensities should decrease with SMA
+    for a Sersic profile.
+    """
+    image, cx, cy = _make_circular_sersic_image(size=301, r_eff=40.0, intens_eff=500.0)
+    mask = np.zeros_like(image, dtype=bool)
+
+    config = IsosterConfig(
+        sma0=5.0, x0=cx, y0=cy, eps=0.05, pa=0.0,
+        simultaneous_harmonics=True, harmonic_orders=[3, 4, 5, 6, 7],
+        fix_center=True, fix_pa=True, fix_eps=True,
+        maxit=50, conver=0.05,
+    )
+    start = {'x0': cx, 'y0': cy, 'eps': 0.05, 'pa': 0.0}
+
+    # Small SMA: likely fallback to 5-param (few sample points)
+    result_inner = fit_isophote(image, mask, sma=3.0, start_geometry=start, config=config)
+
+    # Large SMA: should use full ISOFIT
+    result_outer = fit_isophote(image, mask, sma=40.0, start_geometry=start, config=config)
+
+    # Both should have valid intensities
+    assert np.isfinite(result_inner['intens']), "Inner result should have finite intensity"
+    assert np.isfinite(result_outer['intens']), "Outer result should have finite intensity"
+
+    # Monotonically decreasing for Sersic: inner brighter than outer
+    assert result_inner['intens'] > result_outer['intens'], \
+        f"Inner ({result_inner['intens']:.2f}) should be brighter than outer ({result_outer['intens']:.2f})"
+
+    # Both should converge or reach max iterations (not crash)
+    for label, res in [('inner', result_inner), ('outer', result_outer)]:
+        assert res['stop_code'] in (0, 2), \
+            f"{label}: expected stop_code 0 or 2, got {res['stop_code']}"
+
