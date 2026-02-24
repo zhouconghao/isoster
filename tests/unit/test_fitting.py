@@ -6,7 +6,10 @@ from isoster.fitting import (fit_first_and_second_harmonics, sigma_clip,
                               compute_aperture_photometry, compute_parameter_errors,
                               compute_deviations, compute_central_regularization_penalty,
                               fit_isophote,
-                              fit_higher_harmonics_simultaneous)
+                              fit_higher_harmonics_simultaneous,
+                              build_isofit_design_matrix, fit_all_harmonics,
+                              evaluate_harmonic_model)
+from isoster.numba_kernels import build_harmonic_matrix
 from isoster.config import IsosterConfig
 
 class TestFitting(unittest.TestCase):
@@ -958,4 +961,95 @@ class TestGradientLinearGrowth(unittest.TestCase):
 
         self.assertAlmostEqual(grad, -5.0, delta=0.5,
                                msg=f"Expected gradient ~ -5.0, got {grad:.3f}")
+
+
+# ============================================================================
+# Tests for ISOFIT helper functions (Phase 1: true ISOFIT implementation)
+# ============================================================================
+
+def test_build_isofit_design_matrix_shape():
+    """Verify design matrix shape is (n, 5 + 2*len(orders))."""
+    angles = np.linspace(0, 2 * np.pi, 64, endpoint=False)
+    for orders in [[], [3], [3, 4], [3, 4, 5, 6, 7]]:
+        A = build_isofit_design_matrix(angles, orders)
+        expected_cols = 5 + 2 * len(orders)
+        assert A.shape == (64, expected_cols), \
+            f"orders={orders}: expected (64, {expected_cols}), got {A.shape}"
+
+
+def test_build_isofit_design_matrix_first_five_match():
+    """First 5 columns must match build_harmonic_matrix() bit-for-bit."""
+    angles = np.linspace(0, 2 * np.pi, 100, endpoint=False)
+    A_isofit = build_isofit_design_matrix(angles, [3, 4])
+    A_5param = build_harmonic_matrix(angles)
+    np.testing.assert_array_equal(
+        A_isofit[:, :5], A_5param,
+        err_msg="First 5 columns of ISOFIT matrix must match build_harmonic_matrix"
+    )
+
+
+def test_fit_all_harmonics_recovery():
+    """Synthetic data with known coefficients: verify recovery to atol=1e-10."""
+    angles = np.linspace(0, 2 * np.pi, 200, endpoint=False)
+    # Known coefficients: [I0, A1, B1, A2, B2, A3, B3, A4, B4]
+    true_coeffs = np.array([100.0, 5.0, 3.0, 2.0, 1.0, 0.8, 0.6, 0.4, 0.2])
+    orders = [3, 4]
+
+    # Build exact intensity
+    intens = true_coeffs[0]
+    intens = intens + true_coeffs[1] * np.sin(angles) + true_coeffs[2] * np.cos(angles)
+    intens = intens + true_coeffs[3] * np.sin(2 * angles) + true_coeffs[4] * np.cos(2 * angles)
+    intens = intens + true_coeffs[5] * np.sin(3 * angles) + true_coeffs[6] * np.cos(3 * angles)
+    intens = intens + true_coeffs[7] * np.sin(4 * angles) + true_coeffs[8] * np.cos(4 * angles)
+
+    recovered, ata_inv = fit_all_harmonics(angles, intens, orders)
+    np.testing.assert_allclose(recovered, true_coeffs, atol=1e-10,
+                               err_msg="fit_all_harmonics should recover exact coefficients")
+    assert ata_inv is not None, "Covariance matrix should not be None for well-posed problem"
+
+
+def test_fit_all_harmonics_insufficient_data():
+    """Graceful fallback when n_samples < n_params."""
+    angles = np.linspace(0, 2 * np.pi, 4, endpoint=False)
+    intens = np.array([100.0, 101.0, 99.0, 100.5])
+    orders = [3, 4]  # needs 9 params, only 4 points
+
+    coeffs, ata_inv = fit_all_harmonics(angles, intens, orders)
+    # Should not crash; lstsq handles underdetermined systems
+    assert len(coeffs) == 9, f"Expected 9 coefficients, got {len(coeffs)}"
+    assert np.all(np.isfinite(coeffs)), "All coefficients should be finite"
+
+
+def test_evaluate_harmonic_model_matches_5param():
+    """When orders=[], evaluate_harmonic_model matches harmonic_function()."""
+    from isoster.fitting import harmonic_function
+    angles = np.linspace(0, 2 * np.pi, 100, endpoint=False)
+    coeffs_5 = np.array([100.0, 5.0, 3.0, 2.0, 1.0])
+
+    model_5param = harmonic_function(angles, coeffs_5)
+    model_isofit = evaluate_harmonic_model(angles, coeffs_5, orders=[])
+    np.testing.assert_allclose(model_isofit, model_5param, atol=1e-12,
+                               err_msg="ISOFIT with empty orders should match 5-param model")
+
+
+def test_isofit_rms_cleaner_than_5param():
+    """Synthetic data with strong A3: ISOFIT RMS should be lower than 5-param RMS."""
+    angles = np.linspace(0, 2 * np.pi, 200, endpoint=False)
+    # Data with strong 3rd-order signal
+    intens = 100.0 + 2.0 * np.sin(angles) + 1.0 * np.cos(angles)
+    intens += 10.0 * np.sin(3 * angles) + 8.0 * np.cos(3 * angles)  # strong A3/B3
+
+    # 5-param fit
+    coeffs_5, _ = fit_first_and_second_harmonics(angles, intens)
+    from isoster.fitting import harmonic_function
+    model_5 = harmonic_function(angles, coeffs_5)
+    rms_5 = np.std(intens - model_5)
+
+    # ISOFIT fit
+    coeffs_iso, _ = fit_all_harmonics(angles, intens, [3])
+    model_iso = evaluate_harmonic_model(angles, coeffs_iso, [3])
+    rms_iso = np.std(intens - model_iso)
+
+    assert rms_iso < rms_5 * 0.1, \
+        f"ISOFIT RMS ({rms_iso:.4f}) should be much less than 5-param RMS ({rms_5:.4f})"
 
