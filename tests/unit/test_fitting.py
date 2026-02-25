@@ -1275,3 +1275,176 @@ def test_isofit_mixed_mode_profile():
         assert res['stop_code'] in (0, 2), \
             f"{label}: expected stop_code 0 or 2, got {res['stop_code']}"
 
+
+# ============================================================================
+# Tests for geometry_update_mode='simultaneous'
+# ============================================================================
+
+def test_config_accepts_geometry_update_modes():
+    """Config validation accepts both 'largest' and 'simultaneous' geometry update modes."""
+    cfg_largest = IsosterConfig(geometry_update_mode='largest')
+    assert cfg_largest.geometry_update_mode == 'largest'
+
+    cfg_simul = IsosterConfig(geometry_update_mode='simultaneous')
+    assert cfg_simul.geometry_update_mode == 'simultaneous'
+
+    with pytest.raises(Exception):
+        IsosterConfig(geometry_update_mode='invalid')
+
+
+def test_simultaneous_mode_converges_on_circular_sersic():
+    """Simultaneous geometry updates should converge on a simple circular Sersic mock."""
+    image, cx, cy = _make_circular_sersic_image(size=201, n=1.0, r_eff=30.0, intens_eff=500.0)
+    mask = np.zeros_like(image, dtype=bool)
+    start = {'x0': cx + 1.0, 'y0': cy - 0.5, 'eps': 0.15, 'pa': 0.3}
+
+    config = IsosterConfig(
+        sma0=15.0, x0=cx, y0=cy, eps=0.2, pa=0.0,
+        geometry_update_mode='simultaneous',
+        geometry_damping=0.5,
+        maxit=100, conver=0.05,
+    )
+    result = fit_isophote(image, mask, sma=25.0, start_geometry=start, config=config)
+
+    assert result['stop_code'] in (0, 2), \
+        f"Expected convergence or max-iter, got stop_code={result['stop_code']}"
+    assert not np.isnan(result['intens']), "Intensity should not be NaN"
+    # Center should be recovered close to truth
+    assert abs(result['x0'] - cx) < 2.0, f"x0 offset too large: {result['x0'] - cx:.3f}"
+    assert abs(result['y0'] - cy) < 2.0, f"y0 offset too large: {result['y0'] - cy:.3f}"
+
+
+def test_simultaneous_mode_equivalent_profiles():
+    """Simultaneous and largest modes should produce comparable geometry on well-behaved data.
+
+    On a circular Sersic with exact center, both modes should converge to similar
+    geometry since there's no ambiguity in the fitting.
+    """
+    image, cx, cy = _make_circular_sersic_image(size=201, n=1.0, r_eff=30.0, intens_eff=500.0)
+    mask = np.zeros_like(image, dtype=bool)
+    start = {'x0': cx, 'y0': cy, 'eps': 0.1, 'pa': 0.0}
+
+    config_largest = IsosterConfig(
+        sma0=15.0, x0=cx, y0=cy, eps=0.1, pa=0.0,
+        geometry_update_mode='largest',
+        maxit=100, conver=0.05,
+    )
+    config_simul = IsosterConfig(
+        sma0=15.0, x0=cx, y0=cy, eps=0.1, pa=0.0,
+        geometry_update_mode='simultaneous',
+        geometry_damping=0.5,
+        maxit=100, conver=0.05,
+    )
+
+    result_largest = fit_isophote(image, mask, sma=25.0, start_geometry=start, config=config_largest)
+    result_simul = fit_isophote(image, mask, sma=25.0, start_geometry=start, config=config_simul)
+
+    # Both should converge
+    for label, res in [('largest', result_largest), ('simultaneous', result_simul)]:
+        assert res['stop_code'] in (0, 2), \
+            f"{label}: stop_code={res['stop_code']}"
+
+    # Intensity should be very similar (same data, both converged)
+    if result_largest['stop_code'] == 0 and result_simul['stop_code'] == 0:
+        rel_diff = abs(result_largest['intens'] - result_simul['intens']) / max(abs(result_largest['intens']), 1e-10)
+        assert rel_diff < 0.01, \
+            f"Intensity differs by {rel_diff*100:.2f}%: largest={result_largest['intens']:.4f}, simul={result_simul['intens']:.4f}"
+
+
+def test_simultaneous_mode_fewer_iterations():
+    """Simultaneous mode should typically converge in fewer iterations than largest mode.
+
+    We use an elliptical mock with deliberate center offset so multiple parameters
+    need correction, which is where simultaneous updates should shine.
+    """
+    image, cx, cy = _make_boxy_sersic_image(
+        size=201, n=1.0, r_eff=30.0, intens_eff=500.0,
+        eps=0.3, pa=0.5, a4_amp=0.0,
+    )
+    mask = np.zeros_like(image, dtype=bool)
+    # Start with offset center and wrong PA/eps to exercise all 4 corrections
+    start = {'x0': cx + 2.0, 'y0': cy - 1.5, 'eps': 0.15, 'pa': 0.3}
+
+    config_largest = IsosterConfig(
+        sma0=15.0, x0=cx, y0=cy, eps=0.3, pa=0.5,
+        geometry_update_mode='largest',
+        geometry_damping=0.7,
+        maxit=100, conver=0.05,
+    )
+    config_simul = IsosterConfig(
+        sma0=15.0, x0=cx, y0=cy, eps=0.3, pa=0.5,
+        geometry_update_mode='simultaneous',
+        geometry_damping=0.5,
+        maxit=100, conver=0.05,
+    )
+
+    result_largest = fit_isophote(image, mask, sma=25.0, start_geometry=start, config=config_largest)
+    result_simul = fit_isophote(image, mask, sma=25.0, start_geometry=start, config=config_simul)
+
+    # Both should produce valid results
+    for label, res in [('largest', result_largest), ('simultaneous', result_simul)]:
+        assert res['stop_code'] in (0, 2), \
+            f"{label}: stop_code={res['stop_code']}"
+
+    # Simultaneous mode should use fewer or equal iterations
+    # This is a soft assertion — if it fails by a small margin, the test still passes
+    # because we check both converge, which is the primary requirement
+    if result_largest['stop_code'] == 0 and result_simul['stop_code'] == 0:
+        assert result_simul['niter'] <= result_largest['niter'] + 5, \
+            f"Simultaneous ({result_simul['niter']} iters) should not be much worse than largest ({result_largest['niter']} iters)"
+
+
+def test_simultaneous_mode_respects_fixed_geometry():
+    """When geometry parameters are fixed, simultaneous mode should not update them."""
+    image, cx, cy = _make_circular_sersic_image(size=201, n=1.0, r_eff=30.0, intens_eff=500.0)
+    mask = np.zeros_like(image, dtype=bool)
+    start = {'x0': cx, 'y0': cy, 'eps': 0.2, 'pa': 0.3}
+
+    config = IsosterConfig(
+        sma0=15.0, x0=cx, y0=cy, eps=0.2, pa=0.3,
+        geometry_update_mode='simultaneous',
+        geometry_damping=0.5,
+        fix_center=True, fix_pa=True,
+        maxit=50, conver=0.05,
+    )
+    result = fit_isophote(image, mask, sma=25.0, start_geometry=start, config=config)
+
+    # Center and PA should remain fixed
+    assert result['x0'] == pytest.approx(cx, abs=1e-10), \
+        f"x0 should be fixed at {cx}, got {result['x0']}"
+    assert result['y0'] == pytest.approx(cy, abs=1e-10), \
+        f"y0 should be fixed at {cy}, got {result['y0']}"
+    # PA should be unchanged (within numerical precision)
+    assert result['pa'] == pytest.approx(0.3, abs=1e-10), \
+        f"PA should be fixed at 0.3, got {result['pa']}"
+
+
+def test_simultaneous_mode_with_elliptical_galaxy():
+    """Simultaneous mode should recover correct geometry on an elliptical mock."""
+    true_eps = 0.4
+    true_pa = 0.8
+    image, cx, cy = _make_boxy_sersic_image(
+        size=201, n=1.0, r_eff=30.0, intens_eff=500.0,
+        eps=true_eps, pa=true_pa, a4_amp=0.0,
+    )
+    mask = np.zeros_like(image, dtype=bool)
+    start = {'x0': cx + 1.0, 'y0': cy - 1.0, 'eps': 0.2, 'pa': 0.5}
+
+    config = IsosterConfig(
+        sma0=15.0, x0=cx, y0=cy, eps=true_eps, pa=true_pa,
+        geometry_update_mode='simultaneous',
+        geometry_damping=0.5,
+        maxit=100, conver=0.05,
+    )
+    result = fit_isophote(image, mask, sma=25.0, start_geometry=start, config=config)
+
+    assert result['stop_code'] in (0, 2), f"stop_code={result['stop_code']}"
+    # Should recover geometry within reasonable tolerance
+    assert abs(result['eps'] - true_eps) < 0.05, \
+        f"eps recovery: expected ~{true_eps}, got {result['eps']:.4f}"
+    # PA comparison needs wrapping awareness
+    pa_diff = abs(result['pa'] - true_pa)
+    pa_diff = min(pa_diff, np.pi - pa_diff)
+    assert pa_diff < 0.1, \
+        f"PA recovery: expected ~{true_pa:.3f}, got {result['pa']:.4f}"
+

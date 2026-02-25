@@ -53,6 +53,21 @@ Target:
   - CoG options
   - permissive geometry
 
+### 5. Deprecate `forced=True` in favor of `template_isophotes`
+
+Why:
+
+- `forced=True` uses a single fixed geometry (config scalars) for all SMA values.
+- `template_isophotes` provides per-SMA variable geometry from a prior fit (the IRAF `ellipse` forced-mode equivalent).
+- The naming is confusing: users expect "forced mode" to mean table-driven forced photometry.
+- `forced=True` silently drops many config params without warning.
+
+Target:
+
+- Deprecate `forced` and `forced_sma` config fields with a deprecation warning.
+- Provide a helper to construct a `template_isophotes`-compatible list from fixed geometry + SMA list.
+- Remove `forced`/`forced_sma` in a future major version.
+
 ## Long-Term Algorithm and Performance Research
 
 ### 1. Gradient estimator redesign

@@ -437,6 +437,7 @@ def plot_qa_summary(
     photutils_res=None,
     mask=None,
     filename="qa_summary.png",
+    relative_residual=False,
 ):
     """Generate a QA figure following the Huang2013 campaign baseline style.
 
@@ -456,6 +457,9 @@ def plot_qa_summary(
         Bad-pixel mask (True = masked).
     filename : str
         Output filename.
+    relative_residual : bool
+        When True, show ``100 * (model - data) / data`` (fractional residual %).
+        When False (default), show ``data - model`` (direct residual).
     """
     configure_qa_plot_style()
 
@@ -577,12 +581,20 @@ def plot_qa_summary(
     ax_mod_cb = fig.add_subplot(left[1, 1])
     fig.colorbar(h_mod, cax=ax_mod_cb).set_label(r"arcsinh((model $-$ p0.5) / scale)")
 
-    # Panel 3: Fractional residual (coolwarm)
+    # Panel 3: Residual (coolwarm)
     ax_res = fig.add_subplot(left[2, 0])
-    residual = compute_fractional_residual_percent(image, isoster_model)
+    if relative_residual:
+        residual = compute_fractional_residual_percent(image, isoster_model)
+        res_label = latex_safe_text("(model - data) / data [%]")
+        res_clip_lo, res_clip_hi = 0.05, 8.0
+    else:
+        residual = np.where(np.isfinite(image), image - isoster_model, np.nan)
+        res_label = "data - model"
+        res_clip_lo, res_clip_hi = None, None
     abs_res = np.abs(residual[np.isfinite(residual)])
     res_limit = np.nanpercentile(abs_res, 99.0) if abs_res.size else 1.0
-    res_limit = float(np.clip(res_limit, 0.05, 8.0))
+    if res_clip_lo is not None:
+        res_limit = float(np.clip(res_limit, res_clip_lo, res_clip_hi))
     h_res = ax_res.imshow(
         residual, origin="lower", cmap="coolwarm",
         vmin=-res_limit, vmax=res_limit, interpolation="nearest",
@@ -594,9 +606,7 @@ def plot_qa_summary(
     )
 
     ax_res_cb = fig.add_subplot(left[2, 1])
-    fig.colorbar(h_res, cax=ax_res_cb).set_label(
-        latex_safe_text("(model - data) / data [%]")
-    )
+    fig.colorbar(h_res, cax=ax_res_cb).set_label(res_label)
 
     for ax in [ax_img, ax_mod, ax_res]:
         ax.set_xlabel("x [pixel]")

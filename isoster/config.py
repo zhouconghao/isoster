@@ -1,3 +1,4 @@
+import warnings
 from typing import Optional, List
 from pydantic import BaseModel, Field, model_validator
 
@@ -125,7 +126,29 @@ class IsosterConfig(BaseModel):
         description="List of harmonic orders to fit for isophote deviations. "
                     "Default [3, 4] fits 3rd and 4th order. Can extend to [3, 4, 5, 6] etc."
     )
-    
+
+    isofit_mode: str = Field(
+        default='in_loop',
+        pattern='^(in_loop|original)$',
+        description="ISOFIT algorithm variant (only meaningful when simultaneous_harmonics=True). "
+                    "'in_loop': fit all harmonic orders simultaneously inside the iteration loop "
+                    "(current isoster behavior, more aggressive than Ciambur 2015). "
+                    "'original': match Ciambur 2015 — use 5-param fit inside the loop for geometry, "
+                    "then fit all higher-order harmonics simultaneously post-hoc after convergence."
+    )
+
+    # Geometry update strategy
+    geometry_update_mode: str = Field(
+        default='largest',
+        pattern='^(largest|simultaneous)$',
+        description="Geometry update strategy per iteration. "
+                    "'largest': update only the geometry parameter with the largest harmonic amplitude "
+                    "(coordinate descent, traditional isofit/photutils behavior). "
+                    "'simultaneous': update all four geometry parameters (x0, y0, PA, eps) each "
+                    "iteration using their respective harmonic corrections. Typically converges in "
+                    "fewer iterations but may need lower damping (e.g., 0.5)."
+    )
+
     # Central Region Geometry Regularization
     use_central_regularization: bool = Field(
         False,
@@ -165,6 +188,8 @@ class IsosterConfig(BaseModel):
 
     @model_validator(mode='after')
     def check_config_consistency(self):
+        """Validate config consistency and emit warnings for likely misconfigurations."""
+        # --- Hard errors ---
         if self.maxsma is not None and self.maxsma < self.minsma:
             raise ValueError(f"maxsma ({self.maxsma}) must be greater than minsma ({self.minsma})")
         if self.minit > self.maxit:
@@ -178,4 +203,84 @@ class IsosterConfig(BaseModel):
                 f"harmonic_orders must all be >= 3 (orders 1 and 2 are used internally "
                 f"for geometry fitting), got {self.harmonic_orders}"
             )
+        # V7: central_reg_weights must use valid keys
+        valid_reg_keys = {'eps', 'pa', 'center'}
+        unknown_keys = set(self.central_reg_weights.keys()) - valid_reg_keys
+        if unknown_keys:
+            raise ValueError(
+                f"central_reg_weights contains unknown keys: {unknown_keys}. "
+                f"Valid keys: {valid_reg_keys}"
+            )
+
+        # --- Soft warnings for likely misconfigurations ---
+
+        # V1: isofit_mode is a no-op without simultaneous_harmonics
+        if self.isofit_mode != 'in_loop' and not self.simultaneous_harmonics:
+            warnings.warn(
+                "isofit_mode has no effect when simultaneous_harmonics=False",
+                UserWarning, stacklevel=2
+            )
+
+        # V2: maxsma < sma0 means only one isophote + inward sweep
+        if self.maxsma is not None and self.maxsma < self.sma0:
+            warnings.warn(
+                f"maxsma ({self.maxsma}) < sma0 ({self.sma0}): "
+                f"only one isophote + inward sweep will be produced",
+                UserWarning, stacklevel=2
+            )
+
+        # V3: minsma >= sma0 means inward loop never runs
+        if self.minsma >= self.sma0:
+            warnings.warn(
+                f"minsma ({self.minsma}) >= sma0 ({self.sma0}): "
+                f"inward loop will not run",
+                UserWarning, stacklevel=2
+            )
+
+        # V4: simultaneous geometry update with high damping may oscillate
+        if (self.geometry_update_mode == 'simultaneous'
+                and self.geometry_damping > 0.7):
+            warnings.warn(
+                "geometry_damping > 0.7 with geometry_update_mode='simultaneous' "
+                "may cause oscillations; consider 0.5",
+                UserWarning, stacklevel=2
+            )
+
+        # V5: forced=True silently drops several config params
+        if self.forced:
+            dropped = []
+            if self.sclip_low is not None or self.sclip_high is not None:
+                dropped.append('sclip_low/sclip_high')
+            if self.full_photometry:
+                dropped.append('full_photometry')
+            if self.compute_errors:
+                dropped.append('compute_errors')
+            if self.compute_deviations:
+                dropped.append('compute_deviations')
+            if self.compute_cog:
+                dropped.append('compute_cog')
+            if dropped:
+                warnings.warn(
+                    f"forced=True ignores: {', '.join(dropped)}",
+                    UserWarning, stacklevel=2
+                )
+
+        # V10: geometry convergence can never trigger if maxit too small
+        if (self.geometry_convergence
+                and self.maxit < self.minit + self.geometry_stable_iters):
+            warnings.warn(
+                f"maxit ({self.maxit}) < minit + geometry_stable_iters "
+                f"({self.minit + self.geometry_stable_iters}): "
+                f"geometry convergence can never trigger",
+                UserWarning, stacklevel=2
+            )
+
+        # V11: lsb_sma_threshold with non-adaptive integrator is ignored
+        if self.integrator != 'adaptive' and self.lsb_sma_threshold is not None:
+            warnings.warn(
+                f"lsb_sma_threshold is set but integrator='{self.integrator}' "
+                f"(not 'adaptive'); threshold will be ignored",
+                UserWarning, stacklevel=2
+            )
+
         return self

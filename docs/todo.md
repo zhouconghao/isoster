@@ -16,6 +16,26 @@ Phases 1-22 are complete. Detailed history has been archived to keep this file o
 |---|--------|---------|----------|
 | Phase 22.3 | todo | Decide worktree hygiene policy for tracked `*.pyc` and session prompt files | Low |
 
+## Phase 23: Config Validation Gaps
+
+Audit of all 42 `IsosterConfig` parameters revealed 10+ validation gaps. Tracked below.
+
+| ID | Category | Summary | Status | File(s) |
+|----|----------|---------|--------|---------|
+| V1 | Warning | `isofit_mode` is no-op when `simultaneous_harmonics=False` | Done | `config.py` |
+| V2 | Warning | `maxsma < sma0` produces only one isophote + inward sweep | Done | `config.py` |
+| V3 | Warning | `minsma >= sma0` means inward loop never runs | Done | `config.py` |
+| V4 | Warning | `geometry_update_mode='simultaneous'` + `geometry_damping > 0.7` | Done | `config.py` |
+| V5 | Warning | `forced=True` silently drops multiple config params | Done | `config.py` |
+| V6 | Warning | `template_isophotes` + `forced=True` both active | Done | `driver.py` |
+| V7 | Validate | `central_reg_weights` keys must be subset of `{'eps', 'pa', 'center'}` | Done | `config.py` |
+| V8 | Cleanup | Remove harmonic keys when `compute_deviations=False` and `simultaneous_harmonics=False` | Done | `fitting.py` |
+| V9 | Bug | Template forced mode hardcodes `debug=False` instead of `cfg.debug` | Done | `driver.py` |
+| V10 | Warning | `maxit < minit + geometry_stable_iters` when `geometry_convergence=True` | Done | `config.py` |
+| V11 | Warning | `lsb_sma_threshold` provided with non-adaptive integrator | Done | `config.py` |
+
+Deliverables: `docs/configuration-reference.md`, `tests/unit/test_config_validation.py`
+
 ## Short-Term Findings (Actionable, from Phase 7)
 
 ### P1. Central regularization is effectively inactive in regular `fit_image` flow

@@ -127,6 +127,8 @@ Follow these rules for all Python environment and dependency work in this reposi
 
 - **Geometry damping**: `geometry_damping` (0-1, default 0.7) scales geometry corrections to prevent oscillations. The default 0.7 was validated across 20 Huang2013 galaxies, eliminating nearly all stop=2 failures when combined with `sector_area` scaling. Use `1.0` for legacy (undamped) behavior.
 
+- **Geometry update mode**: `geometry_update_mode` controls how many geometry parameters are corrected per iteration. `'largest'` (default) updates only the parameter with the largest harmonic amplitude (coordinate descent, matching isofit/photutils). `'simultaneous'` updates all four parameters (x0, y0, PA, eps) each iteration, typically converging in fewer iterations. Use with `geometry_damping=0.5` for stability.
+
 - **Geometry convergence**: When `geometry_convergence=True`, declares convergence when geometry parameters stabilize for `geometry_stable_iters` consecutive iterations (within `geometry_tolerance`), even if the harmonic criterion is not met.
 
 - **Stop codes**: 0=converged, 1=too many flagged pixels, 2=max iterations reached, 3=too few points, -1=gradient error
@@ -221,6 +223,10 @@ config = IsosterConfig(
     # Higher-order harmonics
     simultaneous_harmonics=False,  # Enable ISOFIT-style simultaneous fitting
     harmonic_orders=[3, 4],        # Harmonic orders to fit
+    isofit_mode='in_loop',         # 'in_loop' (simultaneous) or 'original' (Ciambur 2015 post-hoc)
+
+    # Geometry update strategy
+    geometry_update_mode='largest',  # 'largest' (one-param-at-a-time) or 'simultaneous' (all four)
 
     # Geometry behavior
     permissive_geometry=False,     # Enable photutils-style "best effort" updates
@@ -261,6 +267,7 @@ config = IsosterConfig(
 - **Morphological features**: Enable `simultaneous_harmonics=True` for true ISOFIT joint fitting of higher-order harmonics within the iteration loop (better for boxy/disky galaxies)
 - **Convergence scaling**: Default `convergence_scaling='sector_area'` matches photutils behavior; use `'none'` to revert to legacy constant threshold
 - **Geometry damping**: Default `geometry_damping=0.7` stabilizes most cases; use `0.5` for severely oscillating fits, or `1.0` for legacy undamped behavior
+- **Geometry update mode**: `geometry_update_mode='simultaneous'` updates all four geometry parameters each iteration (vs default `'largest'` which updates only one). Use with `geometry_damping=0.5` for stability. Typically converges in fewer iterations.
 - **Geometry-based convergence**: Enable `geometry_convergence=True` as supplementary convergence criterion for challenging outer isophotes
 
 ## QA Figure Rules

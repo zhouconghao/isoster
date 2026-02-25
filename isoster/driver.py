@@ -1,3 +1,5 @@
+import warnings
+
 import numpy as np
 from .fitting import fit_isophote
 from .config import IsosterConfig
@@ -126,6 +128,14 @@ def fit_image(image, mask=None, config=None, template_isophotes=None):
         cfg = IsosterConfig(**config)
     else:
         cfg = config
+
+    # V6: warn when both template_isophotes and forced=True are active
+    if template_isophotes is not None and cfg.forced:
+        warnings.warn(
+            "template_isophotes takes priority over forced=True; "
+            "forced mode will be skipped",
+            UserWarning, stacklevel=2
+        )
 
     # Handle template-based forced mode (takes priority over regular forced mode)
     if template_isophotes is not None:
@@ -314,7 +324,10 @@ def _fit_image_template_forced(image, mask, config, template_isophotes):
 
         # Handle central pixel (sma=0) specially
         if sma == 0:
-            iso = fit_central_pixel(image, mask, template_iso['x0'], template_iso['y0'])
+            iso = fit_central_pixel(
+                image, mask, template_iso['x0'], template_iso['y0'],
+                debug=config.debug
+            )
         else:
             iso = extract_forced_photometry(
                 image, mask,
