@@ -35,13 +35,13 @@ Baseline: `main` at `a23e5ce`, 203 tests passing. Branch: `fix/r26-review-fixes`
 | R26-05 | Design | Unify forced photometry: replace `forced`/`forced_sma` with template-based API | P2 | **Done** | — |
 | R26-06 | Minor | V9 test assertion always true + `fit_central_pixel` missing debug fields | P3 | **Done** | — |
 | R26-07 | Minor | Wrong comment in `extract_forced_photometry` (`fitting.py:92`) | P4 | **Done** | — |
-| R26-08 | Minor | `var_residual` recomputed per coefficient in ISOFIT loop (`fitting.py:984-988`) | P4 | Open | — |
+| R26-08 | Minor | `var_residual` recomputed per coefficient in ISOFIT loop (`fitting.py:984-988`) | P4 | **Done** | — |
 | R26-09 | Minor | `fit_isophote` ~450 lines, hard to maintain | P3 | Partially addressed | R26-03 |
-| R26-10 | Minor | `model.py` `has_harmonics` checks only first isophote | P4 | Open | — |
-| R26-11 | Minor | Stop codes 4,5 defined in plotting but never produced | P4 | Open | — |
-| R26-12 | Minor | Vestigial duck typing in `compute_gradient` | P4 | Open | — |
+| R26-10 | Minor | `model.py` `has_harmonics` checks only first isophote | P4 | **Done** | — |
+| R26-11 | Minor | Stop codes 4,5 defined in plotting but never produced | P4 | **Done** | — |
+| R26-12 | Minor | Vestigial duck typing in `compute_gradient` | P4 | **Done** | — |
 | R26-13 | Minor | No key validation in template forced mode (`driver.py:318`) | P3 | **Done** | R26-05 |
-| R26-14 | Minor | Default residual type change undocumented | P4 | Open | — |
+| R26-14 | Minor | Default residual type change undocumented | P4 | **Done** | — |
 | R26-T1 | Test | Integration test: `geometry_update_mode='simultaneous'` with `fit_image` | P3 | **Done** | — |
 | R26-T2 | Test | Integration test: `isofit_mode='original'` post-hoc harmonics | P3 | **Done** | — |
 | R26-T3 | Test | Add test for invalid `convergence_scaling` values | P4 | **Done** | — |
@@ -83,8 +83,12 @@ R26-03 (extract posthoc harmonic helper)
    - ~~3 self-consistency tests (circular, elliptical, high-eps EA mode)~~
    - ~~224 tests passing~~
 
-**Phase D — Polish (can interleave):**
-8. R26-07 through R26-14, R26-08, R26-10, R26-11, R26-12
+**Phase D — Polish:** COMPLETE
+8. ~~R26-08: Hoisted `var_residual` out of per-order loop~~
+9. ~~R26-10: `has_harmonics` now checks all isophotes, not just first~~
+10. ~~R26-11: Removed unused stop codes 4,5 from plotting dicts~~
+11. ~~R26-12: Replaced duck typing with clean dict/attr dispatch in `compute_gradient`~~
+12. ~~R26-14: Documented sign convention difference in `plot_qa_summary` docstring~~
 
 ## Review Notes
 

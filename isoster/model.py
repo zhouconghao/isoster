@@ -216,7 +216,7 @@ def build_isoster_model(image_shape, isophote_results, fill=0.0, interp_kind='li
     if use_harmonics and harmonic_orders and len(sorted_isos) >= 2:
         # Check if any harmonic coefficients are present
         has_harmonics = any(
-            f'a{n}' in sorted_isos[0] for n in harmonic_orders
+            f'a{n}' in iso for n in harmonic_orders for iso in sorted_isos
         )
 
         if has_harmonics:

@@ -578,7 +578,7 @@ def compute_gradient(image, mask, geometry, config, previous_gradient=None, curr
         image: 2D image array
         mask: 2D boolean mask array (True = masked)
         geometry: dict with keys {x0, y0, sma, eps, pa}
-        config: dict-like config with attributes {astep, linear_growth, integrator, use_eccentric_anomaly}
+        config: dict or IsosterConfig with keys/attrs {astep, linear_growth, integrator, use_eccentric_anomaly}
         previous_gradient: Previous gradient value for comparison (optional)
         current_data: Cached (phi, intens) tuple to avoid re-extraction (optional)
 
@@ -588,11 +588,12 @@ def compute_gradient(image, mask, geometry, config, previous_gradient=None, curr
     # Unpack geometry
     x0, y0, sma, eps, pa = geometry['x0'], geometry['y0'], geometry['sma'], geometry['eps'], geometry['pa']
 
-    # Unpack config
-    step = config.astep if hasattr(config, 'astep') else config['astep']
-    linear_growth = config.linear_growth if hasattr(config, 'linear_growth') else config['linear_growth']
-    integrator = config.integrator if hasattr(config, 'integrator') else config['integrator']
-    use_eccentric_anomaly = config.use_eccentric_anomaly if hasattr(config, 'use_eccentric_anomaly') else config['use_eccentric_anomaly']
+    # Unpack config (dict from fit_isophote, or IsosterConfig in tests)
+    _get = config.get if isinstance(config, dict) else lambda k: getattr(config, k)
+    step = _get('astep')
+    linear_growth = _get('linear_growth')
+    integrator = _get('integrator')
+    use_eccentric_anomaly = _get('use_eccentric_anomaly')
 
     if current_data is not None:
         phi_c, intens_c = current_data
@@ -1048,15 +1049,16 @@ def fit_isophote(image, mask, sma, start_geometry, config, going_inwards=False, 
             if use_isofit_in_loop and gradient != 0:
                 factor = sma * abs(gradient)
                 if factor > 0:
+                    # Compute residual variance once outside the per-order loop (R26-08)
+                    if cov_matrix is not None:
+                        n_params = len(coeffs)
+                        var_residual = np.var(intens - model, ddof=n_params) if len(intens) > n_params else 0.0
                     for k, n_order in enumerate(harmonic_orders):
                         sin_coeff = coeffs[5 + 2 * k]
                         cos_coeff = coeffs[5 + 2 * k + 1]
                         best_geometry[f'a{n_order}'] = sin_coeff / factor
                         best_geometry[f'b{n_order}'] = cos_coeff / factor
-                        # Errors from covariance diagonal
                         if cov_matrix is not None:
-                            n_params = len(coeffs)
-                            var_residual = np.var(intens - model, ddof=n_params) if len(intens) > n_params else 0.0
                             sin_err = np.sqrt(cov_matrix[5 + 2 * k, 5 + 2 * k] * var_residual) if var_residual > 0 else 0.0
                             cos_err = np.sqrt(cov_matrix[5 + 2 * k + 1, 5 + 2 * k + 1] * var_residual) if var_residual > 0 else 0.0
                             best_geometry[f'a{n_order}_err'] = sin_err / factor
