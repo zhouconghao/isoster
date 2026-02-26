@@ -65,11 +65,11 @@ def compute_central_regularization_penalty(current_geom, previous_geom, sma, con
     
     return penalty
 
-def extract_forced_photometry(image, mask, x0, y0, sma, eps, pa, integrator='mean', sclip=3.0, nclip=0, use_eccentric_anomaly=False):
+def extract_forced_photometry(image, mask, x0, y0, sma, eps, pa, integrator='mean', sclip=3.0, nclip=0, use_eccentric_anomaly=False, config=None):
     """
     Extract forced photometry at a single SMA without fitting.
 
-    This is used for pure forced mode where geometry is predetermined.
+    This is used for template-based forced mode where geometry is predetermined.
 
     Args:
         image (np.ndarray): Input image.
@@ -82,50 +82,74 @@ def extract_forced_photometry(image, mask, x0, y0, sma, eps, pa, integrator='mea
         sclip (float): Sigma clipping threshold.
         nclip (int): Number of sigma clipping iterations.
         use_eccentric_anomaly (bool): Whether to use eccentric anomaly sampling mode.
-        
+        config (IsosterConfig, optional): Configuration object. When provided,
+            harmonic keys are only included if compute_deviations or
+            simultaneous_harmonics is enabled, using config.harmonic_orders
+            for key names. When None, harmonics default to [3, 4] for
+            backward compatibility.
+
     Returns:
-        dict: Fake isophote structure with only intensity meaningful.
+        dict: Isophote structure with intensity from the target image.
     """
+    # Determine whether to include harmonic keys and which orders
+    if config is not None:
+        include_harmonics = config.compute_deviations or config.simultaneous_harmonics
+        harmonic_orders = config.harmonic_orders if include_harmonics else []
+    else:
+        # Backward compatibility: include default [3, 4] when called without config
+        include_harmonics = True
+        harmonic_orders = [3, 4]
+
+    def _build_harmonic_fields(orders):
+        """Build zero-valued harmonic key-value pairs for given orders."""
+        fields = {}
+        for order in orders:
+            fields[f'a{order}'] = 0.0
+            fields[f'b{order}'] = 0.0
+            fields[f'a{order}_err'] = 0.0
+            fields[f'b{order}_err'] = 0.0
+        return fields
+
     # Sample along the ellipse
-    # Extract data - use .angles for harmonics fitting (will be φ since EA not used here)
     data = extract_isophote_data(image, mask, x0, y0, sma, eps, pa, use_eccentric_anomaly=use_eccentric_anomaly)
-    phi = data.angles  # φ (EA not applicable at central pixel)
+    phi = data.angles  # position angle or eccentric anomaly depending on mode
     intens = data.intens
-    
+
     if len(intens) == 0:
-        return {
+        result = {
             'x0': x0, 'y0': y0, 'eps': eps, 'pa': pa, 'sma': sma,
             'intens': np.nan, 'rms': np.nan, 'intens_err': np.nan,
             'x0_err': 0.0, 'y0_err': 0.0, 'eps_err': 0.0, 'pa_err': 0.0,
-            'a3': 0.0, 'b3': 0.0, 'a3_err': 0.0, 'b3_err': 0.0,
-            'a4': 0.0, 'b4': 0.0, 'a4_err': 0.0, 'b4_err': 0.0,
             'tflux_e': np.nan, 'tflux_c': np.nan, 'npix_e': 0, 'npix_c': 0,
             'stop_code': 3, 'niter': 0, 'valid': False
         }
-    
+        if include_harmonics:
+            result.update(_build_harmonic_fields(harmonic_orders))
+        return result
+
     # Sigma clipping
     if nclip > 0:
         phi, intens, _ = sigma_clip(phi, intens, sclip, nclip)
-    
+
     # Compute intensity
     if integrator == 'median':
         intensity = np.median(intens)
     else:
         intensity = np.mean(intens)
-    
+
     rms = np.std(intens)
     intens_err = rms / np.sqrt(len(intens))
-    
-    # Return fake isophote structure
-    return {
+
+    result = {
         'x0': x0, 'y0': y0, 'eps': eps, 'pa': pa, 'sma': sma,
         'intens': intensity, 'rms': rms, 'intens_err': intens_err,
         'x0_err': 0.0, 'y0_err': 0.0, 'eps_err': 0.0, 'pa_err': 0.0,
-        'a3': 0.0, 'b3': 0.0, 'a3_err': 0.0, 'b3_err': 0.0,
-        'a4': 0.0, 'b4': 0.0, 'a4_err': 0.0, 'b4_err': 0.0,
         'tflux_e': np.nan, 'tflux_c': np.nan, 'npix_e': 0, 'npix_c': 0,
         'stop_code': 0, 'niter': 0, 'valid': True
     }
+    if include_harmonics:
+        result.update(_build_harmonic_fields(harmonic_orders))
+    return result
 
 def fit_first_and_second_harmonics(phi, intensity):
     """

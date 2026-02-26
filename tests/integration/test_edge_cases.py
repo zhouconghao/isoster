@@ -17,52 +17,44 @@ from pydantic import ValidationError
 
 
 class TestForcedMode:
-    """Test forced photometry mode (no fitting, just sampling)."""
+    """Test template-based forced photometry mode (no fitting, just sampling)."""
 
     def test_forced_mode_basic(self):
-        """Test forced mode extracts photometry at specified SMA values."""
-        # Create simple circular gradient image
+        """Test template-based forced mode extracts photometry at specified SMA values."""
         image = np.zeros((100, 100))
         y, x = np.ogrid[:100, :100]
         r = np.sqrt((x - 50)**2 + (y - 50)**2)
         image = 1000.0 * np.exp(-r / 10.0)
 
-        # Define forced SMA values
         forced_sma = [5.0, 10.0, 15.0, 20.0]
+        x0, y0, eps, pa = 50.0, 50.0, 0.0, 0.0
 
-        config = IsosterConfig(
-            x0=50.0, y0=50.0,
-            eps=0.0, pa=0.0,
-            forced=True,
-            forced_sma=forced_sma,
-        )
+        template = [
+            {'sma': sma, 'x0': x0, 'y0': y0, 'eps': eps, 'pa': pa}
+            for sma in forced_sma
+        ]
 
-        results = fit_image(image, None, config)
+        results = fit_image(image, None, {}, template=template)
         isophotes = results['isophotes']
 
-        # Check we got exactly the requested SMA values
         assert len(isophotes) == len(forced_sma)
         sma_values = [iso['sma'] for iso in isophotes]
         assert sma_values == forced_sma
 
-        # All should be successful (stop_code=0 for forced mode)
         stop_codes = [iso['stop_code'] for iso in isophotes]
         assert all(code == 0 for code in stop_codes), "All forced mode isophotes should have stop_code=0"
 
-        # Intensities should decrease with radius
         intensities = [iso['intens'] for iso in isophotes]
         assert all(intensities[i] > intensities[i+1] for i in range(len(intensities)-1)), \
             "Intensity should decrease with radius"
 
     def test_forced_vs_fitted_mode(self):
-        """Compare forced mode photometry against fitted mode at same SMA values."""
-        # Create circular Sersic-like profile to keep fitted-mode convergence stable.
+        """Compare template-forced photometry against fitted mode at same SMA values."""
         image = np.zeros((100, 100))
         y, x = np.ogrid[:100, :100]
         x0, y0 = 50.0, 50.0
         eps, pa = 0.0, 0.0
 
-        # Elliptical radius
         dx = x - x0
         dy = y - y0
         x_rot = dx * np.cos(pa) + dy * np.sin(pa)
@@ -71,7 +63,6 @@ class TestForcedMode:
 
         image = 1000.0 * np.exp(-r_ell / 15.0)
 
-        # Fitted mode
         config_fit = IsosterConfig(
             x0=x0, y0=y0, eps=eps, pa=pa,
             sma0=10.0, minsma=5.0, maxsma=30.0,
@@ -79,7 +70,6 @@ class TestForcedMode:
         )
         results_fit = fit_image(image, None, config_fit)
 
-        # Extract SMA values from fitted mode
         usable_stop_codes = {0, 1, 2}
         fitted_sma = [
             iso['sma']
@@ -88,18 +78,15 @@ class TestForcedMode:
         ]
         assert fitted_sma, "Fitted mode should provide at least one usable isophote"
 
-        # Forced mode at same SMA values
-        config_forced = IsosterConfig(
-            x0=x0, y0=y0, eps=eps, pa=pa,
-            forced=True,
-            forced_sma=fitted_sma[:5],  # Use first 5 for speed
-        )
-        results_forced = fit_image(image, None, config_forced)
+        # Template-forced mode at same SMA values (use first 5 for speed)
+        template = [
+            {'sma': sma, 'x0': x0, 'y0': y0, 'eps': eps, 'pa': pa}
+            for sma in fitted_sma[:5]
+        ]
+        results_forced = fit_image(image, None, config_fit, template=template)
 
-        # Compare intensities (should be very similar)
         for iso_forced in results_forced['isophotes']:
             sma = iso_forced['sma']
-            # Find matching fitted isophote
             iso_fit = [iso for iso in results_fit['isophotes'] if iso['sma'] == sma][0]
 
             rel_diff = abs(iso_forced['intens'] - iso_fit['intens']) / iso_fit['intens']
@@ -107,30 +94,26 @@ class TestForcedMode:
                 f"Forced mode intensity should match fitted mode within 5% at SMA={sma}"
 
     def test_forced_mode_with_mask(self):
-        """Test forced mode handles masked regions correctly."""
+        """Test template-forced mode handles masked regions correctly."""
         image = np.ones((100, 100)) * 100.0
         mask = np.zeros((100, 100), dtype=bool)
 
-        # Mask a circular region
         y, x = np.ogrid[:100, :100]
         r = np.sqrt((x - 50)**2 + (y - 50)**2)
-        mask[r < 15] = True  # Mask inner region
+        mask[r < 15] = True
 
-        config = IsosterConfig(
-            x0=50.0, y0=50.0,
-            eps=0.0, pa=0.0,
-            forced=True,
-            forced_sma=[10.0, 20.0, 30.0],  # SMA=10 is masked, others OK
-        )
+        x0, y0, eps, pa = 50.0, 50.0, 0.0, 0.0
+        template = [
+            {'sma': sma, 'x0': x0, 'y0': y0, 'eps': eps, 'pa': pa}
+            for sma in [10.0, 20.0, 30.0]
+        ]
 
-        results = fit_image(image, mask, config)
+        results = fit_image(image, mask, {}, template=template)
         isophotes = results['isophotes']
 
-        # First isophote (SMA=10) should have stop_code=3 (too few points)
         assert isophotes[0]['stop_code'] == 3, \
             "Masked isophote should have stop_code=3 (too few points)"
 
-        # Others should be OK (stop_code=0)
         assert isophotes[1]['stop_code'] == 0
         assert isophotes[2]['stop_code'] == 0
 
@@ -369,18 +352,21 @@ class TestConfigValidation:
         assert config.integrator == 'adaptive'
         assert config.lsb_sma_threshold == 20.0
 
-    def test_forced_mode_requires_sma_list(self):
-        """Test that forced mode requires forced_sma list."""
-        with pytest.raises(ValidationError):
-            IsosterConfig(forced=True)  # Missing forced_sma
+    def test_template_requires_valid_input(self):
+        """Test that template= requires valid input."""
+        from isoster.driver import _resolve_template
 
-        with pytest.raises(ValidationError):
-            IsosterConfig(forced=True, forced_sma=[])  # Empty list
+        with pytest.raises(ValueError, match="template cannot be empty"):
+            _resolve_template([])
 
-        # Should work with non-empty list
-        config = IsosterConfig(forced=True, forced_sma=[10.0, 20.0])
-        assert config.forced is True
-        assert config.forced_sma == [10.0, 20.0]
+        with pytest.raises(TypeError, match="template must be"):
+            _resolve_template(42)
+
+        # Should work with valid list
+        result = _resolve_template([
+            {'sma': 10.0, 'x0': 50.0, 'y0': 50.0, 'eps': 0.2, 'pa': 0.0}
+        ])
+        assert len(result) == 1
 
     def test_invalid_integrator(self):
         """Test that invalid integrator name raises ValidationError."""
@@ -431,7 +417,6 @@ class TestConfigValidation:
         assert config.maxgerr == 0.5
         assert config.fflag == 0.5
         assert config.compute_errors is True
-        assert config.forced is False
         assert config.use_eccentric_anomaly is False
 
 

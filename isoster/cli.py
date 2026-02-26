@@ -58,7 +58,8 @@ def main():
     parser.add_argument("--fix_center", action="store_true", help="Fix center")
     parser.add_argument("--fix_eps", action="store_true", help="Fix ellipticity")
     parser.add_argument("--fix_pa", action="store_true", help="Fix position angle")
-    
+    parser.add_argument("--template", help="Template FITS file for forced photometry (applies geometry from template)")
+
     args = parser.parse_args()
     
     # Load config
@@ -92,7 +93,8 @@ def main():
             
     # Run
     print("Running isophote analysis...")
-    results = fit_image(image, mask, config)
+    template = args.template if args.template else None
+    results = fit_image(image, mask, config, template=template)
     
     # Save results
     if args.output.endswith('.fits'):
