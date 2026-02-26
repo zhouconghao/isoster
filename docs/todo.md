@@ -2,7 +2,7 @@
 
 ## Completed Summary
 
-Phases 1-22 are complete. Detailed history has been archived to keep this file operational.
+Phases 1-23 are complete. Detailed history has been archived to keep this file operational.
 
 ## History Archive
 
@@ -10,64 +10,89 @@ Phases 1-22 are complete. Detailed history has been archived to keep this file o
 - Phase 7 kickoff plan: `docs/journal/2026-02-13-phase7-doc-audit-and-code-review-plan.md`
 - Phase 7-22 detailed checklist and review notes: `docs/todo-archive-phase7-22.md`
 
-## Open Items
+## Open Items (Legacy)
 
 | # | Source | Summary | Priority |
 |---|--------|---------|----------|
 | Phase 22.3 | todo | Decide worktree hygiene policy for tracked `*.pyc` and session prompt files | Low |
 
-## Phase 23: Config Validation Gaps
+---
 
-Audit of all 42 `IsosterConfig` parameters revealed 10+ validation gaps. Tracked below.
+## Code Review 2026-02-26 (R26)
 
-| ID | Category | Summary | Status | File(s) |
-|----|----------|---------|--------|---------|
-| V1 | Warning | `isofit_mode` is no-op when `simultaneous_harmonics=False` | Done | `config.py` |
-| V2 | Warning | `maxsma < sma0` produces only one isophote + inward sweep | Done | `config.py` |
-| V3 | Warning | `minsma >= sma0` means inward loop never runs | Done | `config.py` |
-| V4 | Warning | `geometry_update_mode='simultaneous'` + `geometry_damping > 0.7` | Done | `config.py` |
-| V5 | Warning | `forced=True` silently drops multiple config params | Done | `config.py` |
-| V6 | Warning | `template_isophotes` + `forced=True` both active | Done | `driver.py` |
-| V7 | Validate | `central_reg_weights` keys must be subset of `{'eps', 'pa', 'center'}` | Done | `config.py` |
-| V8 | Cleanup | Remove harmonic keys when `compute_deviations=False` and `simultaneous_harmonics=False` | Done | `fitting.py` |
-| V9 | Bug | Template forced mode hardcodes `debug=False` instead of `cfg.debug` | Done | `driver.py` |
-| V10 | Warning | `maxit < minit + geometry_stable_iters` when `geometry_convergence=True` | Done | `config.py` |
-| V11 | Warning | `lsb_sma_threshold` provided with non-adaptive integrator | Done | `config.py` |
+Full review: `docs/review/claude_2026-02-26.md`
 
-Deliverables: `docs/configuration-reference.md`, `tests/unit/test_config_validation.py`
+Baseline: `main` at `a23e5ce`, 203 tests passing. Branch: `fix/r26-review-fixes`, 224 tests passing.
 
-## Short-Term Findings (Actionable, from Phase 7)
+### Tracing Table
 
-### P1. Central regularization is effectively inactive in regular `fit_image` flow
+| Task ID | Severity | Summary | Priority | Status | Blocked by |
+|---------|----------|---------|----------|--------|------------|
+| R26-01 | Important | Second-gradient formula wrong for linear growth (`fitting.py:642-645`) | P1 | **Done** | — |
+| R26-02 | Important | `extract_forced_photometry` hardcodes harmonic keys | P2 | **Done** | R26-05 |
+| R26-03 | Important | Post-hoc harmonic code duplicated 3x in `fit_isophote` | P2 | **Done** | — |
+| R26-04 | Important | V5 warning fires for every forced-mode config | P3 | **Done** | R26-05 |
+| R26-05 | Design | Unify forced photometry: replace `forced`/`forced_sma` with template-based API | P2 | **Done** | — |
+| R26-06 | Minor | V9 test assertion always true + `fit_central_pixel` missing debug fields | P3 | **Done** | — |
+| R26-07 | Minor | Wrong comment in `extract_forced_photometry` (`fitting.py:92`) | P4 | **Done** | — |
+| R26-08 | Minor | `var_residual` recomputed per coefficient in ISOFIT loop (`fitting.py:984-988`) | P4 | **Done** | — |
+| R26-09 | Minor | `fit_isophote` ~450 lines, hard to maintain | P3 | Partially addressed | R26-03 |
+| R26-10 | Minor | `model.py` `has_harmonics` checks only first isophote | P4 | **Done** | — |
+| R26-11 | Minor | Stop codes 4,5 defined in plotting but never produced | P4 | **Done** | — |
+| R26-12 | Minor | Vestigial duck typing in `compute_gradient` | P4 | **Done** | — |
+| R26-13 | Minor | No key validation in template forced mode (`driver.py:318`) | P3 | **Done** | R26-05 |
+| R26-14 | Minor | Default residual type change undocumented | P4 | **Done** | — |
+| R26-T1 | Test | Integration test: `geometry_update_mode='simultaneous'` with `fit_image` | P3 | **Done** | — |
+| R26-T2 | Test | Integration test: `isofit_mode='original'` post-hoc harmonics | P3 | **Done** | — |
+| R26-T3 | Test | Add test for invalid `convergence_scaling` values | P4 | **Done** | — |
+| R26-T4 | Test | Strengthen V9 test assertion (= R26-06) | P3 | **Done** | — |
 
-- Regularization returns `0.0` if `previous_geom is None` in `isoster/fitting.py:32`.
-- Driver calls to `fit_isophote` do not pass `previous_geometry`.
-- **Resolved in Phase 8**: driver now passes `previous_geometry=current_iso` for both growth directions.
+### Dependency Graph
 
-### P1. Stop code `2` policy
+```
+R26-05 (unified forced photometry API)
+├── R26-02 (harmonic key inconsistency — subsumed)
+├── R26-04 (V5 warning noise — subsumed)
+└── R26-13 (template key validation — redesign scope)
 
-- **Resolved in Phase 18**: `fit_isophote` now emits `stop_code=2` when `maxit` is reached. Driver acceptable set is `{0, 1, 2}`.
+R26-03 (extract posthoc harmonic helper)
+└── R26-09 (fit_isophote size — partially addressed)
+```
 
-### P1. Inward pass can start from a failed first isophote
+### Recommended Execution Order
 
-- **Resolved in Phase 8**: inward startup now gates on acceptable stop codes.
+**Phase A — Bug fix:** COMPLETE
+1. ~~R26-01: Fix second-gradient linear growth formula + add test~~
 
-### P2. Linear growth gradient normalization
+**Phase B — Refactoring:** COMPLETE
+2. ~~R26-03: Extract `_compute_posthoc_harmonics` helper~~
+3. ~~R26-T1: Integration test for simultaneous geometry with `fit_image`~~
+4. ~~R26-T2: Integration test for `isofit_mode='original'`~~
+5. ~~R26-06/R26-T4: Fix V9 test assertion + `fit_central_pixel` debug fields~~
+6. ~~R26-T3: Convergence scaling validation test~~
 
-- **Resolved in I3**: gradient formula now uses `delta_r = step` for linear mode.
+**Phase C — API redesign:** COMPLETE
+7. ~~R26-05: Unified template-based forced photometry API~~
+   - ~~Removed `forced`/`forced_sma` config fields~~
+   - ~~Renamed `template_isophotes` → `template` (FutureWarning for old param)~~
+   - ~~`template=` accepts str/Path, results dict, or list of isophote dicts~~
+   - ~~`_resolve_template()` validates required keys (R26-13) and sorts by SMA~~
+   - ~~`extract_forced_photometry()` respects `config.compute_deviations` (R26-02)~~
+   - ~~V5 warning removed (R26-04), wrong comment fixed (R26-07)~~
+   - ~~Added `--template` CLI flag~~
+   - ~~3 self-consistency tests (circular, elliptical, high-eps EA mode)~~
+   - ~~224 tests passing~~
 
-### P2. Model reconstruction trusts all `sma > 0` rows
-
-- **Resolved in I4**: NaN intensities and geometry now filtered before interpolation.
-
-### Model reconstruction fixes (Session 6, 2026-02-24)
-
-- **Resolved**: `harmonic_orders=None` auto-detects from isophote `a{n}` keys — no more silent dropping of higher orders.
-- **Resolved**: `use_eccentric_anomaly` param on `build_isoster_model()` — auto-detects from isophote dicts for correct EA-mode harmonic evaluation.
-- 5 new unit tests added in `tests/unit/test_model.py`.
+**Phase D — Polish:** COMPLETE
+8. ~~R26-08: Hoisted `var_residual` out of per-order loop~~
+9. ~~R26-10: `has_harmonics` now checks all isophotes, not just first~~
+10. ~~R26-11: Removed unused stop codes 4,5 from plotting dicts~~
+11. ~~R26-12: Replaced duck typing with clean dict/attr dispatch in `compute_gradient`~~
+12. ~~R26-14: Documented sign convention difference in `plot_qa_summary` docstring~~
 
 ## Review Notes
 
 - Long-term upgrades and deferred research items: `docs/future.md`
 - Stop-code canonical user docs: `docs/user-guide.md`
-- Milestone code review (2026-02-22): `docs/review/claude_2026-02-22.md`
+- Previous code review (2026-02-22): `docs/review/claude_2026-02-22.md`
+- Current code review (2026-02-26): `docs/review/claude_2026-02-26.md`

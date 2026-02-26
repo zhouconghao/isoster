@@ -335,5 +335,113 @@ def test_isofit_ea_mode():
     print(f"  Max intensity rel diff (valid range): {max_rel_diff * 100:.3f}%")
 
 
+# ============================================================================
+# Test 5: R26-T1 — geometry_update_mode='simultaneous' with fit_image
+# ============================================================================
+
+def test_simultaneous_geometry_fit_image():
+    """R26-T1: fit_image end-to-end with geometry_update_mode='simultaneous'.
+
+    Verifies that simultaneous geometry updates produce valid isophote profiles
+    when running through the full driver pipeline (outward + inward growth).
+    """
+    r_eff = 25.0
+    eps = 0.3
+    pa = 0.7
+
+    image, true_profile, params = create_sersic_model(
+        R_e=r_eff, n=1.5, I_e=800.0, eps=eps, pa=pa, oversample=5,
+    )
+
+    config = IsosterConfig(
+        x0=params['x0'], y0=params['y0'],
+        sma0=6.0, minsma=3.0, maxsma=100.0,
+        astep=0.15, eps=eps, pa=pa,
+        minit=10, maxit=60, conver=0.05,
+        geometry_update_mode='simultaneous',
+        geometry_damping=0.5,
+        fix_center=True,
+    )
+
+    results = fit_image(image, mask=None, config=config)
+    isophotes = results['isophotes']
+
+    sma_arr = np.array([iso['sma'] for iso in isophotes])
+    intens = np.array([iso['intens'] for iso in isophotes])
+    stop_codes = np.array([iso['stop_code'] for iso in isophotes])
+
+    # Should produce reasonable number of isophotes
+    assert len(isophotes) > 10, f"Expected >10 isophotes, got {len(isophotes)}"
+
+    # Good convergence rate
+    conv_rate = (stop_codes == 0).sum() / len(isophotes)
+    assert conv_rate > 0.5, f"Convergence rate {conv_rate:.1%} too low for simultaneous mode"
+
+    # Intensity accuracy in valid range
+    valid = (stop_codes == 0) & (sma_arr >= 0.5 * r_eff) & (sma_arr <= 5.0 * r_eff)
+    n_valid = int(valid.sum())
+    assert n_valid >= 5, f"Expected >= 5 valid isophotes in range, got {n_valid}"
+
+    true_intens = true_profile(sma_arr[valid])
+    max_rel_diff = np.max(np.abs((intens[valid] - true_intens) / true_intens))
+    assert max_rel_diff < 0.05, (
+        f"Max intensity rel diff = {max_rel_diff * 100:.2f}% exceeds 5% threshold"
+    )
+
+
+# ============================================================================
+# Test 6: R26-T2 — isofit_mode='original' post-hoc harmonics with fit_image
+# ============================================================================
+
+def test_isofit_original_mode_fit_image():
+    """R26-T2: fit_image end-to-end with isofit_mode='original'.
+
+    Verifies that isofit_mode='original' (Ciambur 2015 post-hoc fitting)
+    produces harmonic coefficients through the full driver pipeline.
+    """
+    r_eff = 30.0
+    injected_a4 = 0.04
+    image, cx, cy = _make_boxy_sersic_image(
+        size=401, n=1.0, r_eff=r_eff, intens_eff=500.0,
+        eps=0.3, pa=0.5, a4_amp=injected_a4, oversample=5,
+    )
+
+    config = IsosterConfig(
+        x0=cx, y0=cy, sma0=6.0, minsma=3.0, maxsma=150.0,
+        astep=0.12, eps=0.3, pa=0.5,
+        minit=10, maxit=60, conver=0.05,
+        fix_center=True,
+        simultaneous_harmonics=True,
+        isofit_mode='original',
+        harmonic_orders=[3, 4],
+    )
+
+    results = fit_image(image, mask=None, config=config)
+    isophotes = results['isophotes']
+
+    sma_arr = np.array([iso['sma'] for iso in isophotes])
+    stop_codes = np.array([iso['stop_code'] for iso in isophotes])
+
+    # Should produce isophotes with harmonic keys
+    assert len(isophotes) > 10, f"Expected >10 isophotes, got {len(isophotes)}"
+    for iso in isophotes:
+        assert 'a4' in iso, "Missing a4 in isofit_mode='original' output"
+        assert 'b4' in iso, "Missing b4 in isofit_mode='original' output"
+
+    # Valid range should recover nonzero a4
+    valid = (stop_codes == 0) & (sma_arr >= 0.5 * r_eff) & (sma_arr <= 4.0 * r_eff)
+    n_valid = int(valid.sum())
+    assert n_valid >= 5, f"Expected >= 5 valid isophotes in range, got {n_valid}"
+
+    a4 = np.array([iso['a4'] for iso in isophotes])
+    b4 = np.array([iso['b4'] for iso in isophotes])
+    a4_mag = np.sqrt(a4[valid]**2 + b4[valid]**2)
+    median_a4_mag = np.median(a4_mag)
+    assert median_a4_mag > 0.005, (
+        f"isofit_mode='original' median |a4,b4| = {median_a4_mag:.4f}, "
+        f"expected > 0.005 from injected {injected_a4}"
+    )
+
+
 if __name__ == '__main__':
     pytest.main([__file__, '-v', '-s'])

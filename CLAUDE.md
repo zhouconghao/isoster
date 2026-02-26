@@ -93,7 +93,7 @@ Follow these rules for all Python environment and dependency work in this reposi
 1. **driver.py** (`fit_image`) - Main entry point orchestrating the fitting:
    - Fits central pixel, then initial isophote at `sma0`
    - Iteratively grows outward (increasing SMA) then inward
-   - Supports template-based forced photometry via `template_isophotes` parameter for multiband analysis
+   - Supports template-based forced photometry via `template` parameter for multiband analysis
    - Returns dict with `{'isophotes': [...], 'config': IsosterConfig}`
 
 2. **sampling.py** (`extract_isophote_data`) - Vectorized ellipse sampling:
@@ -113,9 +113,7 @@ Follow these rules for all Python environment and dependency work in this reposi
 
 - **Eccentric Anomaly (EA) mode**: When `use_eccentric_anomaly=True`, samples uniformly in ψ for uniform arc-length coverage on high-ellipticity ellipses. Harmonics fitted in ψ-space, geometry updates in φ-space. Recommended for ε > 0.3.
 
-- **Forced mode**: When `forced=True`, extracts photometry at predefined SMA values without geometry fitting (uses single fixed geometry).
-
-- **Template-based forced mode**: When `template_isophotes` is provided to `fit_image()`, applies variable geometry (one per SMA) from the template to new image. Enables consistent multiband photometry by using geometry from one band (e.g., g-band) for other bands (r, i, z).
+- **Template-based forced photometry**: When `template` is provided to `fit_image()`, applies variable geometry (one per SMA) from the template to the new image. Accepts a file path, results dict, or list of isophote dicts. Enables consistent multiband photometry by using geometry from one band (e.g., g-band) for other bands (r, i, z).
 
 - **Simultaneous harmonics fitting**: When `simultaneous_harmonics=True`, uses true ISOFIT (Ciambur 2015) simultaneous fitting of higher-order harmonics (orders specified by `harmonic_orders=[3, 4, ...]`) jointly with geometry harmonics inside the iteration loop. This accounts for cross-correlations and yields cleaner RMS. Falls back to 5-param when sample points are insufficient for the extended design matrix.
 
@@ -185,22 +183,17 @@ import isoster
 results_g = isoster.fit_image(image_g, mask_g, config)
 isoster.isophote_results_to_fits(results_g, "galaxy_g.fits")
 
-# Apply g-band geometry to other bands using template
+# Apply g-band geometry to other bands using template (accepts results dict)
+results_r = isoster.fit_image(image_r, mask_r, config, template=results_g)
+results_i = isoster.fit_image(image_i, mask_i, config, template=results_g)
+
+# OR load template directly from saved FITS file path
+results_r = isoster.fit_image(image_r, mask_r, config, template='galaxy_g.fits')
+
+# OR pass isophote list directly
 results_r = isoster.fit_image(
     image_r, mask_r, config,
-    template_isophotes=results_g['isophotes']
-)
-
-results_i = isoster.fit_image(
-    image_i, mask_i, config,
-    template_isophotes=results_g['isophotes']
-)
-
-# OR load template from saved FITS
-template = isoster.isophote_results_from_fits('galaxy_g.fits')
-results_r = isoster.fit_image(
-    image_r, mask_r, config,
-    template_isophotes=template['isophotes']
+    template=results_g['isophotes']
 )
 ```
 

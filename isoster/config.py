@@ -99,10 +99,6 @@ class IsosterConfig(BaseModel):
     integrator: str = Field(default='mean', pattern='^(mean|median|adaptive)$', description="Integration method for flux calculation.")
     lsb_sma_threshold: Optional[float] = Field(None, gt=0.0, description="SMA threshold for switching to median integrator in adaptive mode.")
     
-    # Forced Mode
-    forced: bool = Field(False, description="Enable pure forced photometry mode (no fitting, just sampling).")
-    forced_sma: Optional[List[float]] = Field(None, description="List of SMA values for forced mode. Required if forced=True.")
-    
     # Eccentric Anomaly Sampling
     use_eccentric_anomaly: bool = Field(
         False,
@@ -196,8 +192,6 @@ class IsosterConfig(BaseModel):
             raise ValueError(f"minit ({self.minit}) must be <= maxit ({self.maxit})")
         if self.integrator == 'adaptive' and self.lsb_sma_threshold is None:
             raise ValueError("lsb_sma_threshold must be provided when integrator='adaptive'")
-        if self.forced and (self.forced_sma is None or len(self.forced_sma) == 0):
-            raise ValueError("forced_sma must be provided when forced=True")
         if any(order < 3 for order in self.harmonic_orders):
             raise ValueError(
                 f"harmonic_orders must all be >= 3 (orders 1 and 2 are used internally "
@@ -245,25 +239,6 @@ class IsosterConfig(BaseModel):
                 "may cause oscillations; consider 0.5",
                 UserWarning, stacklevel=2
             )
-
-        # V5: forced=True silently drops several config params
-        if self.forced:
-            dropped = []
-            if self.sclip_low is not None or self.sclip_high is not None:
-                dropped.append('sclip_low/sclip_high')
-            if self.full_photometry:
-                dropped.append('full_photometry')
-            if self.compute_errors:
-                dropped.append('compute_errors')
-            if self.compute_deviations:
-                dropped.append('compute_deviations')
-            if self.compute_cog:
-                dropped.append('compute_cog')
-            if dropped:
-                warnings.warn(
-                    f"forced=True ignores: {', '.join(dropped)}",
-                    UserWarning, stacklevel=2
-                )
 
         # V10: geometry convergence can never trigger if maxit too small
         if (self.geometry_convergence

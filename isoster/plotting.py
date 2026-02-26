@@ -27,8 +27,6 @@ STOP_CODE_STYLES = {
     1: {"color": "#ff7f0e", "marker": "s", "label": "stop=1"},
     2: {"color": "#2ca02c", "marker": "^", "label": "stop=2"},
     3: {"color": "#d62728", "marker": "D", "label": "stop=3"},
-    4: {"color": "#8c564b", "marker": "P", "label": "stop=4"},
-    5: {"color": "#17becf", "marker": "v", "label": "stop=5"},
     -1: {"color": "#9467bd", "marker": "X", "label": "stop=-1"},
 }
 
@@ -37,8 +35,6 @@ MONOCHROME_STOP_MARKERS = {
     1: "s",
     2: "^",
     3: "D",
-    4: "P",
-    5: "v",
     -1: "X",
 }
 
@@ -47,8 +43,6 @@ MONOCHROME_STOP_COLORS = {
     1: "#1f3b73",
     2: "#1b5e20",
     3: "#7f1d1d",
-    4: "#8b5a2b",
-    5: "#006d77",
     -1: "#4b2e83",
 }
 
@@ -460,6 +454,8 @@ def plot_qa_summary(
     relative_residual : bool
         When True, show ``100 * (model - data) / data`` (fractional residual %).
         When False (default), show ``data - model`` (direct residual).
+        Note: the sign convention differs between modes (direct uses
+        data-model; fractional uses model-data).
     """
     configure_qa_plot_style()
 

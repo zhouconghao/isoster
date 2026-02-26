@@ -1,11 +1,12 @@
 """
-Test template-based forced photometry mode.
+Test unified template-based forced photometry API (R26-05).
 
 This tests the ability to apply geometry from a previously fitted isoster result
 (the "template") to extract photometry on a new image. This enables multiband
 analysis where one band defines geometry and others use the same geometry.
 """
 
+import warnings
 import numpy as np
 import pytest
 import tempfile
@@ -14,6 +15,7 @@ import os
 import isoster
 from isoster import fit_image
 from isoster.config import IsosterConfig
+from isoster.driver import _resolve_template
 from isoster.utils import isophote_results_to_fits, isophote_results_from_fits
 
 
@@ -42,17 +44,13 @@ def make_elliptical_image(shape, x0, y0, eps, pa, intensity_scale, r_scale):
     return intensity_scale * np.exp(-r_ell / r_scale)
 
 
-def build_template_isophotes(image, x0, y0, eps, pa, sma_values):
-    """Create deterministic template isophotes using forced extraction."""
-    template_config = IsosterConfig(
-        x0=x0,
-        y0=y0,
-        eps=eps,
-        pa=pa,
-        forced=True,
-        forced_sma=list(sma_values),
-    )
-    return fit_image(image, None, template_config)["isophotes"]
+def build_template_isophotes(x0, y0, eps, pa, sma_values):
+    """Create deterministic template isophotes as a list of geometry dicts."""
+    return [
+        {'sma': sma, 'x0': x0, 'y0': y0, 'eps': eps, 'pa': pa,
+         'intens': 100.0}
+        for sma in sma_values
+    ]
 
 
 class TestTemplateForced:
@@ -60,7 +58,6 @@ class TestTemplateForced:
 
     def test_template_forced_basic(self):
         """Verify template geometry is applied correctly."""
-        # Create g-band and r-band images with same geometry but different intensities
         shape = (100, 100)
         x0, y0 = 50.0, 50.0
         eps, pa = 0.3, np.pi / 4
@@ -70,39 +67,26 @@ class TestTemplateForced:
 
         template_sma_values = [10.0, 15.0, 20.0, 25.0, 30.0, 35.0, 40.0]
 
-        # Build stable g-band template geometry
         config = IsosterConfig(
             x0=x0, y0=y0, eps=eps, pa=pa,
             sma0=10.0, minsma=5.0, maxsma=40.0,
             astep=0.2, linear_growth=True
         )
         template_isophotes = build_template_isophotes(
-            image=image_g,
-            x0=x0,
-            y0=y0,
-            eps=eps,
-            pa=pa,
-            sma_values=template_sma_values,
+            x0=x0, y0=y0, eps=eps, pa=pa, sma_values=template_sma_values
         )
 
-        # Use g-band as template for r-band
-        results_r = fit_image(image_r, None, config,
-                              template_isophotes=template_isophotes)
+        results_r = fit_image(image_r, None, config, template=template_isophotes)
 
-        # Check we got the same number of isophotes
         assert len(results_r['isophotes']) == len(template_isophotes)
 
-        # Check geometry matches exactly
         for iso_g, iso_r in zip(template_isophotes, results_r['isophotes']):
             assert iso_r['sma'] == iso_g['sma'], "SMA should match template"
             assert iso_r['x0'] == iso_g['x0'], "x0 should match template"
             assert iso_r['y0'] == iso_g['y0'], "y0 should match template"
-            # Note: eps and pa for template forced come from extract_forced_photometry
-            # which preserves the input geometry
 
     def test_template_preserves_variable_geometry(self):
         """Verify that x0, y0, eps, pa vary per SMA from template."""
-        # Create image with varying geometry (simulated)
         shape = (100, 100)
         x0, y0 = 50.0, 50.0
         eps, pa = 0.3, np.pi / 4
@@ -111,40 +95,24 @@ class TestTemplateForced:
 
         template_sma_values = [10.0, 15.0, 20.0, 25.0, 30.0, 35.0, 40.0]
 
-        # Build template with deterministic SMA sampling
         config = IsosterConfig(
             x0=x0, y0=y0, eps=eps, pa=pa,
             sma0=10.0, minsma=5.0, maxsma=40.0,
-            astep=5.0, linear_growth=True  # Larger step = fewer isophotes
+            astep=5.0, linear_growth=True
         )
-        results_template = {
-            "isophotes": build_template_isophotes(
-                image=image,
-                x0=x0,
-                y0=y0,
-                eps=eps,
-                pa=pa,
-                sma_values=template_sma_values,
-            )
-        }
-        n_iso = len(results_template['isophotes'])
+        template_list = build_template_isophotes(
+            x0=x0, y0=y0, eps=eps, pa=pa, sma_values=template_sma_values
+        )
 
         # Manually modify template to have varying geometry
-        # (simulate what happens in real data where geometry varies)
-        # Ensure eps stays < 1.0
-        for i, iso in enumerate(results_template['isophotes']):
-            iso['x0'] = 50.0 + i * 0.1  # Simulate center drift
+        for i, iso in enumerate(template_list):
+            iso['x0'] = 50.0 + i * 0.1
             iso['y0'] = 50.0 - i * 0.05
-            iso['eps'] = min(0.3 + i * 0.01, 0.95)  # Cap at 0.95 to stay valid
+            iso['eps'] = min(0.3 + i * 0.01, 0.95)
 
-        # Apply template to same image
-        results_forced = fit_image(image, None, config,
-                                   template_isophotes=results_template['isophotes'])
+        results_forced = fit_image(image, None, config, template=template_list)
 
-        # Check that forced mode preserves variable geometry from template
-        for iso_templ, iso_forced in zip(results_template['isophotes'],
-                                         results_forced['isophotes']):
-            # x0, y0 may differ slightly for sma=0 (central pixel handling)
+        for iso_templ, iso_forced in zip(template_list, results_forced['isophotes']):
             if iso_templ['sma'] > 0:
                 assert iso_forced['x0'] == iso_templ['x0']
                 assert iso_forced['y0'] == iso_templ['y0']
@@ -155,7 +123,6 @@ class TestTemplateForced:
         x0, y0 = 50.0, 50.0
         eps, pa = 0.3, np.pi / 4
 
-        # g-band intensity = 1000, r-band = 800 (ratio = 0.8)
         image_g = make_elliptical_image(shape, x0, y0, eps, pa, 1000.0, 15.0)
         image_r = make_elliptical_image(shape, x0, y0, eps, pa, 800.0, 15.0)
 
@@ -165,30 +132,21 @@ class TestTemplateForced:
             astep=0.3, linear_growth=True
         )
 
-        results_g = {
-            "isophotes": build_template_isophotes(
-                image=image_g,
-                x0=x0,
-                y0=y0,
-                eps=eps,
-                pa=pa,
-                sma_values=[10.0, 15.0, 20.0, 25.0, 30.0, 35.0, 40.0],
-            )
-        }
-        results_r = fit_image(image_r, None, config,
-                              template_isophotes=results_g['isophotes'])
+        template_sma_values = [10.0, 15.0, 20.0, 25.0, 30.0, 35.0, 40.0]
 
-        # Check color ratio at each radius
+        # Use g-band as template for r-band
+        results_g = fit_image(image_g, None, config)
+        results_r = fit_image(image_r, None, config, template=results_g)
+
         for iso_g, iso_r in zip(results_g['isophotes'], results_r['isophotes']):
             if iso_g['stop_code'] == 0 and iso_r['stop_code'] == 0:
-                if iso_g['intens'] > 10:  # Skip very faint points
+                if iso_g['intens'] > 10:
                     ratio = iso_r['intens'] / iso_g['intens']
-                    # Should be approximately 0.8 (800/1000)
                     assert 0.75 < ratio < 0.85, \
                         f"Color ratio at SMA={iso_g['sma']:.1f} should be ~0.8, got {ratio:.3f}"
 
     def test_template_from_fits(self):
-        """Verify round-trip: save -> load -> use as template."""
+        """Verify round-trip: save -> load -> use as template via file path."""
         shape = (100, 100)
         x0, y0 = 50.0, 50.0
         eps, pa = 0.3, np.pi / 4
@@ -202,38 +160,20 @@ class TestTemplateForced:
             astep=0.3, linear_growth=True
         )
 
-        # Build and save g-band template
-        results_g = {
-            "isophotes": build_template_isophotes(
-                image=image_g,
-                x0=x0,
-                y0=y0,
-                eps=eps,
-                pa=pa,
-                sma_values=[10.0, 15.0, 20.0, 25.0, 30.0, 35.0, 40.0],
-            ),
-            "config": config,
-        }
+        results_g = fit_image(image_g, None, config)
 
-        # Save to FITS and reload
         with tempfile.TemporaryDirectory() as tmpdir:
             fits_path = os.path.join(tmpdir, 'template.fits')
             isophote_results_to_fits(results_g, fits_path)
 
-            # Load back
-            loaded = isophote_results_from_fits(fits_path)
+            # Use file path directly as template
+            results_r = fit_image(image_r, None, config, template=fits_path)
 
-            # Use loaded template
-            results_r = fit_image(image_r, None, config,
-                                  template_isophotes=loaded['isophotes'])
-
-        # Check we got valid results
         assert len(results_r['isophotes']) == len(results_g['isophotes'])
 
-        # Check SMA values match
         for iso_orig, iso_r in zip(results_g['isophotes'], results_r['isophotes']):
             assert abs(iso_r['sma'] - iso_orig['sma']) < 1e-6, \
-                f"SMA mismatch after FITS round-trip"
+                "SMA mismatch after FITS round-trip"
 
     def test_template_forced_with_mask(self):
         """Verify masked pixels handled correctly in template mode."""
@@ -243,9 +183,8 @@ class TestTemplateForced:
 
         image = make_elliptical_image(shape, x0, y0, eps, pa, 1000.0, 15.0)
 
-        # Create mask covering part of the image
         mask = np.zeros(shape, dtype=bool)
-        mask[40:60, 60:80] = True  # Mask a region
+        mask[40:60, 60:80] = True
 
         config = IsosterConfig(
             x0=x0, y0=y0, eps=eps, pa=pa,
@@ -253,29 +192,16 @@ class TestTemplateForced:
             astep=0.3, linear_growth=True
         )
 
-        # Create template (unmasked)
-        results_template = {
-            "isophotes": build_template_isophotes(
-                image=image,
-                x0=x0,
-                y0=y0,
-                eps=eps,
-                pa=pa,
-                sma_values=[10.0, 15.0, 20.0, 25.0, 30.0, 35.0, 40.0],
-            )
-        }
+        template = build_template_isophotes(
+            x0=x0, y0=y0, eps=eps, pa=pa,
+            sma_values=[10.0, 15.0, 20.0, 25.0, 30.0, 35.0, 40.0]
+        )
 
-        # Apply to masked image
-        results_masked = fit_image(image, mask, config,
-                                   template_isophotes=results_template['isophotes'])
+        results_masked = fit_image(image, mask, config, template=template)
 
-        # Should still produce results
-        assert len(results_masked['isophotes']) == len(results_template['isophotes'])
+        assert len(results_masked['isophotes']) == len(template)
 
-        # Intensities may differ due to masking
-        for iso_templ, iso_mask in zip(results_template['isophotes'],
-                                       results_masked['isophotes']):
-            # Both should have valid structure
+        for iso_mask in results_masked['isophotes']:
             assert 'sma' in iso_mask
             assert 'intens' in iso_mask
 
@@ -283,50 +209,18 @@ class TestTemplateForced:
         """Verify proper error for empty template list."""
         image = np.ones((50, 50)) * 100.0
 
-        # Empty list should raise error
-        with pytest.raises(ValueError, match="template_isophotes cannot be empty"):
-            fit_image(image, None, {}, template_isophotes=[])
+        with pytest.raises(ValueError, match="template cannot be empty"):
+            fit_image(image, None, {}, template=[])
 
     def test_none_template_uses_normal_fitting(self):
-        """Verify that template_isophotes=None uses normal fitting mode."""
+        """Verify that template=None uses normal fitting mode."""
         image = np.ones((50, 50)) * 100.0
 
-        # None means "don't use template mode" - normal fitting proceeds
         config = IsosterConfig(x0=25.0, y0=25.0, sma0=5.0, maxsma=15.0)
-        results = fit_image(image, None, config, template_isophotes=None)
+        results = fit_image(image, None, config, template=None)
 
-        # Should produce normal fitting results
         assert 'isophotes' in results
         assert len(results['isophotes']) > 0
-
-    def test_original_forced_mode_unchanged(self):
-        """Verify backward compatibility with original forced mode."""
-        shape = (100, 100)
-        y, x = np.ogrid[:100, :100]
-        r = np.sqrt((x - 50)**2 + (y - 50)**2)
-        image = 1000.0 * np.exp(-r / 10.0)
-
-        forced_sma = [5.0, 10.0, 15.0, 20.0]
-
-        config = IsosterConfig(
-            x0=50.0, y0=50.0,
-            eps=0.0, pa=0.0,
-            forced=True,
-            forced_sma=forced_sma,
-        )
-
-        results = fit_image(image, None, config)
-        isophotes = results['isophotes']
-
-        # Original forced mode behavior unchanged
-        assert len(isophotes) == len(forced_sma)
-        sma_values = [iso['sma'] for iso in isophotes]
-        assert sma_values == forced_sma
-
-        # Intensities should decrease with radius
-        intensities = [iso['intens'] for iso in isophotes]
-        assert all(intensities[i] > intensities[i + 1]
-                   for i in range(len(intensities) - 1))
 
     def test_template_with_central_pixel(self):
         """Test that central pixel (sma=0) in template is handled correctly."""
@@ -337,7 +231,6 @@ class TestTemplateForced:
         image_g = make_elliptical_image(shape, x0, y0, eps, pa, 1000.0, 15.0)
         image_r = make_elliptical_image(shape, x0, y0, eps, pa, 800.0, 15.0)
 
-        # Config that includes minsma=0 to get central pixel
         config = IsosterConfig(
             x0=x0, y0=y0, eps=eps, pa=pa,
             sma0=10.0, minsma=0.0, maxsma=30.0,
@@ -345,17 +238,14 @@ class TestTemplateForced:
         )
 
         results_g = fit_image(image_g, None, config)
-        results_r = fit_image(image_r, None, config,
-                              template_isophotes=results_g['isophotes'])
+        results_r = fit_image(image_r, None, config, template=results_g)
 
-        # Check that sma=0 is present in both
         sma_g = [iso['sma'] for iso in results_g['isophotes']]
         sma_r = [iso['sma'] for iso in results_r['isophotes']]
 
         assert 0.0 in sma_g, "Template should have central pixel"
         assert 0.0 in sma_r, "Result should have central pixel"
 
-        # Check central pixel intensity ratio
         central_g = [iso for iso in results_g['isophotes'] if iso['sma'] == 0.0][0]
         central_r = [iso for iso in results_r['isophotes'] if iso['sma'] == 0.0][0]
 
@@ -377,28 +267,311 @@ class TestTemplateForced:
             astep=0.3, linear_growth=True
         )
 
-        results = {
-            "isophotes": build_template_isophotes(
-                image=image,
-                x0=x0,
-                y0=y0,
-                eps=eps,
-                pa=pa,
-                sma_values=[10.0, 15.0, 20.0, 25.0, 30.0],
-            )
-        }
+        template = build_template_isophotes(
+            x0=x0, y0=y0, eps=eps, pa=pa,
+            sma_values=[10.0, 15.0, 20.0, 25.0, 30.0]
+        )
 
         # Shuffle the template order
-        shuffled_template = results['isophotes'].copy()
+        shuffled_template = template.copy()
         np.random.shuffle(shuffled_template)
 
-        # Apply shuffled template
-        results_forced = fit_image(image, None, config,
-                                   template_isophotes=shuffled_template)
+        results_forced = fit_image(image, None, config, template=shuffled_template)
 
-        # Output should be sorted by SMA
         sma_values = [iso['sma'] for iso in results_forced['isophotes']]
         assert sma_values == sorted(sma_values), "Output should be sorted by SMA"
+
+
+class TestUnifiedTemplateAPI:
+    """Tests for the unified template= parameter (R26-05)."""
+
+    def test_template_accepts_file_path(self):
+        """template= should accept a file path string."""
+        shape = (100, 100)
+        x0, y0 = 50.0, 50.0
+        image = make_elliptical_image(shape, x0, y0, 0.2, 0.0, 1000.0, 15.0)
+
+        config = IsosterConfig(x0=x0, y0=y0, sma0=10.0, maxsma=30.0)
+        results_g = fit_image(image, None, config)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            fits_path = os.path.join(tmpdir, 'template.fits')
+            isophote_results_to_fits(results_g, fits_path)
+
+            results_r = fit_image(image, None, config, template=fits_path)
+
+        assert len(results_r['isophotes']) == len(results_g['isophotes'])
+
+    def test_template_accepts_results_dict(self):
+        """template= should accept a results dict with 'isophotes' key."""
+        shape = (100, 100)
+        x0, y0 = 50.0, 50.0
+        image = make_elliptical_image(shape, x0, y0, 0.2, 0.0, 1000.0, 15.0)
+
+        config = IsosterConfig(x0=x0, y0=y0, sma0=10.0, maxsma=30.0)
+        results_g = fit_image(image, None, config)
+
+        # Pass entire results dict
+        results_r = fit_image(image, None, config, template=results_g)
+
+        assert len(results_r['isophotes']) == len(results_g['isophotes'])
+
+    def test_template_accepts_isophote_list(self):
+        """template= should accept a plain list of isophote dicts."""
+        shape = (100, 100)
+        x0, y0 = 50.0, 50.0
+        image = make_elliptical_image(shape, x0, y0, 0.2, 0.0, 1000.0, 15.0)
+
+        template = build_template_isophotes(
+            x0=x0, y0=y0, eps=0.2, pa=0.0,
+            sma_values=[5.0, 10.0, 15.0, 20.0]
+        )
+
+        config = IsosterConfig(x0=x0, y0=y0, sma0=10.0, maxsma=30.0)
+        results = fit_image(image, None, config, template=template)
+
+        assert len(results['isophotes']) == len(template)
+
+    def test_template_isophotes_emits_future_warning(self):
+        """template_isophotes= should emit FutureWarning."""
+        shape = (100, 100)
+        x0, y0 = 50.0, 50.0
+        image = make_elliptical_image(shape, x0, y0, 0.2, 0.0, 1000.0, 15.0)
+
+        template = build_template_isophotes(
+            x0=x0, y0=y0, eps=0.2, pa=0.0,
+            sma_values=[5.0, 10.0, 15.0]
+        )
+
+        config = IsosterConfig(x0=x0, y0=y0, sma0=10.0, maxsma=30.0)
+        with pytest.warns(FutureWarning, match="template_isophotes is deprecated"):
+            fit_image(image, None, config, template_isophotes=template)
+
+    def test_missing_keys_raise_value_error(self):
+        """Template dicts missing required keys should raise ValueError."""
+        shape = (100, 100)
+        image = make_elliptical_image(shape, 50.0, 50.0, 0.2, 0.0, 1000.0, 15.0)
+
+        bad_template = [{'sma': 5.0, 'x0': 50.0}]  # Missing y0, eps, pa
+
+        with pytest.raises(ValueError, match="missing required keys"):
+            fit_image(image, None, {}, template=bad_template)
+
+    def test_invalid_type_raises_type_error(self):
+        """Non-recognized template type should raise TypeError."""
+        image = np.ones((50, 50)) * 100.0
+
+        with pytest.raises(TypeError, match="template must be"):
+            fit_image(image, None, {}, template=42)
+
+    def test_no_harmonics_when_deviations_disabled(self):
+        """Forced photometry should omit harmonic keys when compute_deviations=False."""
+        shape = (100, 100)
+        x0, y0 = 50.0, 50.0
+        image = make_elliptical_image(shape, x0, y0, 0.2, 0.0, 1000.0, 15.0)
+
+        template = build_template_isophotes(
+            x0=x0, y0=y0, eps=0.2, pa=0.0, sma_values=[10.0, 20.0]
+        )
+
+        config = IsosterConfig(
+            x0=x0, y0=y0,
+            compute_deviations=False,
+            simultaneous_harmonics=False,
+        )
+        results = fit_image(image, None, config, template=template)
+
+        for iso in results['isophotes']:
+            for key in ['a3', 'b3', 'a4', 'b4', 'a3_err', 'b3_err', 'a4_err', 'b4_err']:
+                assert key not in iso, f"unexpected harmonic key '{key}' when compute_deviations=False"
+
+    def test_harmonics_present_when_deviations_enabled(self):
+        """Forced photometry should include harmonic keys when compute_deviations=True."""
+        shape = (100, 100)
+        x0, y0 = 50.0, 50.0
+        image = make_elliptical_image(shape, x0, y0, 0.2, 0.0, 1000.0, 15.0)
+
+        template = build_template_isophotes(
+            x0=x0, y0=y0, eps=0.2, pa=0.0, sma_values=[10.0, 20.0]
+        )
+
+        config = IsosterConfig(
+            x0=x0, y0=y0,
+            compute_deviations=True,
+            harmonic_orders=[3, 4, 5],
+        )
+        results = fit_image(image, None, config, template=template)
+
+        for iso in results['isophotes']:
+            for order in [3, 4, 5]:
+                assert f'a{order}' in iso, f"missing a{order} key"
+                assert f'b{order}' in iso, f"missing b{order} key"
+
+    def test_template_and_template_isophotes_raises(self):
+        """Specifying both template= and template_isophotes= should raise ValueError."""
+        image = np.ones((50, 50)) * 100.0
+        template = build_template_isophotes(
+            x0=25.0, y0=25.0, eps=0.2, pa=0.0, sma_values=[5.0, 10.0]
+        )
+
+        with pytest.raises(ValueError, match="Cannot specify both"):
+            fit_image(image, None, {}, template=template, template_isophotes=template)
+
+
+class TestTemplateSelfConsistency:
+    """Verify that template-forced photometry on the same image reproduces the
+    original fitted profile.  In real use the template is applied to a
+    *different* band, but applying it to the *same* image is a strong
+    self-consistency check: every non-geometry field (intens, rms, etc.)
+    should match the original within numerical noise."""
+
+    def _run_self_consistency(self, eps, pa, use_ea=False):
+        """Helper: fit an image, use result as template on the same image,
+        compare intensity and geometry."""
+        shape = (200, 200)
+        x0, y0 = 100.0, 100.0
+
+        image = make_elliptical_image(shape, x0, y0, eps, pa, 5000.0, 25.0)
+
+        config = IsosterConfig(
+            x0=x0, y0=y0, eps=eps, pa=pa,
+            sma0=6.0, minsma=0.0, maxsma=80.0,
+            astep=0.15, linear_growth=False,
+            use_eccentric_anomaly=use_ea,
+        )
+
+        results_orig = fit_image(image, None, config)
+        results_forced = fit_image(image, None, config, template=results_orig)
+
+        iso_orig = results_orig['isophotes']
+        iso_forced = results_forced['isophotes']
+
+        assert len(iso_forced) == len(iso_orig), (
+            f"Expected {len(iso_orig)} isophotes, got {len(iso_forced)}"
+        )
+
+        for orig, forced in zip(iso_orig, iso_forced):
+            sma = orig['sma']
+
+            # Geometry should be identical (copied from template)
+            assert forced['x0'] == orig['x0'], f"x0 mismatch at SMA={sma}"
+            assert forced['y0'] == orig['y0'], f"y0 mismatch at SMA={sma}"
+            assert forced['eps'] == orig['eps'], f"eps mismatch at SMA={sma}"
+            assert forced['pa'] == orig['pa'], f"pa mismatch at SMA={sma}"
+
+            # Central pixel is handled via fit_central_pixel, intensity exact
+            if sma == 0.0:
+                if np.isfinite(orig['intens']):
+                    assert forced['intens'] == orig['intens'], (
+                        f"Central pixel intensity mismatch"
+                    )
+                continue
+
+            # Skip problematic isophotes
+            if orig['stop_code'] not in {0, 1, 2}:
+                continue
+
+            # Intensity: forced mode re-samples the same ellipse so the mean
+            # should match very closely.  The fitted result uses the harmonic
+            # mean (I_0 coefficient), while forced mode uses np.mean over
+            # the same sample points — these differ slightly, so allow 2%.
+            if np.isfinite(orig['intens']) and abs(orig['intens']) > 1.0:
+                rel_diff = abs(forced['intens'] - orig['intens']) / abs(orig['intens'])
+                assert rel_diff < 0.02, (
+                    f"Intensity mismatch at SMA={sma:.2f}: "
+                    f"orig={orig['intens']:.4f}, forced={forced['intens']:.4f}, "
+                    f"rel_diff={rel_diff:.4f}"
+                )
+
+    def test_self_consistency_circular(self):
+        """Round-trip with nearly circular profile (eps=0.05)."""
+        self._run_self_consistency(eps=0.05, pa=0.0)
+
+    def test_self_consistency_elliptical(self):
+        """Round-trip with moderate ellipticity (eps=0.3, pa=pi/6)."""
+        self._run_self_consistency(eps=0.3, pa=np.pi / 6)
+
+    def test_self_consistency_high_eps_ea(self):
+        """Round-trip with high ellipticity in eccentric anomaly mode."""
+        self._run_self_consistency(eps=0.55, pa=np.pi / 3, use_ea=True)
+
+
+class TestResolveTemplate:
+    """Unit tests for _resolve_template()."""
+
+    def test_resolve_list(self):
+        """List of dicts should pass through and be sorted."""
+        template = [
+            {'sma': 20.0, 'x0': 50.0, 'y0': 50.0, 'eps': 0.2, 'pa': 0.0},
+            {'sma': 5.0, 'x0': 50.0, 'y0': 50.0, 'eps': 0.2, 'pa': 0.0},
+            {'sma': 10.0, 'x0': 50.0, 'y0': 50.0, 'eps': 0.2, 'pa': 0.0},
+        ]
+        result = _resolve_template(template)
+        assert [iso['sma'] for iso in result] == [5.0, 10.0, 20.0]
+
+    def test_resolve_results_dict(self):
+        """Dict with 'isophotes' key should extract the list."""
+        iso_list = [
+            {'sma': 5.0, 'x0': 50.0, 'y0': 50.0, 'eps': 0.2, 'pa': 0.0},
+        ]
+        result = _resolve_template({'isophotes': iso_list, 'config': None})
+        assert len(result) == 1
+        assert result[0]['sma'] == 5.0
+
+    def test_resolve_dict_without_isophotes_key(self):
+        """Dict without 'isophotes' key should raise ValueError."""
+        with pytest.raises(ValueError, match="must contain an 'isophotes' key"):
+            _resolve_template({'config': None})
+
+    def test_resolve_file_path(self):
+        """File path should load via isophote_results_from_fits."""
+        shape = (100, 100)
+        x0, y0 = 50.0, 50.0
+        image = make_elliptical_image(shape, x0, y0, 0.2, 0.0, 1000.0, 15.0)
+        config = IsosterConfig(x0=x0, y0=y0, sma0=10.0, maxsma=20.0)
+        results = fit_image(image, None, config)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            fits_path = os.path.join(tmpdir, 'test.fits')
+            isophote_results_to_fits(results, fits_path)
+
+            resolved = _resolve_template(fits_path)
+
+        assert len(resolved) == len(results['isophotes'])
+
+    def test_resolve_pathlib_path(self):
+        """pathlib.Path should work the same as str."""
+        from pathlib import Path
+
+        shape = (100, 100)
+        x0, y0 = 50.0, 50.0
+        image = make_elliptical_image(shape, x0, y0, 0.2, 0.0, 1000.0, 15.0)
+        config = IsosterConfig(x0=x0, y0=y0, sma0=10.0, maxsma=20.0)
+        results = fit_image(image, None, config)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            fits_path = Path(tmpdir) / 'test.fits'
+            isophote_results_to_fits(results, str(fits_path))
+
+            resolved = _resolve_template(fits_path)
+
+        assert len(resolved) == len(results['isophotes'])
+
+    def test_resolve_empty_list_raises(self):
+        """Empty list should raise ValueError."""
+        with pytest.raises(ValueError, match="template cannot be empty"):
+            _resolve_template([])
+
+    def test_resolve_bad_type_raises(self):
+        """Non-recognized type should raise TypeError."""
+        with pytest.raises(TypeError, match="template must be"):
+            _resolve_template(42)
+
+    def test_resolve_missing_keys_raises(self):
+        """Missing required keys should raise ValueError."""
+        bad_list = [{'sma': 5.0, 'x0': 50.0}]
+        with pytest.raises(ValueError, match="missing required keys"):
+            _resolve_template(bad_list)
 
 
 class TestIsophoteResultsFromFits:
@@ -424,12 +597,10 @@ class TestIsophoteResultsFromFits:
 
             loaded = isophote_results_from_fits(fits_path)
 
-        # Check structure
         assert 'isophotes' in loaded
         assert 'config' in loaded
-        assert loaded['config'] is None  # Config not reconstructed
+        assert loaded['config'] is None
 
-        # Check isophotes content
         assert len(loaded['isophotes']) == len(results['isophotes'])
 
         for orig, load in zip(results['isophotes'], loaded['isophotes']):
@@ -458,8 +629,7 @@ class TestIsophoteResultsFromFits:
             isophote_results_to_fits(results, fits_path)
             loaded = isophote_results_from_fits(fits_path)
 
-        # Check that key columns are preserved
-        orig_iso = results['isophotes'][5]  # Pick a middle isophote
+        orig_iso = results['isophotes'][5]
         load_iso = loaded['isophotes'][5]
 
         expected_keys = ['sma', 'intens', 'intens_err', 'eps', 'pa',

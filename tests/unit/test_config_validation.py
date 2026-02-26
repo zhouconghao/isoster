@@ -63,30 +63,15 @@ def test_no_warn_simultaneous_low_damping():
 
 
 # ---------------------------------------------------------------------------
-# V5: forced=True silently drops params
+# V5: (removed) forced mode was removed in R26-05
 # ---------------------------------------------------------------------------
 
-def test_warn_forced_drops_params():
-    """V5: forced=True with active features should warn about ignored params."""
-    with pytest.warns(UserWarning, match="forced=True ignores"):
-        IsosterConfig(
-            forced=True, forced_sma=[5.0, 10.0],
-            compute_deviations=True, compute_errors=True
-        )
-
-
-def test_no_warn_forced_defaults():
-    """V5 negative: forced=True with default compute_errors=True should still warn."""
-    with pytest.warns(UserWarning, match="forced=True ignores.*compute_errors"):
-        IsosterConfig(forced=True, forced_sma=[5.0, 10.0])
-
-
 # ---------------------------------------------------------------------------
-# V6: template_isophotes + forced=True (integration test, needs driver)
+# V6: template + template_isophotes mutual exclusion
 # ---------------------------------------------------------------------------
 
-def test_warn_template_and_forced():
-    """V6: template_isophotes + forced=True should warn that forced is skipped."""
+def test_error_template_and_template_isophotes():
+    """V6: specifying both template and template_isophotes should raise ValueError."""
     from isoster.driver import fit_image
 
     image = np.random.default_rng(42).normal(100, 10, (64, 64))
@@ -96,10 +81,9 @@ def test_warn_template_and_forced():
         {'sma': 5.0, 'x0': 32.0, 'y0': 32.0, 'eps': 0.2, 'pa': 0.0,
          'intens': 90.0},
     ]
-    config = IsosterConfig(forced=True, forced_sma=[5.0, 10.0])
 
-    with pytest.warns(UserWarning, match="template_isophotes takes priority"):
-        fit_image(image, config=config, template_isophotes=template)
+    with pytest.raises(ValueError, match="Cannot specify both"):
+        fit_image(image, template=template, template_isophotes=template)
 
 
 # ---------------------------------------------------------------------------
@@ -178,7 +162,7 @@ def test_template_forced_respects_debug():
 
     # Central pixel (sma=0) should have debug fields when debug=True
     central = [iso for iso in result['isophotes'] if iso['sma'] == 0][0]
-    assert 'ndata' in central or 'valid' in central
+    assert 'ndata' in central, "debug=True should produce 'ndata' key in central pixel"
 
 
 # ---------------------------------------------------------------------------
@@ -219,3 +203,23 @@ def test_no_warn_lsb_threshold_with_adaptive():
     with warnings.catch_warnings():
         warnings.simplefilter("error")
         IsosterConfig(integrator='adaptive', lsb_sma_threshold=50.0)
+
+
+# ---------------------------------------------------------------------------
+# R26-T3: invalid convergence_scaling values rejected by pattern
+# ---------------------------------------------------------------------------
+
+def test_error_invalid_convergence_scaling():
+    """R26-T3: invalid convergence_scaling values should raise ValidationError."""
+    from pydantic import ValidationError
+
+    for bad_value in ['linear', 'SECTOR_AREA', 'sma', '']:
+        with pytest.raises(ValidationError, match="convergence_scaling"):
+            IsosterConfig(convergence_scaling=bad_value)
+
+
+def test_valid_convergence_scaling_values():
+    """R26-T3 negative: all valid convergence_scaling values accepted."""
+    for good_value in ['none', 'sector_area', 'sqrt_sma']:
+        cfg = IsosterConfig(convergence_scaling=good_value)
+        assert cfg.convergence_scaling == good_value

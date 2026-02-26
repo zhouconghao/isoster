@@ -274,34 +274,11 @@ def test_fit_image_raises_on_negative_error_in_regular_mode(monkeypatch):
         fit_image(image, mask=None, config=config)
 
 
-def test_fit_image_raises_on_negative_error_in_forced_mode(monkeypatch):
-    """Forced mode should fail if extracted photometry contains negative errors."""
-    image = np.ones((40, 40), dtype=float)
-    config = IsosterConfig(
-        forced=True,
-        forced_sma=[6.0],
-        x0=20.0,
-        y0=20.0,
-        eps=0.2,
-        pa=0.0,
-    )
-
-    def fake_extract_forced_photometry(*args, **kwargs):  # noqa: ANN002, ANN003
-        iso = _build_mock_isophote(sma=6.0, stop_code=0)
-        iso['intens_err'] = -0.2
-        return iso
-
-    monkeypatch.setattr("isoster.fitting.extract_forced_photometry", fake_extract_forced_photometry)
-
-    with pytest.raises(ValueError, match="negative error value"):
-        fit_image(image, mask=None, config=config)
-
-
 def test_fit_image_raises_on_negative_error_in_template_forced_mode(monkeypatch):
     """Template-forced mode should fail if extracted photometry has negative errors."""
     image = np.ones((40, 40), dtype=float)
     config = IsosterConfig()
-    template_isophotes = [
+    template = [
         {'x0': 20.0, 'y0': 20.0, 'eps': 0.2, 'pa': 0.0, 'sma': 6.0},
     ]
 
@@ -313,9 +290,4 @@ def test_fit_image_raises_on_negative_error_in_template_forced_mode(monkeypatch)
     monkeypatch.setattr("isoster.fitting.extract_forced_photometry", fake_extract_forced_photometry)
 
     with pytest.raises(ValueError, match="negative error value"):
-        fit_image(
-            image,
-            mask=None,
-            config=config,
-            template_isophotes=template_isophotes,
-        )
+        fit_image(image, mask=None, config=config, template=template)

@@ -65,11 +65,11 @@ def compute_central_regularization_penalty(current_geom, previous_geom, sma, con
     
     return penalty
 
-def extract_forced_photometry(image, mask, x0, y0, sma, eps, pa, integrator='mean', sclip=3.0, nclip=0, use_eccentric_anomaly=False):
+def extract_forced_photometry(image, mask, x0, y0, sma, eps, pa, integrator='mean', sclip=3.0, nclip=0, use_eccentric_anomaly=False, config=None):
     """
     Extract forced photometry at a single SMA without fitting.
 
-    This is used for pure forced mode where geometry is predetermined.
+    This is used for template-based forced mode where geometry is predetermined.
 
     Args:
         image (np.ndarray): Input image.
@@ -82,50 +82,74 @@ def extract_forced_photometry(image, mask, x0, y0, sma, eps, pa, integrator='mea
         sclip (float): Sigma clipping threshold.
         nclip (int): Number of sigma clipping iterations.
         use_eccentric_anomaly (bool): Whether to use eccentric anomaly sampling mode.
-        
+        config (IsosterConfig, optional): Configuration object. When provided,
+            harmonic keys are only included if compute_deviations or
+            simultaneous_harmonics is enabled, using config.harmonic_orders
+            for key names. When None, harmonics default to [3, 4] for
+            backward compatibility.
+
     Returns:
-        dict: Fake isophote structure with only intensity meaningful.
+        dict: Isophote structure with intensity from the target image.
     """
+    # Determine whether to include harmonic keys and which orders
+    if config is not None:
+        include_harmonics = config.compute_deviations or config.simultaneous_harmonics
+        harmonic_orders = config.harmonic_orders if include_harmonics else []
+    else:
+        # Backward compatibility: include default [3, 4] when called without config
+        include_harmonics = True
+        harmonic_orders = [3, 4]
+
+    def _build_harmonic_fields(orders):
+        """Build zero-valued harmonic key-value pairs for given orders."""
+        fields = {}
+        for order in orders:
+            fields[f'a{order}'] = 0.0
+            fields[f'b{order}'] = 0.0
+            fields[f'a{order}_err'] = 0.0
+            fields[f'b{order}_err'] = 0.0
+        return fields
+
     # Sample along the ellipse
-    # Extract data - use .angles for harmonics fitting (will be φ since EA not used here)
     data = extract_isophote_data(image, mask, x0, y0, sma, eps, pa, use_eccentric_anomaly=use_eccentric_anomaly)
-    phi = data.angles  # φ (EA not applicable at central pixel)
+    phi = data.angles  # position angle or eccentric anomaly depending on mode
     intens = data.intens
-    
+
     if len(intens) == 0:
-        return {
+        result = {
             'x0': x0, 'y0': y0, 'eps': eps, 'pa': pa, 'sma': sma,
             'intens': np.nan, 'rms': np.nan, 'intens_err': np.nan,
             'x0_err': 0.0, 'y0_err': 0.0, 'eps_err': 0.0, 'pa_err': 0.0,
-            'a3': 0.0, 'b3': 0.0, 'a3_err': 0.0, 'b3_err': 0.0,
-            'a4': 0.0, 'b4': 0.0, 'a4_err': 0.0, 'b4_err': 0.0,
             'tflux_e': np.nan, 'tflux_c': np.nan, 'npix_e': 0, 'npix_c': 0,
             'stop_code': 3, 'niter': 0, 'valid': False
         }
-    
+        if include_harmonics:
+            result.update(_build_harmonic_fields(harmonic_orders))
+        return result
+
     # Sigma clipping
     if nclip > 0:
         phi, intens, _ = sigma_clip(phi, intens, sclip, nclip)
-    
+
     # Compute intensity
     if integrator == 'median':
         intensity = np.median(intens)
     else:
         intensity = np.mean(intens)
-    
+
     rms = np.std(intens)
     intens_err = rms / np.sqrt(len(intens))
-    
-    # Return fake isophote structure
-    return {
+
+    result = {
         'x0': x0, 'y0': y0, 'eps': eps, 'pa': pa, 'sma': sma,
         'intens': intensity, 'rms': rms, 'intens_err': intens_err,
         'x0_err': 0.0, 'y0_err': 0.0, 'eps_err': 0.0, 'pa_err': 0.0,
-        'a3': 0.0, 'b3': 0.0, 'a3_err': 0.0, 'b3_err': 0.0,
-        'a4': 0.0, 'b4': 0.0, 'a4_err': 0.0, 'b4_err': 0.0,
         'tflux_e': np.nan, 'tflux_c': np.nan, 'npix_e': 0, 'npix_c': 0,
         'stop_code': 0, 'niter': 0, 'valid': True
     }
+    if include_harmonics:
+        result.update(_build_harmonic_fields(harmonic_orders))
+    return result
 
 def fit_first_and_second_harmonics(phi, intensity):
     """
@@ -554,7 +578,7 @@ def compute_gradient(image, mask, geometry, config, previous_gradient=None, curr
         image: 2D image array
         mask: 2D boolean mask array (True = masked)
         geometry: dict with keys {x0, y0, sma, eps, pa}
-        config: dict-like config with attributes {astep, linear_growth, integrator, use_eccentric_anomaly}
+        config: dict or IsosterConfig with keys/attrs {astep, linear_growth, integrator, use_eccentric_anomaly}
         previous_gradient: Previous gradient value for comparison (optional)
         current_data: Cached (phi, intens) tuple to avoid re-extraction (optional)
 
@@ -564,11 +588,12 @@ def compute_gradient(image, mask, geometry, config, previous_gradient=None, curr
     # Unpack geometry
     x0, y0, sma, eps, pa = geometry['x0'], geometry['y0'], geometry['sma'], geometry['eps'], geometry['pa']
 
-    # Unpack config
-    step = config.astep if hasattr(config, 'astep') else config['astep']
-    linear_growth = config.linear_growth if hasattr(config, 'linear_growth') else config['linear_growth']
-    integrator = config.integrator if hasattr(config, 'integrator') else config['integrator']
-    use_eccentric_anomaly = config.use_eccentric_anomaly if hasattr(config, 'use_eccentric_anomaly') else config['use_eccentric_anomaly']
+    # Unpack config (dict from fit_isophote, or IsosterConfig in tests)
+    _get = config.get if isinstance(config, dict) else lambda k: getattr(config, k)
+    step = _get('astep')
+    linear_growth = _get('linear_growth')
+    integrator = _get('integrator')
+    use_eccentric_anomaly = _get('use_eccentric_anomaly')
 
     if current_data is not None:
         phi_c, intens_c = current_data
@@ -639,10 +664,11 @@ def compute_gradient(image, mask, geometry, config, previous_gradient=None, curr
                 mean_g2 = np.median(intens_g2)
             else:
                 mean_g2 = np.mean(intens_g2)
-            gradient = (mean_g2 - mean_c) / sma / (2 * step)
+            delta_r_2 = 2 * step if linear_growth else sma * 2 * step
+            gradient = (mean_g2 - mean_c) / delta_r_2
             sigma_g2 = np.std(intens_g2)
             gradient_error = (np.sqrt(sigma_c**2 / len(intens_c) + sigma_g2**2 / len(intens_g2))
-                            / sma / (2 * step))
+                            / delta_r_2)
 
     if gradient >= (previous_gradient / 3.0):
         gradient = previous_gradient * 0.8
@@ -719,6 +745,56 @@ def _attach_full_photometry(isophote_result, image, mask):
         'npix_e': npix_e,
         'npix_c': npix_c,
     })
+
+def _compute_posthoc_harmonics(best_geometry, angles, intens, gradient,
+                               best_angles, best_intens, best_gradient,
+                               sma, harmonic_orders, isofit_mode,
+                               simultaneous_harmonics):
+    """Compute post-hoc harmonic deviations and store them in best_geometry.
+
+    Called after convergence (stop_code=0 via harmonic or geometry criteria)
+    or after max-iteration fallback (stop_code=2). For 'original' ISOFIT mode,
+    uses saved best-iteration data; otherwise uses current-iteration data.
+
+    Args:
+        best_geometry: Dict to update with harmonic coefficients (mutated in place).
+        angles: Current-iteration angle array (psi in EA mode, phi otherwise).
+        intens: Current-iteration intensity array.
+        gradient: Current-iteration gradient value.
+        best_angles: Saved best-iteration angles (may be None).
+        best_intens: Saved best-iteration intensities (may be None).
+        best_gradient: Saved best-iteration gradient (may be None).
+        sma: Semi-major axis length.
+        harmonic_orders: List of harmonic orders to compute (e.g. [3, 4]).
+        isofit_mode: 'in_loop' or 'original'.
+        simultaneous_harmonics: Whether to use simultaneous fitting.
+    """
+    use_best_data = (isofit_mode == 'original' and simultaneous_harmonics
+                     and best_angles is not None)
+    posthoc_angles = best_angles if use_best_data else angles
+    posthoc_intens = best_intens if use_best_data else intens
+    posthoc_gradient = best_gradient if use_best_data else gradient
+
+    if simultaneous_harmonics:
+        sim_harmonics = fit_higher_harmonics_simultaneous(
+            posthoc_angles, posthoc_intens, sma, posthoc_gradient, harmonic_orders
+        )
+        for n in harmonic_orders:
+            an, bn, an_err, bn_err = sim_harmonics.get(n, (0.0, 0.0, 0.0, 0.0))
+            best_geometry[f'a{n}'] = an
+            best_geometry[f'b{n}'] = bn
+            best_geometry[f'a{n}_err'] = an_err
+            best_geometry[f'b{n}_err'] = bn_err
+    else:
+        for n in harmonic_orders:
+            an, bn, an_err, bn_err = compute_deviations(
+                posthoc_angles, posthoc_intens, sma, posthoc_gradient, n
+            )
+            best_geometry[f'a{n}'] = an
+            best_geometry[f'b{n}'] = bn
+            best_geometry[f'a{n}_err'] = an_err
+            best_geometry[f'b{n}_err'] = bn_err
+
 
 def fit_isophote(image, mask, sma, start_geometry, config, going_inwards=False, previous_geometry=None):
     """
@@ -973,15 +1049,16 @@ def fit_isophote(image, mask, sma, start_geometry, config, going_inwards=False, 
             if use_isofit_in_loop and gradient != 0:
                 factor = sma * abs(gradient)
                 if factor > 0:
+                    # Compute residual variance once outside the per-order loop (R26-08)
+                    if cov_matrix is not None:
+                        n_params = len(coeffs)
+                        var_residual = np.var(intens - model, ddof=n_params) if len(intens) > n_params else 0.0
                     for k, n_order in enumerate(harmonic_orders):
                         sin_coeff = coeffs[5 + 2 * k]
                         cos_coeff = coeffs[5 + 2 * k + 1]
                         best_geometry[f'a{n_order}'] = sin_coeff / factor
                         best_geometry[f'b{n_order}'] = cos_coeff / factor
-                        # Errors from covariance diagonal
                         if cov_matrix is not None:
-                            n_params = len(coeffs)
-                            var_residual = np.var(intens - model, ddof=n_params) if len(intens) > n_params else 0.0
                             sin_err = np.sqrt(cov_matrix[5 + 2 * k, 5 + 2 * k] * var_residual) if var_residual > 0 else 0.0
                             cos_err = np.sqrt(cov_matrix[5 + 2 * k + 1, 5 + 2 * k + 1] * var_residual) if var_residual > 0 else 0.0
                             best_geometry[f'a{n_order}_err'] = sin_err / factor
@@ -995,34 +1072,12 @@ def fit_isophote(image, mask, sma, start_geometry, config, going_inwards=False, 
         if abs(max_amp) < conver * convergence_scale * rms and i >= minit:
             stop_code = 0  # STOP_CODE 0: Converged successfully
             converged = True
-            # Compute harmonic deviations (skip if ISOFIT already stored them during iteration)
             if compute_deviations_flag and not best_isofit_harmonics_stored:
-                # For 'original' ISOFIT mode, use data from best-geometry iteration
-                use_best_data = (isofit_mode == 'original' and simultaneous_harmonics and best_angles is not None)
-                posthoc_angles = best_angles if use_best_data else angles
-                posthoc_intens = best_intens if use_best_data else intens
-                posthoc_gradient = best_gradient if use_best_data else gradient
-                # Use 'angles' (ψ in EA mode, φ in regular mode) for harmonic fitting
-                # per Ciambur 2015 - higher harmonics should also be fit in ψ-space
-                if simultaneous_harmonics:
-                    # Post-hoc simultaneous fitting (Ciambur 2015 original or fallback)
-                    sim_harmonics = fit_higher_harmonics_simultaneous(
-                        posthoc_angles, posthoc_intens, sma, posthoc_gradient, harmonic_orders
-                    )
-                    for n in harmonic_orders:
-                        an, bn, an_err, bn_err = sim_harmonics.get(n, (0.0, 0.0, 0.0, 0.0))
-                        best_geometry[f'a{n}'] = an
-                        best_geometry[f'b{n}'] = bn
-                        best_geometry[f'a{n}_err'] = an_err
-                        best_geometry[f'b{n}_err'] = bn_err
-                else:
-                    # Sequential fitting (default, corrected to use angles)
-                    for n in harmonic_orders:
-                        an, bn, an_err, bn_err = compute_deviations(posthoc_angles, posthoc_intens, sma, posthoc_gradient, n)
-                        best_geometry[f'a{n}'] = an
-                        best_geometry[f'b{n}'] = bn
-                        best_geometry[f'a{n}_err'] = an_err
-                        best_geometry[f'b{n}_err'] = bn_err
+                _compute_posthoc_harmonics(
+                    best_geometry, angles, intens, gradient,
+                    best_angles, best_intens, best_gradient,
+                    sma, harmonic_orders, isofit_mode, simultaneous_harmonics,
+                )
 
             # 6. FULL PHOTOMETRY (If requested)
             if full_photometry:
@@ -1096,27 +1151,11 @@ def fit_isophote(image, mask, sma, start_geometry, config, going_inwards=False, 
                 stop_code = 0
                 converged = True
                 if compute_deviations_flag and not best_isofit_harmonics_stored:
-                    use_best_data = (isofit_mode == 'original' and simultaneous_harmonics and best_angles is not None)
-                    posthoc_angles = best_angles if use_best_data else angles
-                    posthoc_intens = best_intens if use_best_data else intens
-                    posthoc_gradient = best_gradient if use_best_data else gradient
-                    if simultaneous_harmonics:
-                        sim_harmonics = fit_higher_harmonics_simultaneous(
-                            posthoc_angles, posthoc_intens, sma, posthoc_gradient, harmonic_orders
-                        )
-                        for n in harmonic_orders:
-                            an, bn, an_err, bn_err = sim_harmonics.get(n, (0.0, 0.0, 0.0, 0.0))
-                            best_geometry[f'a{n}'] = an
-                            best_geometry[f'b{n}'] = bn
-                            best_geometry[f'a{n}_err'] = an_err
-                            best_geometry[f'b{n}_err'] = bn_err
-                    else:
-                        for n in harmonic_orders:
-                            an, bn, an_err, bn_err = compute_deviations(posthoc_angles, posthoc_intens, sma, posthoc_gradient, n)
-                            best_geometry[f'a{n}'] = an
-                            best_geometry[f'b{n}'] = bn
-                            best_geometry[f'a{n}_err'] = an_err
-                            best_geometry[f'b{n}_err'] = bn_err
+                    _compute_posthoc_harmonics(
+                        best_geometry, angles, intens, gradient,
+                        best_angles, best_intens, best_gradient,
+                        sma, harmonic_orders, isofit_mode, simultaneous_harmonics,
+                    )
                 if full_photometry:
                     _attach_full_photometry(best_geometry, image, mask)
                 break
@@ -1141,27 +1180,11 @@ def fit_isophote(image, mask, sma, start_geometry, config, going_inwards=False, 
         stop_code = 2  # STOP_CODE 2: Reached max iterations without convergence
         # Best-effort harmonic deviations from best-geometry iteration
         if compute_deviations_flag and best_geometry is not None and not best_isofit_harmonics_stored:
-            use_best_data = (isofit_mode == 'original' and simultaneous_harmonics and best_angles is not None)
-            posthoc_angles = best_angles if use_best_data else angles
-            posthoc_intens = best_intens if use_best_data else intens
-            posthoc_gradient = best_gradient if use_best_data else gradient
-            if simultaneous_harmonics:
-                sim_harmonics = fit_higher_harmonics_simultaneous(
-                    posthoc_angles, posthoc_intens, sma, posthoc_gradient, harmonic_orders
-                )
-                for n in harmonic_orders:
-                    an, bn, an_err, bn_err = sim_harmonics.get(n, (0.0, 0.0, 0.0, 0.0))
-                    best_geometry[f'a{n}'] = an
-                    best_geometry[f'b{n}'] = bn
-                    best_geometry[f'a{n}_err'] = an_err
-                    best_geometry[f'b{n}_err'] = bn_err
-            else:
-                for n in harmonic_orders:
-                    an, bn, an_err, bn_err = compute_deviations(posthoc_angles, posthoc_intens, sma, posthoc_gradient, n)
-                    best_geometry[f'a{n}'] = an
-                    best_geometry[f'b{n}'] = bn
-                    best_geometry[f'a{n}_err'] = an_err
-                    best_geometry[f'b{n}_err'] = bn_err
+            _compute_posthoc_harmonics(
+                best_geometry, angles, intens, gradient,
+                best_angles, best_intens, best_gradient,
+                sma, harmonic_orders, isofit_mode, simultaneous_harmonics,
+            )
         if full_photometry:
             _attach_full_photometry(best_geometry, image, mask)
 

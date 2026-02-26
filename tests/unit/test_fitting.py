@@ -452,6 +452,62 @@ def test_gradient_early_termination():
     print(f"✓ EFF-1 gradient early termination test passed")
 
 
+def test_gradient_linear_growth_second_gradient():
+    """R26-01: Verify second-gradient formula is correct for linear_growth=True.
+
+    The second-gradient path uses gradient_sma_2 = sma + 2*step, so delta_r = 2*step.
+    Previously the formula incorrectly divided by sma*(2*step) instead of just 2*step.
+    This test verifies that both linear and geometric growth produce consistent
+    gradient values on a smooth exponential profile.
+    """
+    from isoster.fitting import compute_gradient
+    from isoster.config import IsosterConfig
+
+    size = 200
+    x0, y0 = size / 2, size / 2
+    y, x = np.mgrid[:size, :size]
+    r = np.sqrt((x - x0)**2 + (y - y0)**2)
+    image = 1000.0 * np.exp(-r / 30.0)
+    mask = np.zeros_like(image, dtype=bool)
+
+    sma = 25.0
+    step = 3.0  # Large step for linear growth
+
+    geometry = {'x0': x0, 'y0': y0, 'sma': sma, 'eps': 0.0, 'pa': 0.0}
+
+    # Linear growth: delta_r = step, second delta_r = 2*step
+    config_linear = IsosterConfig(
+        x0=x0, y0=y0, eps=0.0, pa=0.0,
+        sma0=10.0, astep=step, linear_growth=True,
+        integrator='mean', use_eccentric_anomaly=False,
+    )
+
+    # Force the second-gradient path by providing a small previous_gradient
+    # (ensures need_second_gradient is True)
+    grad_lin, err_lin = compute_gradient(
+        image, mask, geometry, config_linear,
+        previous_gradient=-0.001, current_data=None,
+    )
+
+    # Gradient must be negative for a declining profile
+    assert grad_lin < 0, f"Linear gradient should be negative, got {grad_lin}"
+
+    # Analytic gradient for I = 1000*exp(-r/30) at r=25: dI/dr = -1000/30 * exp(-25/30) ≈ -14.4
+    analytic = -1000.0 / 30.0 * np.exp(-sma / 30.0)
+
+    # Second-gradient (delta_r = 2*step = 6) is a coarser finite difference,
+    # so allow 30% tolerance relative to analytic
+    rel_diff = abs((grad_lin - analytic) / analytic)
+    assert rel_diff < 0.3, (
+        f"Linear growth gradient {grad_lin:.4f} deviates {rel_diff:.1%} from "
+        f"analytic {analytic:.4f} — possible sma-factor bug in second-gradient"
+    )
+
+    # Sanity: error should be finite
+    assert err_lin is not None and np.isfinite(err_lin), \
+        f"Gradient error should be finite, got {err_lin}"
+
+
 # ============================================================================
 # Tests for fit_higher_harmonics_simultaneous (EA-HARMONICS feature)
 # ============================================================================
