@@ -1,203 +1,112 @@
-# ISOSTER: ISOphote on STERoid
+<p align="center">
+  <img src="docs/isoster_logo.svg" alt="ISOSTER logo" width="320">
+</p>
 
-ISOSTER is an accelerated Python library for elliptical isophote fitting in galaxy images. It provides a significant performance boost over standard implementations while maintaining scientific accuracy and compatibility.
+<h1 align="center">ISOSTER</h1>
 
-## Key Features
+<p align="center">
+  <strong>ISOphote on STERoid</strong> — Accelerated elliptical isophote fitting for galaxy images
+</p>
 
-- **High Performance**: 10-15x faster than `photutils.isophote` using vectorized path-based sampling.
-- **Multiband Analysis**: Template-based forced photometry for consistent color profiles across wavelengths.
-- **Advanced Harmonics**: Simultaneous higher-order harmonic fitting and 2D model reconstruction with shape deviations.
-- **Modular Design**: Refactored into specialized modules for sampling, fitting, and model building.
-- **Enhanced Photometry**: Includes local flux integration metrics (`tflux_e`, `tflux_c`, `npix_e`, `npix_c`).
-- **Model Building**: Reconstruct 2D galaxy images from isophote profiles with optional harmonic deviations.
-- **Photutils Compatibility**: Logical and algorithmic consistency with industry standards.
-- **Function-based API**: Simple, stateless API for easier integration and testing.
+<p align="center">
+  <a href="https://opensource.org/licenses/BSD-3-Clause"><img src="https://img.shields.io/badge/License-BSD_3--Clause-blue.svg" alt="License: BSD-3-Clause"></a>
+  <a href="https://www.python.org/downloads/"><img src="https://img.shields.io/badge/python-3.9%2B-blue.svg" alt="Python 3.9+"></a>
+</p>
+
+---
+
+ISOSTER is a Python library for elliptical isophote fitting that provides **10-15x faster performance** compared to `photutils.isophote`. It uses vectorized path-based sampling via scipy's `map_coordinates` while maintaining scientific accuracy and full compatibility with the photutils isophote analysis workflow.
 
 ## Installation
 
 ```bash
-# Create/sync local virtual environment with core + dev + docs tools
-uv sync --extra dev --extra docs
+# Install from source
+pip install .
 
-# Run commands inside the managed environment
-uv run isoster --help
+# Or set up a development environment with uv
+uv sync --extra dev --extra docs
 ```
 
-## Basic Usage
-
-### Python API
+## Quick Start
 
 ```python
 import isoster
 from astropy.io import fits
 
+# Load a galaxy image
 image = fits.getdata("galaxy.fits")
-config = {
-    'sma0': 10.0,
-    'minsma': 0.0,
-    'maxsma': 100.0,
-    'full_photometry': True  # Enable flux integration metrics
-}
 
-# Run optimized fitting
+# Fit isophotes
+config = {'sma0': 10.0, 'maxsma': 100.0}
 results = isoster.fit_image(image, None, config)
 
 # Save results to FITS
 isoster.isophote_results_to_fits(results, "isophotes.fits")
 
-# Build 2D model with harmonics
+# Build a 2D model with harmonic deviations
 model = isoster.build_isoster_model(
     image.shape,
     results['isophotes'],
-    use_harmonics=True,      # Include harmonic deviations (default)
-    harmonic_orders=[3, 4]   # Higher-order shape features
+    use_harmonics=True,
+    harmonic_orders=[3, 4],
 )
-fits.writeto("model.fits", model, overwrite=True)
 ```
 
 ### Multiband Analysis
 
-```python
-import isoster
-from astropy.io import fits
+Use template-based forced photometry for consistent color profiles across wavelengths:
 
+```python
 # Fit reference band (e.g., g-band) with full geometry fitting
-image_g = fits.getdata("galaxy_g.fits")
 results_g = isoster.fit_image(image_g, None, config)
-isoster.isophote_results_to_fits(results_g, "galaxy_g_isophotes.fits")
 
-# Apply g-band geometry to r-band for consistent photometry
-image_r = fits.getdata("galaxy_r.fits")
-results_r = isoster.fit_image(
-    image_r, None, config,
-    template_isophotes=results_g['isophotes']
-)
-
-# OR load template from saved FITS
-template = isoster.isophote_results_from_fits('galaxy_g_isophotes.fits')
-image_i = fits.getdata("galaxy_i.fits")
-results_i = isoster.fit_image(
-    image_i, None, config,
-    template_isophotes=template['isophotes']
-)
+# Apply g-band geometry to other bands
+results_r = isoster.fit_image(image_r, None, config, template=results_g)
+results_i = isoster.fit_image(image_i, None, config, template='galaxy_g.fits')
 ```
 
-## Important Considerations
+## Key Features
 
-### High-Ellipticity Fitting (ε > 0.6)
+- **High performance**: 10-15x faster than `photutils.isophote` via vectorized sampling.
+- **Template-based forced photometry**: Consistent multiband photometry using geometry from a reference band.
+- **Eccentric anomaly sampling**: Uniform arc-length coverage for high-ellipticity galaxies (Ciambur 2015).
+- **Simultaneous harmonics**: ISOFIT-style joint fitting of higher-order harmonics within the iteration loop.
+- **2D model building**: Reconstruct galaxy images from isophote profiles with optional harmonic deviations.
+- **Convergence controls**: Sector-area scaling, geometry damping, and geometry-stability convergence.
+- **Photometry metrics**: Integrated flux, curve-of-growth, and adaptive integration modes.
+- **Photutils compatibility**: Consistent algorithms and output format with industry standards.
+- **Function-based API**: Simple, stateless interface for easy integration and testing.
 
-For highly elliptical galaxies (ellipticity ε = 1 - b/a > 0.6), the default `maxgerr=0.5` parameter may be too strict, causing excessive isophote failures even when photometry is accurate. This occurs because gradient errors are amplified in high-ellipticity geometries.
+## Documentation
 
-**Recommendation:** Use relaxed `maxgerr` values for high-ellipticity cases:
-
-```python
-from isoster.config import IsosterConfig
-
-# For high ellipticity (eps > 0.6)
-config = IsosterConfig(
-    eps=0.7,
-    pa=1.0,
-    maxgerr=1.0,  # Relaxed from default 0.5
-    use_eccentric_anomaly=True,  # Recommended for eps > 0.3
-)
-
-results = isoster.fit_image(image, mask, config)
-```
-
-**Guidelines:**
-- **ε < 0.6**: Use default `maxgerr=0.5`
-- **0.6 ≤ ε ≤ 0.7**: Use `maxgerr=1.0` (improves convergence from ~40% to ~85%)
-- **ε > 0.7**: Use `maxgerr=1.2` or higher
-- Always enable `use_eccentric_anomaly=True` for ε > 0.3
-
-See `docs/user-guide.md` (Stop Codes (Canonical Reference)) for detailed stop-code semantics and filtering guidance.
-
-### Advanced Features
-
-ISOSTER includes several advanced capabilities for challenging data:
-
-**Permissive Geometry Mode**: For data with convergence issues, enable "best effort" geometry updates:
-```python
-config = IsosterConfig(
-    permissive_geometry=True,  # Continue fitting through failures
-)
-```
-
-**Central Region Regularization**: Stabilize fitting in low S/N central regions:
-```python
-config = IsosterConfig(
-    use_central_regularization=True,
-    central_reg_sma_threshold=5.0,  # Regularize below 5 pixels
-    central_reg_strength=1.0,       # Moderate strength
-)
-```
-
-**Simultaneous Higher-Order Harmonics**: Capture morphological features (boxy/disky isophotes):
-```python
-config = IsosterConfig(
-    simultaneous_harmonics=True,
-    harmonic_orders=[3, 4, 5, 6],  # Fit up to 6th order
-    use_eccentric_anomaly=True,    # Recommended with harmonics
-)
-```
-
-For complete documentation, see:
-
-- `docs/index.md` for docs structure
-- `docs/spec.md` for architecture and interfaces
-- `docs/user-guide.md` for usage guidance and stop-code interpretation
-- `docs/future.md` for long-term roadmap
-- `CLAUDE.md` for agent/development rules
-
-## Test and Benchmark Entry Points
-
-```bash
-# Tests (default set; see tests/README.md for targeted suites)
-uv run pytest tests/ -q
-
-# Real-data tests (explicit)
-uv run pytest tests/real_data -m real_data -v -s
-
-# Benchmarks (quick comparison)
-uv run python benchmarks/performance/bench_vs_photutils.py --quick
-
-# Numba diagnostics (baseline + scaled workload)
-uv run python benchmarks/performance/bench_numba_speedup.py --n-runs 4 --scale-factor 1.0
-uv run python benchmarks/performance/bench_numba_speedup.py --n-runs 3 --scale-factor 2.0 --output outputs/benchmarks_performance/bench_numba_speedup_scale2
-
-# Flagged-case numba drill (targets slowdown/high-variability cases)
-uv run python benchmarks/profiling/profile_numba_flagged_cases.py --timing-runs 3 --profile-runs 1
-
-# Scaffold reusable mockgal models_config_batch templates into outputs/
-uv run python benchmarks/baselines/scaffold_models_config_batch_templates.py
-
-# Docs tooling
-uv run mkdocs --version
-```
-
-For the full benchmark command matrix and output conventions, see `benchmarks/README.md`.
+- [User Guide](docs/user-guide.md) — usage guidance, public API, and stop-code reference
+- [Configuration Reference](docs/configuration-reference.md) — all parameters and guidelines
+- [Algorithm Notes](docs/algorithm.md) — fitting and sampling implementation details
+- [Architecture Spec](docs/spec.md) — interfaces and design decisions
+- [Future Roadmap](docs/future.md) — planned upgrades and research directions
 
 ## Repository Structure
 
-- `isoster/`:
-    - `config.py`: Pydantic configuration model (`IsosterConfig`).
-    - `driver.py`: High-level image fitting orchestration.
-    - `sampling.py`: Vectorized elliptical coordinate sampling.
-    - `fitting.py`: Iterative harmonic fitting and error estimation.
-    - `model.py`: 2D image reconstruction from isophote profiles.
-    - `cog.py`: Curve-of-growth photometry.
-    - `plotting.py`: QA visualization and comparison figures.
-    - `numba_kernels.py`: Numba-accelerated kernels with numpy fallback.
-    - `utils.py`: FITS I/O and Astropy table conversion utilities.
-    - `cli.py`: Command-line interface entry point.
-    - `output_paths.py`: Output directory resolution helpers.
-- `reference/`: Photutils-compatible reference implementation (excluded from install).
-- `tests/`: Unit/integration/validation tests (`tests/README.md`).
-- `benchmarks/`: Performance and profiling benchmarks (`benchmarks/README.md`).
-- `examples/`: Reproducible mock/realistic workflows (`examples/README.md`).
-- `outputs/`: Generated artifacts (gitignored).
-- `docs/`: Stable docs + archived historical notes (`docs/index.md`).
+```
+isoster/          Core package (config, driver, sampling, fitting, model, plotting, cog)
+tests/            Unit, integration, and validation tests
+benchmarks/       Performance and profiling benchmarks
+examples/         Reproducible workflow examples
+docs/             Project documentation
+```
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup, code style, and pull request guidelines.
+
+## Citation
+
+If you use ISOSTER in your research, please cite using the metadata in [CITATION.cff](CITATION.cff).
 
 ## Acknowledgments
 
-ISOSTER began as an optimization of the `photutils.isophote` package. We thank the photutils contributors for their robust foundational algorithms.
+ISOSTER began as an optimization of the [`photutils.isophote`](https://photutils.readthedocs.io/) package. We thank the photutils contributors for their robust foundational algorithms.
+
+## License
+
+BSD-3-Clause. See [LICENSE](LICENSE) for details.

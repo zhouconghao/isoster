@@ -1,0 +1,20 @@
+cff-version: 1.2.0
+title: "ISOSTER: ISOphote on STERoid"
+message: "If you use this software, please cite it using the metadata below."
+type: software
+license: BSD-3-Clause
+version: 0.1.0
+repository-code: "https://github.com/shuang-stat/isoster"
+abstract: >-
+  Accelerated Python library for elliptical isophote fitting in galaxy images.
+  Provides 10-15x faster performance compared to photutils.isophote using
+  vectorized path-based sampling via scipy's map_coordinates.
+authors:
+  - family-names: ""    # TODO: Fill in author family name
+    given-names: ""     # TODO: Fill in author given name
+    orcid: ""           # TODO: Fill in ORCID (e.g., https://orcid.org/0000-0000-0000-0000)
+keywords:
+  - astronomy
+  - isophote fitting
+  - galaxy photometry
+  - ellipse fitting

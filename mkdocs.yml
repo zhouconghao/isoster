@@ -13,7 +13,10 @@ nav:
   - Home: index.md
   - Spec: spec.md
   - User Guide: user-guide.md
+  - Configuration: configuration-reference.md
   - Algorithm: algorithm.md
+  - Testing: testing.md
+  - QA Figures: qa-figures.md
   - Future: future.md
 
 markdown_extensions:

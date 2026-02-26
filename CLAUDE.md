@@ -18,16 +18,6 @@ ISOSTER (ISOphote on STERoid) is an accelerated Python library for elliptical is
 - Generated artifacts must be written under `outputs/` and not mixed into source folders.
 - Use `uv` as the default tool for dependency management and environment execution.
 
-## Testing and Benchmark Directives (2026-02-11)
-
-- The canonical basic real-data dataset is `examples/data/m51/M51.fits`; the basic real-data test should be named `m51_test`.
-- For Huang2013 workflows, use a fixed default initial SMA of `6.0` pixels (`sma0`) instead of deriving it from `RE_PX1`.
-- For future high-fidelity mock generation, use `/Users/mac/Dropbox/work/project/otters/isophote_test/mockgal.py` (libprofit-based) when PSF convolution and realistic background-noise controls are required.
-- For `mockgal.py` benchmark/test workflows, force `--engine libprofit` and do not rely on astropy fallback rendering.
-- For noiseless single-Sersic validation without PSF convolution, compare against an analytic 1-D Sersic truth using accurate `b_n` evaluation (for example, `scipy.special.gammaincinv`) rather than low-accuracy approximations.
-- Tests and benchmarks must be quantitative, with explicit statistics from 1-D profile deviations and 2-D residual diagnostics.
-- Treat 2-D residual metrics as system-level diagnostics (profile extraction + model reconstruction combined), not as an isolated extraction-only metric.
-
 ## Context and Memory Preservation
 
 When a task is long or the context window is becoming constrained:
@@ -86,224 +76,36 @@ Follow these rules for all Python environment and dependency work in this reposi
    - `uv run pytest --collect-only -q`
    - `uv run mkdocs --version`
 
-## Architecture
+## Documentation Index
 
-### Core Pipeline Flow
+| Document | Description |
+|----------|-------------|
+| `docs/spec.md` | Architecture, interfaces, and design decisions |
+| `docs/user-guide.md` | Usage guidance, stop-code reference, public API |
+| `docs/algorithm.md` | Fitting and sampling implementation notes |
+| `docs/configuration-reference.md` | All configuration parameters and guidelines |
+| `docs/testing.md` | Testing and benchmark directives |
+| `docs/qa-figures.md` | QA figure layout and style conventions |
+| `docs/future.md` | Long-term upgrades and research roadmap |
+| `docs/todo.md` | Active execution checklist and review notes |
+| `docs/lessons.md` | Development lessons and process guardrails |
 
-1. **driver.py** (`fit_image`) - Main entry point orchestrating the fitting:
-   - Fits central pixel, then initial isophote at `sma0`
-   - Iteratively grows outward (increasing SMA) then inward
-   - Supports template-based forced photometry via `template` parameter for multiband analysis
-   - Returns dict with `{'isophotes': [...], 'config': IsosterConfig}`
+## Testing and Benchmark Directives
 
-2. **sampling.py** (`extract_isophote_data`) - Vectorized ellipse sampling:
-   - Returns `IsophoteData` namedtuple with `(angles, phi, intens, radii)`
-   - Two sampling modes: uniform in position angle φ (traditional) or eccentric anomaly ψ (Ciambur 2015, better for high ellipticity)
-
-3. **fitting.py** (`fit_isophote`) - Single isophote harmonic fitting:
-   - Fits 1st and 2nd harmonics to intensity profile: `I(φ) = Ī + A₁sin(φ) + B₁cos(φ) + A₂sin(2φ) + B₂cos(2φ)`
-   - Iteratively updates geometry (x0, y0, eps, pa) based on harmonic coefficients
-   - Convergence when `max_harmonic_amplitude < conver * rms`
-
-4. **config.py** (`IsosterConfig`) - Pydantic configuration model with all parameters
-
-5. **model.py** (`build_isoster_model`) - Reconstructs 2D image from isophote profiles using radial interpolation, with optional higher-order harmonic deviations
-
-### Key Concepts
-
-- **Eccentric Anomaly (EA) mode**: When `use_eccentric_anomaly=True`, samples uniformly in ψ for uniform arc-length coverage on high-ellipticity ellipses. Harmonics fitted in ψ-space, geometry updates in φ-space. Recommended for ε > 0.3.
-
-- **Template-based forced photometry**: When `template` is provided to `fit_image()`, applies variable geometry (one per SMA) from the template to the new image. Accepts a file path, results dict, or list of isophote dicts. Enables consistent multiband photometry by using geometry from one band (e.g., g-band) for other bands (r, i, z).
-
-- **Simultaneous harmonics fitting**: When `simultaneous_harmonics=True`, uses true ISOFIT (Ciambur 2015) simultaneous fitting of higher-order harmonics (orders specified by `harmonic_orders=[3, 4, ...]`) jointly with geometry harmonics inside the iteration loop. This accounts for cross-correlations and yields cleaner RMS. Falls back to 5-param when sample points are insufficient for the extended design matrix.
-
-- **Permissive geometry mode**: When `permissive_geometry=True`, enables photutils-style "best effort" geometry updates that continue even from failed fits, preventing cascading failures in challenging data.
-
-- **Central regularization**: When `use_central_regularization=True`, applies geometry regularization in low S/N central regions (SMA < `central_reg_sma_threshold`) to stabilize fitting by penalizing large geometry changes.
-
-- **Convergence scaling**: `convergence_scaling='sector_area'` (default) scales the convergence threshold by the approximate sector area, which grows with SMA. This matches photutils behavior and eliminates most stop=2 failures at outer isophotes. Use `'none'` for legacy (SMA-independent) behavior.
-
-- **Geometry damping**: `geometry_damping` (0-1, default 0.7) scales geometry corrections to prevent oscillations. The default 0.7 was validated across 20 Huang2013 galaxies, eliminating nearly all stop=2 failures when combined with `sector_area` scaling. Use `1.0` for legacy (undamped) behavior.
-
-- **Geometry update mode**: `geometry_update_mode` controls how many geometry parameters are corrected per iteration. `'largest'` (default) updates only the parameter with the largest harmonic amplitude (coordinate descent, matching isofit/photutils). `'simultaneous'` updates all four parameters (x0, y0, PA, eps) each iteration, typically converging in fewer iterations. Use with `geometry_damping=0.5` for stability.
-
-- **Geometry convergence**: When `geometry_convergence=True`, declares convergence when geometry parameters stabilize for `geometry_stable_iters` consecutive iterations (within `geometry_tolerance`), even if the harmonic criterion is not met.
-
-- **Stop codes**: 0=converged, 1=too many flagged pixels, 2=max iterations reached, 3=too few points, -1=gradient error
-
-### Directory Layout
-
-- `isoster/` - Main package
-- `reference/` - Photutils-compatible reference implementation (excluded from install)
-- `tests/` - Unit/integration/validation/real-data tests
-- `reference/tests/` - Tests for reference implementation
-- `benchmarks/` - Performance and profiling scripts
-- `examples/` - Reproducible workflow examples
-- `outputs/` - Generated artifacts (gitignored)
-- `docs/` - Stable docs + archived historical notes (`docs/index.md`)
-
-## Public API
-
-### Basic Usage
-
-```python
-import isoster
-
-# Single-band fitting
-results = isoster.fit_image(image, mask, config)
-
-# Save results to FITS
-isoster.isophote_results_to_fits(results, "output.fits")
-
-# Load results from FITS
-results = isoster.isophote_results_from_fits("output.fits")
-
-# Build 2D model (with optional harmonics)
-model = isoster.build_isoster_model(
-    image.shape,
-    results['isophotes'],
-    use_harmonics=True,              # Include harmonic deviations (default: True)
-    harmonic_orders=None,            # None = auto-detect from isophote keys (default)
-    use_eccentric_anomaly=None,      # None = auto-detect from isophote dicts (default)
-)
-
-# Convert to Astropy table
-table = isoster.isophote_results_to_astropy_tables(results)
-
-# QA visualization
-isoster.plot_qa_summary(...)
-```
-
-### Multiband Analysis with Template-Based Forced Photometry
-
-```python
-import isoster
-
-# Fit reference band (e.g., g-band) normally
-results_g = isoster.fit_image(image_g, mask_g, config)
-isoster.isophote_results_to_fits(results_g, "galaxy_g.fits")
-
-# Apply g-band geometry to other bands using template (accepts results dict)
-results_r = isoster.fit_image(image_r, mask_r, config, template=results_g)
-results_i = isoster.fit_image(image_i, mask_i, config, template=results_g)
-
-# OR load template directly from saved FITS file path
-results_r = isoster.fit_image(image_r, mask_r, config, template='galaxy_g.fits')
-
-# OR pass isophote list directly
-results_r = isoster.fit_image(
-    image_r, mask_r, config,
-    template=results_g['isophotes']
-)
-```
-
-## Important Configuration Parameters
-
-### Advanced Fitting Options
-
-```python
-from isoster.config import IsosterConfig
-
-config = IsosterConfig(
-    # Basic geometry
-    sma0=10.0,           # Initial semi-major axis
-    x0=None, y0=None,    # Center (None = auto-detect)
-    eps=0.2, pa=0.0,     # Initial ellipticity and position angle
-
-    # Sampling mode
-    use_eccentric_anomaly=True,  # Recommended for eps > 0.3
-
-    # Higher-order harmonics
-    simultaneous_harmonics=False,  # Enable ISOFIT-style simultaneous fitting
-    harmonic_orders=[3, 4],        # Harmonic orders to fit
-    isofit_mode='in_loop',         # 'in_loop' (simultaneous) or 'original' (Ciambur 2015 post-hoc)
-
-    # Geometry update strategy
-    geometry_update_mode='largest',  # 'largest' (one-param-at-a-time) or 'simultaneous' (all four)
-
-    # Geometry behavior
-    permissive_geometry=False,     # Enable photutils-style "best effort" updates
-
-    # Central region stabilization
-    use_central_regularization=False,  # Enable geometry regularization
-    central_reg_sma_threshold=5.0,     # SMA threshold (pixels)
-    central_reg_strength=1.0,          # Regularization strength (0-10)
-    central_reg_weights={              # Per-parameter weights
-        'eps': 1.0,
-        'pa': 1.0,
-        'center': 1.0
-    },
-
-    # Convergence criteria
-    maxgerr=0.5,         # Max gradient error (use 1.0-1.2 for eps > 0.6)
-    conver=0.05,         # Harmonic convergence threshold
-    convergence_scaling='sector_area',  # Scale threshold with SMA (default, matches photutils)
-    geometry_damping=0.7,               # Damping factor for geometry updates (default 0.7; 1.0 = no damping)
-    geometry_convergence=False,         # Enable geometry-stability convergence
-    geometry_tolerance=0.01,            # Tolerance for geometry convergence
-    geometry_stable_iters=3,            # Consecutive stable iterations required
-
-    # Photometry
-    full_photometry=False,   # Enable flux integration metrics (default: False)
-    compute_cog=False,       # Enable curve-of-growth photometry (default: False)
-    integrator='mean',       # Integration method: 'mean', 'median', or 'adaptive'
-    lsb_sma_threshold=None,  # SMA for switching to median in adaptive mode (pixels)
-)
-```
-
-### Parameter Guidelines
-
-- **Eccentric Anomaly (EA) mode**: Use `use_eccentric_anomaly=True` for ε > 0.3 to improve sampling uniformity
-- **High ellipticity**: For ε > 0.6, use relaxed `maxgerr=1.0` or higher to prevent excessive failures
-- **Challenging data**: Enable `permissive_geometry=True` to continue fitting through convergence issues
-- **Low S/N centers**: Enable `use_central_regularization=True` with appropriate threshold and strength
-- **Morphological features**: Enable `simultaneous_harmonics=True` for true ISOFIT joint fitting of higher-order harmonics within the iteration loop (better for boxy/disky galaxies)
-- **Convergence scaling**: Default `convergence_scaling='sector_area'` matches photutils behavior; use `'none'` to revert to legacy constant threshold
-- **Geometry damping**: Default `geometry_damping=0.7` stabilizes most cases; use `0.5` for severely oscillating fits, or `1.0` for legacy undamped behavior
-- **Geometry update mode**: `geometry_update_mode='simultaneous'` updates all four geometry parameters each iteration (vs default `'largest'` which updates only one). Use with `geometry_damping=0.5` for stability. Typically converges in fewer iterations.
-- **Geometry-based convergence**: Enable `geometry_convergence=True` as supplementary convergence criterion for challenging outer isophotes
+See `docs/testing.md`.
 
 ## QA Figure Rules
 
-When making QA figures to compare the `isoster` result with the truth or the `photutils.isophote` results, following the guidelines below:
+See `docs/qa-figures.md`.
 
-- Show the original image with a few selective isophotes on top.
-- If possible, reconstruct the 2-D model and subtract it from the image to highlight the residual pattern is informative.
-- When showing 1-D profiles, using `SMA ** 0.25` as the X-axis as it compress the outer profile that typically has a shallow slope while not zooming in to the center too much
-- When comparing with truth or different methods, use the relative 1-D residual or difference in the form of `(intensity_isoster - intensity_reference) / intensity_reference`.
-- Arrange all the sub-plots for 1-D information, including the surface brightness, residual/difference, position angle, axis ratio, and centroid vertically, sharing the same X-axis to save space. Among them, 1-D surface brightness profile should occupy larger area than the rest.
-- Using scatter plot with errorbar to show these 1-D profiles (`plt.scatter()`), not lines (`plt.plot`). Using dash line for the true model profiles.
-- Intensity, position angle, axis ratio, and centroid results in the outskirt can have huge errorbars. When setting the Y-axis ranges, do not include the error bars.
-- Normalize the position angle: sudden jump larger than 90 degrees often mean normalization issue.
-- For `isoster` or `photutils.isophote` results, should visually separate the valid and problematic 1-D datapoints using the stop code.
-- Treat the finalized IC2597 Huang2013 basic-QA style (`build_method_qa_figure` / `build_comparison_qa_figure`) as the default style/habit baseline for future QA figures unless a task explicitly requests a different style.
+## Architecture and Key Concepts
 
-## Benchmark Tests Rules
+See `docs/spec.md` and `docs/algorithm.md`.
 
-### Mock Single-Sersic Model Tests
+## Public API and Configuration
 
-- The mock galaxy model shall be centered with the image array.
-- The half-size of the mock image shall be at least 10 times of the effective radius of the mock model; if the mock model's effective radius is not very large, 15x would be even better.
-- Pay attention to the oversampling ratio, high-Sersic index and high ellipticity often require higher oversampling in the central region.
-- When comparing results between the truth or the reference profile:
-  - Ignore the region smaller than 3 pixels when there is no PSF convolution because sampling the central region often has numerical issues; ignore the region `<= 2 * psf_fwhm` due to PSF convolution.
-  - Ignore the region in the outskirt where problematic data points (using stop code) begin to appear or the intensity error bars become huge.
-- Metrics to evaluate the results:
-  - Median or maximum difference of a property between `0.5 * r_effective` (or 3 pixels, whichever is larger) to `8 * r_effective` is good for noiseless mocks; and to `5 * r_effective` is good for mocks with noise.
-  - Using median or maximum absolute different is a more strict standard.
-  - `isoster` can provide the curve of growth measurement, the relative difference of the curve of growth values at a few typical radius could be useful metrics.
+See `docs/user-guide.md` and `docs/configuration-reference.md`.
 
-### Build Ellipse Model Tests
+## Mock Generation
 
-- Key residual statistics:
-  - Fractional residual level: `100.0 * (model - data) / data`;
-  - Fractional absolute residual level: `100.0 * |model - data| / data`
-  - Chi-Square statistics: `(model - data) ** 2.0 / (sigma ** 2)`
-- Key metrics to evaluate the 2-D ellipse model:
-  - 1. Statistics of the fractional residual level, e.g., median or maximum values, within different radial range. This works the best for noiseless mock.
-  - 1. Statistics of the integrated values of the fractional absolute residual level within different radial range. This works the best for noiseless mock.
-  - 1. Integrated Chi-square statistics within different radial range. This works the best for noisy-added mocks or real images.
-- Radial ranges:
-  - < 0.5 Re (effective radius)
-  - 0.5-4 Re
-  - 4-8 Re
+For high-fidelity mock generation with PSF convolution and realistic noise, use `examples/huang2013/mockgal.py` (libprofit-based). Force `--engine libprofit` and do not rely on astropy fallback rendering.
