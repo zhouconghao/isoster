@@ -22,30 +22,30 @@ Phases 1-23 are complete. Detailed history has been archived to keep this file o
 
 Full review: `docs/review/claude_2026-02-26.md`
 
-Baseline: `main` at `a23e5ce`, 203 tests passing.
+Baseline: `main` at `a23e5ce`, 203 tests passing. Branch: `fix/r26-review-fixes`, 208 tests passing.
 
 ### Tracing Table
 
 | Task ID | Severity | Summary | Priority | Status | Blocked by |
 |---------|----------|---------|----------|--------|------------|
-| R26-01 | Important | Second-gradient formula wrong for linear growth (`fitting.py:642-645`) | P1 | Open | — |
+| R26-01 | Important | Second-gradient formula wrong for linear growth (`fitting.py:642-645`) | P1 | **Done** | — |
 | R26-02 | Important | `extract_forced_photometry` hardcodes harmonic keys | P2 | Open | R26-05 |
-| R26-03 | Important | Post-hoc harmonic code duplicated 3x in `fit_isophote` | P2 | Open | — |
+| R26-03 | Important | Post-hoc harmonic code duplicated 3x in `fit_isophote` | P2 | **Done** | — |
 | R26-04 | Important | V5 warning fires for every forced-mode config | P3 | Open | R26-05 |
 | R26-05 | Design | Unify forced photometry: replace `forced`/`forced_sma` with template-based API | P2 | Open | — |
-| R26-06 | Minor | V9 test assertion always true (`test_config_validation.py:181`) | P3 | Open | — |
+| R26-06 | Minor | V9 test assertion always true + `fit_central_pixel` missing debug fields | P3 | **Done** | — |
 | R26-07 | Minor | Wrong comment in `extract_forced_photometry` (`fitting.py:92`) | P4 | Open | — |
 | R26-08 | Minor | `var_residual` recomputed per coefficient in ISOFIT loop (`fitting.py:984-988`) | P4 | Open | — |
-| R26-09 | Minor | `fit_isophote` ~450 lines, hard to maintain | P3 | Open | R26-03 |
+| R26-09 | Minor | `fit_isophote` ~450 lines, hard to maintain | P3 | Partially addressed | R26-03 |
 | R26-10 | Minor | `model.py` `has_harmonics` checks only first isophote | P4 | Open | — |
 | R26-11 | Minor | Stop codes 4,5 defined in plotting but never produced | P4 | Open | — |
 | R26-12 | Minor | Vestigial duck typing in `compute_gradient` | P4 | Open | — |
 | R26-13 | Minor | No key validation in template forced mode (`driver.py:318`) | P3 | Open | R26-05 |
 | R26-14 | Minor | Default residual type change undocumented | P4 | Open | — |
-| R26-T1 | Test | Integration test: `geometry_update_mode='simultaneous'` with `fit_image` | P3 | Open | — |
-| R26-T2 | Test | Integration test: `isofit_mode='original'` post-hoc harmonics | P3 | Open | — |
-| R26-T3 | Test | Add test for invalid `convergence_scaling` values | P4 | Open | — |
-| R26-T4 | Test | Strengthen V9 test assertion (= R26-06) | P3 | Open | — |
+| R26-T1 | Test | Integration test: `geometry_update_mode='simultaneous'` with `fit_image` | P3 | **Done** | — |
+| R26-T2 | Test | Integration test: `isofit_mode='original'` post-hoc harmonics | P3 | **Done** | — |
+| R26-T3 | Test | Add test for invalid `convergence_scaling` values | P4 | **Done** | — |
+| R26-T4 | Test | Strengthen V9 test assertion (= R26-06) | P3 | **Done** | — |
 
 ### Dependency Graph
 
@@ -61,15 +61,15 @@ R26-03 (extract posthoc harmonic helper)
 
 ### Recommended Execution Order
 
-**Phase A — Bug fix (can land immediately on main):**
-1. R26-01: Fix second-gradient linear growth formula + add test
+**Phase A — Bug fix:** COMPLETE
+1. ~~R26-01: Fix second-gradient linear growth formula + add test~~
 
-**Phase B — Refactoring (feature branch, no API changes):**
-2. R26-03: Extract `_compute_posthoc_harmonics` helper
-3. R26-T1: Integration test for simultaneous geometry with `fit_image`
-4. R26-T2: Integration test for `isofit_mode='original'`
-5. R26-06/R26-T4: Fix V9 test assertion
-6. R26-T3: Convergence scaling validation test
+**Phase B — Refactoring:** COMPLETE
+2. ~~R26-03: Extract `_compute_posthoc_harmonics` helper~~
+3. ~~R26-T1: Integration test for simultaneous geometry with `fit_image`~~
+4. ~~R26-T2: Integration test for `isofit_mode='original'`~~
+5. ~~R26-06/R26-T4: Fix V9 test assertion + `fit_central_pixel` debug fields~~
+6. ~~R26-T3: Convergence scaling validation test~~
 
 **Phase C — API redesign (feature branch, needs design discussion):**
 7. R26-05: Design unified template-based forced photometry API

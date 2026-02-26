@@ -77,7 +77,7 @@ def fit_central_pixel(image, mask, x0, y0, debug=False):
         if mask[int(np.round(y0)), int(np.round(x0))]:
             valid = False
             
-    return {
+    result = {
         'x0': x0, 'y0': y0, 'eps': 0.0, 'pa': 0.0, 'sma': 0.0,
         'intens': val if valid else np.nan,
         'rms': 0.0, 'intens_err': 0.0,
@@ -88,6 +88,10 @@ def fit_central_pixel(image, mask, x0, y0, debug=False):
         'stop_code': 0 if valid else -1,
         'niter': 0, 'valid': valid
     }
+    if debug:
+        result.update({'ndata': 1 if valid else 0, 'nflag': 0,
+                       'grad': np.nan, 'grad_error': np.nan, 'grad_r_error': np.nan})
+    return result
 
 def fit_image(image, mask=None, config=None, template_isophotes=None):
     """

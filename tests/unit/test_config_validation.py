@@ -178,7 +178,7 @@ def test_template_forced_respects_debug():
 
     # Central pixel (sma=0) should have debug fields when debug=True
     central = [iso for iso in result['isophotes'] if iso['sma'] == 0][0]
-    assert 'ndata' in central or 'valid' in central
+    assert 'ndata' in central, "debug=True should produce 'ndata' key in central pixel"
 
 
 # ---------------------------------------------------------------------------
@@ -219,3 +219,23 @@ def test_no_warn_lsb_threshold_with_adaptive():
     with warnings.catch_warnings():
         warnings.simplefilter("error")
         IsosterConfig(integrator='adaptive', lsb_sma_threshold=50.0)
+
+
+# ---------------------------------------------------------------------------
+# R26-T3: invalid convergence_scaling values rejected by pattern
+# ---------------------------------------------------------------------------
+
+def test_error_invalid_convergence_scaling():
+    """R26-T3: invalid convergence_scaling values should raise ValidationError."""
+    from pydantic import ValidationError
+
+    for bad_value in ['linear', 'SECTOR_AREA', 'sma', '']:
+        with pytest.raises(ValidationError, match="convergence_scaling"):
+            IsosterConfig(convergence_scaling=bad_value)
+
+
+def test_valid_convergence_scaling_values():
+    """R26-T3 negative: all valid convergence_scaling values accepted."""
+    for good_value in ['none', 'sector_area', 'sqrt_sma']:
+        cfg = IsosterConfig(convergence_scaling=good_value)
+        assert cfg.convergence_scaling == good_value
