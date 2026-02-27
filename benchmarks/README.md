@@ -31,8 +31,20 @@ uv run python benchmarks/performance/bench_numba_speedup.py --n-runs 3 --scale-f
 # Flagged-case numba profiling drills (defaults target scale1+scale2 JSON outputs)
 uv run python benchmarks/profiling/profile_numba_flagged_cases.py --timing-runs 3 --profile-runs 1
 
-# Method comparison benchmark (quick mode)
+# Method comparison benchmark: isoster vs photutils (quick mode)
 uv run python benchmarks/performance/bench_vs_photutils.py --quick
+
+# Method comparison benchmark: isoster vs AutoProf (quick mode — IC3370 only)
+uv run python benchmarks/performance/bench_vs_autoprof.py --quick --plots
+
+# AutoProf full benchmark (all galaxies)
+uv run python benchmarks/performance/bench_vs_autoprof.py --plots
+
+# AutoProf benchmark — isoster only (skip AutoProf, replot from cache)
+uv run python benchmarks/performance/bench_vs_autoprof.py --skip-autoprof --plots
+
+# AutoProf benchmark — specific galaxies
+uv run python benchmarks/performance/bench_vs_autoprof.py --galaxies IC3370_mock2 ngc3610 --plots
 
 # Profiling artifacts (.prof + summaries)
 uv run python benchmarks/profiling/profile_hotpaths.py --multi 1 --top-n 20
