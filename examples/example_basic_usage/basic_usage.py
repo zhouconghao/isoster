@@ -82,8 +82,6 @@ def main():
     # Extract profile data
     sma = np.array([iso['sma'] for iso in isophotes])
     intens = np.array([iso['intens'] for iso in isophotes])
-    eps_fit = np.array([iso['eps'] for iso in isophotes])
-    pa_fit = np.array([iso['pa'] for iso in isophotes])
     stop_codes = np.array([iso['stop_code'] for iso in isophotes])
 
     # Summary statistics
@@ -115,7 +113,7 @@ def main():
     axes[2].set_title('Surface Brightness Profile')
     axes[2].grid(True, alpha=0.3)
 
-    output_dir = resolve_output_directory("examples_basic_usage")
+    output_dir = resolve_output_directory("example_basic_usage")
     output_path = output_dir / "basic_usage_example.png"
 
     plt.tight_layout()

@@ -11,7 +11,7 @@ Two investigations:
    (conver=0.005, maxit=500) to check whether the default settings converge
    too early, leaving harmonic residuals on the table.
 
-Output goes to ``outputs/ngc3610_highorder_exploration/``.
+Output goes to ``outputs/example_ls_highorder_harmonic/ngc3610_highorder_exploration/``.
 """
 
 from __future__ import annotations
@@ -30,7 +30,6 @@ import isoster
 from isoster.config import IsosterConfig
 from isoster.model import build_isoster_model
 from isoster.plotting import (
-    compute_fractional_residual_percent,
     configure_qa_plot_style,
     derive_arcsinh_parameters,
     draw_isophote_overlays,
@@ -42,13 +41,12 @@ from isoster.plotting import (
     set_x_limits_with_right_margin,
 )
 
-# Reuse data-loading and masking helpers
+# Reuse data-loading and masking helpers from this example folder.
 _HERE = Path(__file__).parent
-sys.path.insert(0, str(_HERE / "real_galaxy_legacysurvey_highorder_harmonics"))
+sys.path.insert(0, str(_HERE))
 
 from masking import make_object_mask  # noqa: E402
 from shared import (  # noqa: E402
-    BAND_NAMES,
     FITS_FILENAME,
     INITIAL_SMA,
     MASK_PARAMS,
@@ -56,7 +54,7 @@ from shared import (  # noqa: E402
     load_legacysurvey_fits,
 )
 
-OUTPUT_DIR = Path("outputs/ngc3610_highorder_exploration")
+OUTPUT_DIR = Path("outputs/example_ls_highorder_harmonic/ngc3610_highorder_exploration")
 GALAXY = "ngc3610"
 BAND_INDEX = 1  # r-band
 HARMONIC_ORDERS = [3, 4, 5, 6, 7]
@@ -550,10 +548,10 @@ def plot_convergence_comparison(
 def main() -> None:
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
-    data_dir = _HERE / "data"
+    data_dir = _HERE.parent.parent / "data"
     fits_path = data_dir / FITS_FILENAME[GALAXY]
 
-    print(f"Loading NGC3610 (r-band)...")
+    print("Loading NGC3610 (r-band)...")
     image, pixel_scale = load_legacysurvey_fits(fits_path, BAND_INDEX)
     print(f"  Shape: {image.shape}, pixel scale: {PIXEL_SCALE[GALAXY]} arcsec/px")
 

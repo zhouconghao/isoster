@@ -6,8 +6,8 @@ Shared FITS datasets used by tests, benchmarks, and examples.
 
 ### IC3370_mock2.fits
 
-- **Source**: Synthetic mock from Huang et al. (2013), generated via `examples/huang2013/mockgal.py`
-  using the `libprofit` engine.
+- **Source**: Synthetic mock from Huang et al. (2013), generated with the
+  external `mockgal.py` workflow using the `libprofit` engine.
 - **Galaxy type**: Elliptical (mock Sérsic model, NGC-type morphology)
 - **Image size**: 256 × 256 pixels
 - **Pixel scale**: 0.168 arcsec/px (HSC-like)
@@ -41,7 +41,7 @@ Shared FITS datasets used by tests, benchmarks, and examples.
 - **Image size**: varies (full mosaic)
 - **Pixel scale**: HST ACS pixel scale (~0.05 arcsec/px)
 - **Notes**: Canonical basic real-data test dataset.
-  Referenced by `tests/real_data/test_m51.py` and `examples/curve_of_growth.py`.
+  Referenced by `tests/real_data/test_m51.py`.
 - **Rights**: HST public archive data, no restrictions.
 
 ## Usage

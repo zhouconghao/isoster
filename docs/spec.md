@@ -88,7 +88,7 @@ Each isophote row includes geometry/intensity fields and optional blocks dependi
 
 ## Huang2013 Campaign Workflow
 
-The external Huang2013 mock-comparison workflow under `examples/huang2013/` is a two-stage pipeline:
+The external Huang2013 mock-comparison workflow under `examples/example_huang2013/` is a two-stage pipeline:
 
 1. Profile extraction (`run_huang2013_profile_extraction.py`) with per-method status captured in `*_profiles_manifest.json` (success/failed without aborting the case).
 2. QA afterburner (`run_huang2013_qa_afterburner.py`) that tolerates missing method products and emits `*_qa_manifest.json` with skip/failure metadata.

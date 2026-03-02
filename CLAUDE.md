@@ -108,4 +108,4 @@ See `docs/user-guide.md` and `docs/configuration-reference.md`.
 
 ## Mock Generation
 
-For high-fidelity mock generation with PSF convolution and realistic noise, use `examples/huang2013/mockgal.py` (libprofit-based). Force `--engine libprofit` and do not rely on astropy fallback rendering.
+For high-fidelity mock generation with PSF convolution and realistic noise, use the external `mockgal.py` workflow referenced by `benchmarks/utils/mockgal_adapter.py`. Force `--engine libprofit` and do not rely on astropy fallback rendering.

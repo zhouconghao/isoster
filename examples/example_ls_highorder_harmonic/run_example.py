@@ -10,14 +10,14 @@ Usage
 ::
 
     # ESO243-49 r-band (index 1)
-    uv run python examples/real_galaxy_legacysurvey_highorder_harmonics/run_example.py \\
+    uv run python examples/example_ls_highorder_harmonic/run_example.py \\
         --galaxy eso243-49 --band-index 1 \\
-        --output-dir outputs/legacysurvey_highorder_harmonics/
+        --output-dir outputs/example_ls_highorder_harmonic/
 
     # NGC3610 r-band
-    uv run python examples/real_galaxy_legacysurvey_highorder_harmonics/run_example.py \\
+    uv run python examples/example_ls_highorder_harmonic/run_example.py \\
         --galaxy ngc3610 --band-index 1 \\
-        --output-dir outputs/legacysurvey_highorder_harmonics/
+        --output-dir outputs/example_ls_highorder_harmonic/
 
 Output layout
 -------------
@@ -40,14 +40,12 @@ from pathlib import Path
 
 import numpy as np
 import matplotlib.pyplot as plt
-import matplotlib.gridspec as gridspec
 
 import isoster
 from isoster.config import IsosterConfig
 from isoster.plotting import (
     configure_qa_plot_style,
     derive_arcsinh_parameters,
-    draw_isophote_overlays,
     make_arcsinh_display_from_parameters,
     plot_qa_summary_extended,
 )
@@ -56,7 +54,7 @@ from isoster.plotting import (
 _HERE = Path(__file__).parent
 sys.path.insert(0, str(_HERE))
 
-from masking import load_mask_fits, make_object_mask, save_mask_fits  # noqa: E402
+from masking import make_object_mask, save_mask_fits  # noqa: E402
 from shared import (  # noqa: E402
     BAND_NAMES,
     CONDITION_ORDER,
@@ -100,7 +98,7 @@ def parse_arguments() -> argparse.Namespace:
     parser.add_argument(
         "--output-dir",
         type=Path,
-        default=Path("outputs/legacysurvey_highorder_harmonics"),
+        default=Path("outputs/example_ls_highorder_harmonic"),
         help="Root output directory.",
     )
     parser.add_argument(

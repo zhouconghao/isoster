@@ -1,40 +1,40 @@
 # Examples
 
-This folder contains reproducible workflow examples on mock or real-like data.
+This folder contains reproducible workflow examples on synthetic, survey, and
+external mock datasets.
 
-## Scope
+## Layout
 
-- `basic_usage.py`: minimal API walkthrough.
-- `curve_of_growth.py`: curve-of-growth oriented workflow.
-- `huang2013/`: realistic mock-galaxy workflow and QA generation.
-- `mockgal/models_config_batch/`: reusable template files for batch-mode `mockgal_adapter` presets.
-- `data/`: example input data used by scripts.
+- `example_basic_usage/`
+  - Minimal synthetic end-to-end walkthrough.
+  - Run with `uv run python examples/example_basic_usage/basic_usage.py`.
+  - Default output: `outputs/example_basic_usage/`.
+- `example_cog/`
+  - Curve-of-growth validation on a synthetic Sersic image.
+  - Run with `uv run python examples/example_cog/example_curve_of_growth.py`.
+  - Default output: `outputs/example_cog/`.
+- `example_ls_highorder_harmonic/`
+  - Real-galaxy Legacy Survey harmonic-fitting example on `eso243-49` and `ngc3610`.
+  - Main entrypoint: `uv run python examples/example_ls_highorder_harmonic/run_example.py --galaxy eso243-49 --band-index 1`.
+  - Default main output: `outputs/example_ls_highorder_harmonic/`.
+  - Additional exploration scripts exist in this folder, but do not run them by default.
+- `example_huang2013/`
+  - Two-stage Huang2013 external mock workflow: profile extraction, QA afterburner, campaign runner, and cleanup helper.
+  - Main products are intentionally written outside `outputs/` under the external Huang2013 root because each case generates many files.
+  - Campaign summaries still default to `outputs/huang2013_campaign/`.
 
-## Non-Scope
+## Shared Data
 
-- Regression/unit checks belong in `tests/`.
-- Performance benchmarking belongs in `benchmarks/`.
-
-## Reproducible Commands
-
-```bash
-# Basic usage example
-uv run python examples/basic_usage.py
-
-# Curve-of-growth example
-uv run python examples/curve_of_growth.py
-
-# Huang2013 mock workflow
-uv run python examples/huang2013/test_huang2013_mocks.py --help
-uv run python examples/huang2013/test_huang2013_mocks.py --output-dir outputs/examples_huang2013/manual_run
-```
+- Example FITS inputs tracked in this repo now live under the repository-level `data/` folder, not `examples/data/`.
+- Legacy Survey scripts expect files like `data/eso243-49.fits` and `data/ngc3610.fits`.
 
 ## Output Policy
 
-Example outputs should be saved under `outputs/`.
-You can override the output root with `ISOSTER_OUTPUT_ROOT`.
+- Default rule: each example folder writes to `outputs/<example-folder>/`.
+- Exception: `example_huang2013` writes case-level artifacts under `--huang-root/<GALAXY>/mock<ID>/` and only campaign summaries under `outputs/` by default.
+- Set `ISOSTER_OUTPUT_ROOT` to override the shared `outputs/` root for examples that use the standard output helper.
 
-Recommended naming:
-- `outputs/examples_basic_usage/<run_id>/...`
-- `outputs/examples_curve_of_growth/<run_id>/...`
-- `outputs/examples_huang2013/<run_id>/...`
+## Non-Scope
+
+- Regression and unit checks belong in `tests/`.
+- Performance benchmarks belong in `benchmarks/`.

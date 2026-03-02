@@ -5,7 +5,7 @@ NGC3610 Mask Effect Exploration
 Compare fitting results with the object mask vs no mask to understand
 how the mask affects isophote fitting and model reconstruction.
 
-Output goes to ``outputs/ngc3610_highorder_exploration/``.
+Output goes to ``outputs/example_ls_highorder_harmonic/ngc3610_mask_effect/``.
 """
 
 from __future__ import annotations
@@ -26,7 +26,6 @@ from isoster.model import build_isoster_model
 from isoster.plotting import (
     configure_qa_plot_style,
     derive_arcsinh_parameters,
-    draw_isophote_overlays,
     make_arcsinh_display_from_parameters,
     normalize_pa_degrees,
     plot_qa_summary_extended,
@@ -36,7 +35,7 @@ from isoster.plotting import (
 )
 
 _HERE = Path(__file__).parent
-sys.path.insert(0, str(_HERE / "real_galaxy_legacysurvey_highorder_harmonics"))
+sys.path.insert(0, str(_HERE))
 
 from masking import make_object_mask  # noqa: E402
 from shared import (  # noqa: E402
@@ -47,7 +46,7 @@ from shared import (  # noqa: E402
     load_legacysurvey_fits,
 )
 
-OUTPUT_DIR = Path("outputs/ngc3610_highorder_exploration")
+OUTPUT_DIR = Path("outputs/example_ls_highorder_harmonic/ngc3610_mask_effect")
 GALAXY = "ngc3610"
 BAND_INDEX = 1
 HARMONIC_ORDERS = [3, 4, 5, 6, 7]
@@ -401,7 +400,7 @@ def plot_mask_comparison(
 def main() -> None:
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
-    data_dir = _HERE / "data"
+    data_dir = _HERE.parent.parent / "data"
     fits_path = data_dir / FITS_FILENAME[GALAXY]
 
     print("Loading NGC3610 (r-band)...")

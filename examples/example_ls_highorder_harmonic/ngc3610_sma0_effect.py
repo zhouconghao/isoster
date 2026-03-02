@@ -14,7 +14,7 @@ Seven values spanning ~2 orders of magnitude:
 - 10.0, 20.0: Moderate (well-constrained geometry)
 - 40.0, 80.0: Large (initial geometry guess must propagate inward)
 
-Output goes to ``outputs/ngc3610_sma0_effect/``.
+Output goes to ``outputs/example_ls_highorder_harmonic/ngc3610_sma0_effect/``.
 """
 
 from __future__ import annotations
@@ -35,8 +35,6 @@ from isoster.config import IsosterConfig
 from isoster.model import build_isoster_model
 from isoster.plotting import (
     configure_qa_plot_style,
-    derive_arcsinh_parameters,
-    make_arcsinh_display_from_parameters,
     normalize_pa_degrees,
     plot_qa_summary_extended,
     robust_limits,
@@ -46,7 +44,7 @@ from isoster.plotting import (
 
 # Reuse data-loading helpers
 _HERE = Path(__file__).parent
-sys.path.insert(0, str(_HERE / "real_galaxy_legacysurvey_highorder_harmonics"))
+sys.path.insert(0, str(_HERE))
 
 from shared import (  # noqa: E402
     FITS_FILENAME,
@@ -54,7 +52,7 @@ from shared import (  # noqa: E402
     load_legacysurvey_fits,
 )
 
-OUTPUT_DIR = Path("outputs/ngc3610_sma0_effect")
+OUTPUT_DIR = Path("outputs/example_ls_highorder_harmonic/ngc3610_sma0_effect")
 GALAXY = "ngc3610"
 BAND_INDEX = 1  # r-band
 HARMONIC_ORDERS = [3, 4, 5, 6, 7]
@@ -415,7 +413,7 @@ def plot_sma0_comparison(
 def main() -> None:
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
-    data_dir = _HERE / "data"
+    data_dir = _HERE.parent.parent / "data"
     fits_path = data_dir / FITS_FILENAME[GALAXY]
 
     print("Loading NGC3610 (r-band)...")
@@ -453,7 +451,7 @@ def main() -> None:
 
         isos = results["isophotes"]
         if not isos:
-            print(f"    No isophotes returned — skipping")
+            print("    No isophotes returned — skipping")
             continue
 
         n_iso = len(isos)
