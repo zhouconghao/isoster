@@ -8,7 +8,7 @@ from pathlib import Path
 
 
 DEFAULT_INPUT_PATH = Path("outputs/tests_integration/baseline_metrics/phase4_profile_baseline_metrics.json")
-DEFAULT_OUTPUT_PATH = Path("benchmarks/baselines/phase4_profile_thresholds_2026-02-11.json")
+DEFAULT_OUTPUT_PATH = Path("benchmarks/baselines/phase4_profile_thresholds.json")
 
 
 def lock_thresholds(input_path: Path) -> dict:

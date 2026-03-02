@@ -46,6 +46,8 @@ package versions) included in `results.json`.
 | `benchmarks/utils/sersic_model.py` | Synthetic Sérsic image generation |
 | `benchmarks/utils/run_metadata.py` | Environment metadata + JSON write |
 | `benchmarks/utils/autoprof_adapter.py` | AutoProf subprocess adapter (needs `AUTOPROF_PYTHON` env var) |
+| `benchmarks/utils/mockgal_adapter.py` | External mockgal.py + libprofit adapter for high-fidelity mock generation |
+| `benchmarks/utils/scaffold_models_config_batch_templates.py` | Copy YAML templates for `models_config_batch` runs |
 
 Future planned: `benchmarks/utils/report.py` — shared markdown report builder.
 

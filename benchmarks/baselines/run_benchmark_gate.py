@@ -44,9 +44,9 @@ from isoster.model import build_isoster_model  # noqa: E402
 from isoster.output_paths import resolve_output_directory  # noqa: E402
 
 
-DEFAULT_EFFICIENCY_LOCK_PATH = Path("benchmarks/baselines/efficiency_thresholds_2026-02-14.json")
-DEFAULT_PROFILE_LOCK_PATH = Path("benchmarks/baselines/phase4_profile_thresholds_2026-02-11.json")
-DEFAULT_GATE_DEFAULTS_PATH = Path("benchmarks/baselines/benchmark_gate_defaults.json")
+DEFAULT_EFFICIENCY_LOCK_PATH = Path("benchmarks/baselines/efficiency_thresholds.json")
+DEFAULT_PROFILE_LOCK_PATH = Path("benchmarks/baselines/phase4_profile_thresholds.json")
+DEFAULT_GATE_DEFAULTS_PATH = Path("benchmarks/baselines/run_benchmark_gate_defaults.json")
 
 TWO_D_CAVEAT = (
     "2-D residual metrics are system-level diagnostics (profile extraction + model reconstruction combined); "
