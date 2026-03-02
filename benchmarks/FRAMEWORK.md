@@ -90,22 +90,11 @@ Default: `/Users/mac/miniforge3/bin/python3`.
 
 ---
 
-## 7. Obsolete Scripts
+## 7. Adding a New Benchmark — Checklist
 
-The following scripts in `benchmarks/` are obsolete and candidates for deletion:
-
-| Script | Reason |
-|--------|--------|
-| `convergence_diagnostic.py` | Superseded by `ic3370_exhausted/` config sweep |
-| `huang2013_convergence_benchmark.py` | Superseded; Huang2013 convergence covered by `ic3370_exhausted/` |
-| `ngc1209_convergence_benchmark.py` | NGC1209 was a transitional target; IC3370 is canonical |
-| `bench_isofit_overhead.py` | Point measurement; overhead is now documented in reports |
-
-Before deleting, confirm no outputs that depend on them need to be regenerated.
-
----
-
-## 8. Adding a New Benchmark — Checklist
+> Obsolete scripts (`convergence_diagnostic.py`, `huang2013_convergence_benchmark.py`,
+> `ngc1209_convergence_benchmark.py`, `bench_isofit_overhead.py`) were deleted in the
+> 2026-03-02 housekeeping session.
 
 Before submitting a new benchmark script:
 

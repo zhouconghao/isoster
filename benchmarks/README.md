@@ -7,7 +7,7 @@ This folder contains performance and comparison benchmarks for isoster.
 - `performance/`: runtime and throughput comparisons (including method-vs-method).
 - `profiling/`: hotspot and profiler-oriented diagnostics.
 - `baselines/`: baseline data and CI regression gates.
-- `ic3370_exhausted/`: 39-configuration exhaustive sweep on IC3370_mock2.
+- `exhausted/`: 39-configuration exhaustive sweep on any galaxy image.
 - `utils/`: shared benchmark helpers.
 
 ## Goals
@@ -26,7 +26,7 @@ This folder contains performance and comparison benchmarks for isoster.
 | `performance/bench_vs_autoprof.py` | Performance | Speed + accuracy vs AutoProf | IC3370, eso243-49, ngc3610 | Reports, figures | Active |
 | `performance/bench_efficiency.py` | Performance | Standardized efficiency gate | Synthetic Sérsic | JSON timing | Active |
 | `performance/bench_numba_speedup.py` | Performance | Numba JIT impact | Synthetic Sérsic | JSON timing | Active |
-| `ic3370_exhausted/run_benchmark.py` | Config sweep | 39-config exhaustive sweep on IC3370 | `data/IC3370_mock2.fits` | Per-config FITS + figures | Active |
+| `exhausted/run_benchmark.py` | Config sweep | 39-config exhaustive sweep on any galaxy image | Any 2D FITS (default: IC3370_mock2) | Per-config JSON + figures | Active |
 | `baselines/run_benchmark_gate.py` | CI gate | Regression gate (efficiency + QA) | Synthetic + Huang2013 | Pass/fail + artifacts | Active |
 | `baselines/collect_phase4_profile_baseline.py` | Baseline | Collect Phase 4 profile metrics | Synthetic Sérsic | JSON | Active |
 | `baselines/lock_phase4_thresholds.py` | Baseline | Lock Phase 4 profile thresholds | JSON from above | Thresholds JSON | Active |
@@ -36,12 +36,6 @@ This folder contains performance and comparison benchmarks for isoster.
 | `profiling/profile_hotpaths.py` | Profiling | cProfile hotspot analysis | Synthetic Sérsic | `.prof` + JSON | Active |
 | `profiling/profile_isophote.py` | Profiling | Per-isophote profiling | Synthetic Sérsic | `.prof` + JSON | Active |
 | `profiling/profile_numba_flagged_cases.py` | Profiling | Numba flagged-case timing | Synthetic Sérsic | JSON timing | Active |
-| `convergence_diagnostic.py` | Convergence | Config sweep on single galaxy | NGC1209_mock2 | JSON + markdown | **Obsolete** |
-| `huang2013_convergence_benchmark.py` | Convergence | 20-galaxy convergence sweep | Huang2013 (external) | JSON + figures | **Obsolete** |
-| `ngc1209_convergence_benchmark.py` | Convergence | 10-config NGC1209 sweep | NGC1209_mock2 | Per-config FITS | **Obsolete** |
-| `bench_isofit_overhead.py` | Performance | ISOFIT overhead point measurement | Synthetic Sérsic | Stdout | **Obsolete** |
-
-Obsolete scripts are superseded by the `ic3370_exhausted/` sweep and are candidates for deletion.
 See `FRAMEWORK.md` for guidance on adding new benchmarks.
 
 ---

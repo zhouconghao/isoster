@@ -20,7 +20,7 @@
 
 | Folder | Script | Approx Size | Notes |
 |--------|--------|------------:|-------|
-| `benchmark_ic3370_exhausted/` | `benchmarks/ic3370_exhausted/run_benchmark.py` | 119 MB | 39-config sweep; REPORT.md present |
+| `benchmark_ic3370_exhausted/` | `benchmarks/exhausted/run_benchmark.py` | 119 MB | 39-config IC3370 sweep (canonical run); report.md present |
 | `benchmark_performance/` | `benchmarks/performance/` (multiple scripts) | 31 MB | bench_vs_autoprof, bench_vs_photutils, bench_efficiency, bench_numba, gate runs |
 | `benchmark_profiling/` | `benchmarks/profiling/` (multiple scripts) | 828 KB | cProfile hotspots, numba flagged cases |
 
