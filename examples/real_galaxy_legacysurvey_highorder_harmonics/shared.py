@@ -34,7 +34,7 @@ from isoster.plotting import (
 # Per-galaxy metadata
 # ---------------------------------------------------------------------------
 
-#: Supported galaxy names (lower-case, matching filenames under examples/data/)
+#: Supported galaxy names (lower-case, matching filenames under data/)
 SUPPORTED_GALAXIES = ("eso243-49", "ngc3610")
 
 #: Pixel scale in arcsec / pixel for each galaxy

@@ -73,7 +73,7 @@ from shared import (  # noqa: E402
 # ---------------------------------------------------------------------------
 # Data root (relative to project root)
 # ---------------------------------------------------------------------------
-_DATA_DIR = Path(__file__).parent.parent / "data"
+_DATA_DIR = Path(__file__).parent.parent.parent / "data"
 
 
 # ---------------------------------------------------------------------------
@@ -228,7 +228,7 @@ def main() -> None:
     if not fits_path.exists():
         sys.exit(
             f"ERROR: FITS file not found: {fits_path}\n"
-            f"Expected under examples/data/{FITS_FILENAME[galaxy]}"
+            f"Expected under data/{FITS_FILENAME[galaxy]}"
         )
 
     print("Loading image …")

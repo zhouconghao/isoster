@@ -56,7 +56,7 @@ from config_registry import (  # noqa: E402
 # Stop codes to track
 STOP_CODES = [0, 1, 2, 3, -1]
 
-DEFAULT_IMAGE_PATH = PROJECT_ROOT / "examples" / "data" / "IC3370_mock2.fits"
+DEFAULT_IMAGE_PATH = PROJECT_ROOT / "data" / "IC3370_mock2.fits"
 DEFAULT_OUTPUT_DIR = PROJECT_ROOT / "outputs" / "benchmark_ic3370_exhausted"
 
 

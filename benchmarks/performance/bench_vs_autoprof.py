@@ -65,7 +65,7 @@ from benchmarks.utils.autoprof_adapter import (  # noqa: E402
 # Galaxy registry
 # ---------------------------------------------------------------------------
 
-DATA_DIR = PROJECT_ROOT / "examples" / "data"
+DATA_DIR = PROJECT_ROOT / "data"
 
 # IC3370_mock2 values from benchmarks/ic3370_exhausted/config_registry.py
 GALAXY_REGISTRY = [

@@ -18,7 +18,7 @@ from astropy.io import fits
 from isoster import fit_image, isophote_results_to_fits
 from isoster.config import IsosterConfig
 
-image = fits.getdata("examples/data/m51/M51.fits")
+image = fits.getdata("data/m51/M51.fits")
 
 config = IsosterConfig(
     sma0=10.0,
