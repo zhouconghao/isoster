@@ -1,12 +1,30 @@
-"""Exhaustive IC3370 configuration benchmark.
+"""Exhaustive isoster configuration sweep benchmark.
 
 Tests every meaningful isoster configuration parameter (individually and in
-combination) against a photutils baseline on the IC3370_mock2 galaxy.
+combination) against a photutils baseline on a single galaxy FITS image.
+
+The sweep covers 39 configurations (P00 + S00-S23 + C01-C12) defined in
+config_registry.py.  Galaxy geometry is supplied via CLI arguments or
+auto-detected from the image.
 
 Usage:
-    uv run python benchmarks/ic3370_exhausted/run_benchmark.py
-    uv run python benchmarks/ic3370_exhausted/run_benchmark.py --configs S00,S08
-    uv run python benchmarks/ic3370_exhausted/run_benchmark.py --skip-photutils --skip-model
+    # Default run on the bundled IC3370 mock (geometry auto-detected)
+    uv run python benchmarks/exhausted/run_benchmark.py
+
+    # Explicit geometry for IC3370_mock2 (reproduces the canonical run)
+    uv run python benchmarks/exhausted/run_benchmark.py \\
+        --image data/IC3370_mock2.fits \\
+        --x0 566 --y0 566 --eps 0.239 --pa-deg -27.99 --sma0 6 --maxsma 283
+
+    # Run on a custom image with auto-detected geometry
+    uv run python benchmarks/exhausted/run_benchmark.py \\
+        --image data/ngc3610.fits --band-index 2 --galaxy-label ngc3610
+
+    # Run a subset of configs
+    uv run python benchmarks/exhausted/run_benchmark.py --configs S00,S08,C03
+
+    # Quick smoke test (S00 + S08 only, no QA figures, no model)
+    uv run python benchmarks/exhausted/run_benchmark.py --quick
 """
 
 from __future__ import annotations
@@ -46,18 +64,18 @@ from isoster.model import build_isoster_model  # noqa: E402
 from isoster.plotting import plot_qa_summary, plot_qa_summary_extended  # noqa: E402
 
 from config_registry import (  # noqa: E402
-    BASELINE_OVERRIDES,
     CONFIGURATIONS,
     EXTENDED_HARMONIC_CONFIGS,
     NEEDS_REFERENCE_GEOMETRY,
-    PHOTUTILS_FIT_CONFIG,
+    PARAMETER_BASELINE,
+    PHOTUTILS_PARAMETER_CONFIG,
 )
 
 # Stop codes to track
 STOP_CODES = [0, 1, 2, 3, -1]
 
 DEFAULT_IMAGE_PATH = PROJECT_ROOT / "data" / "IC3370_mock2.fits"
-DEFAULT_OUTPUT_DIR = PROJECT_ROOT / "outputs" / "benchmark_ic3370_exhausted"
+DEFAULT_OUTPUT_DIR = PROJECT_ROOT / "outputs" / "benchmark_exhausted"
 
 
 # ---------------------------------------------------------------------------
@@ -67,47 +85,154 @@ DEFAULT_OUTPUT_DIR = PROJECT_ROOT / "outputs" / "benchmark_ic3370_exhausted"
 def parse_args() -> argparse.Namespace:
     """Parse command-line arguments."""
     parser = argparse.ArgumentParser(
-        description="Exhaustive IC3370 configuration benchmark"
+        description="Exhaustive isoster configuration sweep benchmark",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
+
+    # Image selection
     parser.add_argument(
         "--image", type=Path, default=DEFAULT_IMAGE_PATH,
-        help="Path to IC3370_mock2.fits"
+        help="Path to a 2D (or 3D-cube) galaxy FITS file.",
     )
     parser.add_argument(
-        "--output-dir", type=Path, default=DEFAULT_OUTPUT_DIR,
-        help="Output directory"
+        "--band-index", type=int, default=0,
+        help="Band plane index to extract when the FITS contains a 3D cube (0-based).",
     )
+    parser.add_argument(
+        "--galaxy-label", type=str, default=None,
+        help="Short label used in titles and output folder names. "
+             "Defaults to the image file stem.",
+    )
+
+    # Geometry (all optional — auto-detected if omitted)
+    geo = parser.add_argument_group(
+        "geometry",
+        "Initial ellipse geometry. Omit any argument to auto-detect from the image.",
+    )
+    geo.add_argument("--x0", type=float, default=None,
+                     help="Galaxy centre x-coordinate (pixels, 0-indexed).")
+    geo.add_argument("--y0", type=float, default=None,
+                     help="Galaxy centre y-coordinate (pixels, 0-indexed).")
+    geo.add_argument("--eps", type=float, default=None,
+                     help="Initial ellipticity (0 = circular, <1).")
+    geo.add_argument("--pa-deg", type=float, default=None,
+                     help="Initial position angle in degrees (photutils convention).")
+    geo.add_argument("--sma0", type=float, default=None,
+                     help="Starting semi-major axis in pixels.")
+    geo.add_argument("--maxsma", type=float, default=None,
+                     help="Maximum semi-major axis in pixels.")
+
+    # Output
+    parser.add_argument(
+        "--output-dir", type=Path, default=None,
+        help="Output directory. Defaults to outputs/benchmark_exhausted/<galaxy-label>/.",
+    )
+
+    # Config selection
     parser.add_argument(
         "--configs", type=str, default=None,
-        help="Comma-separated config IDs to run (e.g., S00,S08,C03). Default: all."
+        help="Comma-separated config IDs to run (e.g., S00,S08,C03). Default: all.",
     )
+
+    # Quick mode
+    parser.add_argument(
+        "--quick", action="store_true",
+        help="Smoke test: run S00 + S08 only, skip QA figures and 2D model.",
+    )
+
+    # Skip flags
     parser.add_argument(
         "--skip-photutils", action="store_true",
-        help="Skip photutils baseline (reuse existing P00 results)"
+        help="Skip photutils baseline run (reuse existing P00/photutils_baseline.fits).",
     )
     parser.add_argument(
         "--skip-qa-figures", action="store_true",
-        help="Skip per-config QA figures"
+        help="Skip per-config QA figures.",
     )
     parser.add_argument(
         "--skip-model", action="store_true",
-        help="Skip 2D model building and residuals"
+        help="Skip 2D model building and residuals.",
     )
+
     return parser.parse_args()
+
+
+# ---------------------------------------------------------------------------
+# Image loading
+# ---------------------------------------------------------------------------
+
+def load_image(path: Path, band_index: int = 0) -> np.ndarray:
+    """Load a 2D image array from a FITS file.
+
+    For a 3D data cube, extracts the plane at ``band_index``.
+    For a 2D array, returns it directly.
+    """
+    with fits.open(path) as hdu_list:
+        for hdu in hdu_list:
+            if hdu.data is None:
+                continue
+            data = hdu.data
+            if data.ndim == 2:
+                return data.astype(np.float64)
+            if data.ndim == 3:
+                if band_index >= data.shape[0]:
+                    raise ValueError(
+                        f"band_index={band_index} out of range for cube with "
+                        f"{data.shape[0]} planes."
+                    )
+                return data[band_index].astype(np.float64)
+    raise ValueError(f"No usable 2D image data found in {path}")
+
+
+# ---------------------------------------------------------------------------
+# Geometry auto-detection
+# ---------------------------------------------------------------------------
+
+def auto_detect_geometry(image: np.ndarray) -> dict:
+    """Derive sensible starting geometry from image shape.
+
+    Returns a dict with x0, y0, eps, pa (radians), sma0, maxsma.
+    Center is taken as the image centre; eps and pa use conservative defaults.
+    """
+    h, w = image.shape
+    x0 = (w - 1) / 2.0
+    y0 = (h - 1) / 2.0
+    half_size = min(x0, y0)
+    return {
+        "x0": x0,
+        "y0": y0,
+        "eps": 0.2,
+        "pa": 0.0,
+        "sma0": max(5.0, half_size * 0.04),
+        "maxsma": half_size * 0.90,
+    }
+
+
+def build_geometry(args: argparse.Namespace, image: np.ndarray) -> dict:
+    """Resolve geometry from CLI args, filling missing values by auto-detection.
+
+    Returns a dict with x0, y0, eps, pa (radians), sma0, maxsma.
+    """
+    auto = auto_detect_geometry(image)
+    x0 = args.x0 if args.x0 is not None else auto["x0"]
+    y0 = args.y0 if args.y0 is not None else auto["y0"]
+    eps = args.eps if args.eps is not None else auto["eps"]
+    pa = np.deg2rad(args.pa_deg) if args.pa_deg is not None else auto["pa"]
+    sma0 = args.sma0 if args.sma0 is not None else auto["sma0"]
+    maxsma = args.maxsma if args.maxsma is not None else auto["maxsma"]
+    return {
+        "x0": x0,
+        "y0": y0,
+        "eps": eps,
+        "pa": pa,
+        "sma0": sma0,
+        "maxsma": maxsma,
+    }
 
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
-
-def load_image(path: Path) -> np.ndarray:
-    """Load 2D image array from FITS."""
-    with fits.open(path) as hdu_list:
-        for hdu in hdu_list:
-            if hdu.data is not None and hdu.data.ndim == 2:
-                return hdu.data.astype(np.float64)
-    raise ValueError(f"No 2D image data found in {path}")
-
 
 def stop_code_counts(isophotes: list[dict]) -> dict[int, int]:
     """Count isophotes by stop code."""
@@ -136,9 +261,9 @@ def match_sma(
     return matched
 
 
-def build_config(overrides: dict) -> IsosterConfig:
+def build_config(baseline: dict, overrides: dict) -> IsosterConfig:
     """Build IsosterConfig from baseline + overrides."""
-    merged = {**BASELINE_OVERRIDES, **overrides}
+    merged = {**baseline, **overrides}
     return IsosterConfig(**merged)
 
 
@@ -148,30 +273,32 @@ def build_config(overrides: dict) -> IsosterConfig:
 
 def run_photutils_baseline(
     image: np.ndarray,
+    geometry: dict,
     output_dir: Path,
 ) -> tuple[Table, list[dict], float]:
     """Run photutils.isophote fitting and save results.
 
-    Returns (photutils_table, photutils_isophotes_as_dicts).
+    Returns (photutils_table, photutils_isophotes_as_dicts, elapsed_seconds).
     """
     from photutils.isophote import Ellipse, EllipseGeometry
 
-    cfg = PHOTUTILS_FIT_CONFIG
-    geometry = EllipseGeometry(
-        x0=cfg["x0"],
-        y0=cfg["y0"],
-        sma=cfg["sma0"],
-        eps=cfg["eps"],
-        pa=np.deg2rad(cfg["pa_deg"]),
+    cfg = PHOTUTILS_PARAMETER_CONFIG
+
+    geo = EllipseGeometry(
+        x0=geometry["x0"],
+        y0=geometry["y0"],
+        sma=geometry["sma0"],
+        eps=geometry["eps"],
+        pa=geometry["pa"],
     )
-    ellipse = Ellipse(image, geometry)
+    ellipse = Ellipse(image, geo)
 
     print("  Running photutils.isophote.Ellipse.fit_image() ...", flush=True)
     t0 = time.perf_counter()
     isolist = ellipse.fit_image(
         step=cfg["astep"],
         minsma=cfg["minsma"],
-        maxsma=cfg["maxsma"],
+        maxsma=geometry["maxsma"],
         maxgerr=cfg["maxgerr"],
         nclip=cfg["nclip"],
         sclip=cfg["sclip"],
@@ -186,7 +313,6 @@ def run_photutils_baseline(
 
     print(f"  Photutils done: {elapsed:.2f}s, {len(table)} isophotes")
 
-    # Convert to list-of-dicts for metrics
     phot_isos = []
     for row in table:
         phot_isos.append({
@@ -217,20 +343,17 @@ def _col_values(table: Table, colname: str) -> np.ndarray:
 def estimate_effective_radius(phot_table: Table) -> float:
     """Estimate effective radius from photutils CoG (half-light radius).
 
-    Uses trapezoidal integration of intensity * 2*pi*sma*(1-eps)*astep
-    on the sorted isophote table.
+    Uses trapezoidal integration of intensity * elliptical annulus area.
     """
     sma = _col_values(phot_table, "sma")
     intens = _col_values(phot_table, "intens")
     eps = _col_values(phot_table, "ellipticity")
 
-    # Sort by SMA
     order = np.argsort(sma)
     sma = sma[order]
     intens = intens[order]
     eps = eps[order]
 
-    # Cumulative flux using elliptical annuli
     cumflux = np.zeros(len(sma))
     for i in range(1, len(sma)):
         r_inner = sma[i - 1]
@@ -242,7 +365,7 @@ def estimate_effective_radius(phot_table: Table) -> float:
 
     total_flux = cumflux[-1]
     if total_flux <= 0:
-        return sma[-1] / 2.0  # fallback
+        return sma[-1] / 2.0
 
     half_flux = total_flux / 2.0
     idx = np.searchsorted(cumflux, half_flux)
@@ -251,10 +374,8 @@ def estimate_effective_radius(phot_table: Table) -> float:
     if idx == 0:
         return sma[0]
 
-    # Linear interpolation
     frac = (half_flux - cumflux[idx - 1]) / (cumflux[idx] - cumflux[idx - 1])
-    re = sma[idx - 1] + frac * (sma[idx] - sma[idx - 1])
-    return float(re)
+    return float(sma[idx - 1] + frac * (sma[idx] - sma[idx - 1]))
 
 
 def derive_reference_geometry(
@@ -262,23 +383,20 @@ def derive_reference_geometry(
     re_pix: float,
     n_re: float = 3.0,
 ) -> dict:
-    """Compute median centroid, axis ratio, PA from photutils within n_re x Re.
+    """Compute median centroid, axis ratio, PA from photutils within n_re * Re.
 
     Returns dict with x0, y0, eps, pa (radians) usable as config overrides.
     """
     sma = _col_values(phot_table, "sma")
-    mask = (sma > 0) & (sma < n_re * re_pix)
     stop = _col_values(phot_table, "stop_code").astype(int)
-    mask &= (stop == 0)
+    mask = (sma > 0) & (sma < n_re * re_pix) & (stop == 0)
 
     if mask.sum() < 3:
-        # Fallback: use all converged isophotes
         mask = (stop == 0)
 
     x0 = float(np.median(_col_values(phot_table, "x0")[mask]))
     y0 = float(np.median(_col_values(phot_table, "y0")[mask]))
     eps = float(np.median(_col_values(phot_table, "ellipticity")[mask]))
-    # PA column from photutils is in degrees — convert to radians
     pa_deg = _col_values(phot_table, "pa")
     pa = float(np.radians(np.median(pa_deg[mask])))
 
@@ -304,7 +422,6 @@ def compute_metrics_by_zone(
     sma_inner = n_inner * re_pix
     sma_outer = n_outer * re_pix
 
-    # Pre-extract photutils columns as plain arrays
     phot_stop = _col_values(phot_table, "stop_code").astype(int)
     phot_intens = _col_values(phot_table, "intens")
     phot_eps = _col_values(phot_table, "ellipticity")
@@ -369,10 +486,10 @@ def compute_model_residual_stats(
     image: np.ndarray,
     model: np.ndarray,
 ) -> dict:
-    """Fractional residual statistics for 2D model.
+    """Fractional residual statistics for a 2D model.
 
-    Restricts to pixels where model is above 1% of its peak to avoid
-    background-dominated pixels inflating fractional residuals.
+    Restricts to pixels where model exceeds 1% of its peak, avoiding
+    background-dominated pixels from inflating fractional residuals.
     """
     model_peak = np.nanmax(model)
     if model_peak <= 0:
@@ -398,23 +515,23 @@ def run_single_config(
     config_id: str,
     description: str,
     image: np.ndarray,
+    baseline: dict,
     overrides: dict,
     phot_table: Table,
     re_pix: float,
     output_dir: Path,
+    galaxy_label: str,
     *,
     skip_qa: bool = False,
     skip_model: bool = False,
-    phot_isos: list[dict] | None = None,
 ) -> dict:
     """Run one isoster configuration and collect all metrics."""
     print(f"  [{config_id}] {description} ...", end=" ", flush=True)
 
-    cfg = build_config(overrides)
+    cfg = build_config(baseline, overrides)
     cfg_dir = output_dir / config_id
     cfg_dir.mkdir(parents=True, exist_ok=True)
 
-    # Suppress config validation warnings for intentional configs
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", UserWarning)
         t0 = time.perf_counter()
@@ -426,7 +543,6 @@ def run_single_config(
     matched = match_sma(isophotes, np.array(phot_table["sma"]))
     zone_metrics = compute_metrics_by_zone(matched, phot_table, re_pix)
 
-    # Optional 2D model
     model_stats = {}
     model_2d = None
     if not skip_model:
@@ -437,24 +553,21 @@ def run_single_config(
             print(f"[model failed: {exc}]", end=" ")
             model_stats = {"model_frac_med": np.nan, "model_rms": np.nan}
 
-    # Optional QA figure
     if not skip_qa and model_2d is not None:
         try:
             qa_path = str(cfg_dir / f"qa_{config_id}.png")
-            # Use photutils isolist for overlay if available
             plot_qa_summary(
-                title=f"IC3370 — {config_id}: {description}",
+                title=f"{galaxy_label} — {config_id}: {description}",
                 image=image,
                 isoster_model=model_2d,
                 isoster_res=isophotes,
-                photutils_res=None,  # raw isolist not available here
+                photutils_res=None,
                 filename=qa_path,
             )
-            # Extended QA for harmonic configs
             if config_id in EXTENDED_HARMONIC_CONFIGS:
                 ext_path = str(cfg_dir / f"qa_{config_id}_extended.png")
                 plot_qa_summary_extended(
-                    title=f"IC3370 — {config_id}: {description}",
+                    title=f"{galaxy_label} — {config_id}: {description}",
                     image=image,
                     isoster_model=model_2d,
                     isoster_res=isophotes,
@@ -463,7 +576,6 @@ def run_single_config(
         except Exception as exc:
             print(f"[QA failed: {exc}]", end=" ")
 
-    # Save isophotes as JSON
     _save_isophotes_json(isophotes, cfg_dir / f"isophotes_{config_id}.json")
 
     print(f"done ({elapsed:.2f}s, {len(isophotes)} iso, "
@@ -483,7 +595,6 @@ def run_single_config(
 
 def _save_isophotes_json(isophotes: list[dict], path: Path) -> None:
     """Save isophotes to a compact JSON file."""
-    # Keep only essential keys for compact storage
     keys_to_keep = [
         "sma", "intens", "intens_err", "eps", "eps_err",
         "pa", "pa_err", "x0", "y0", "stop_code", "ndata", "nflag", "niter",
@@ -511,24 +622,14 @@ def generate_summary_figure(
     all_results: list[dict],
     phot_result: dict | None,
     output_dir: Path,
+    galaxy_label: str,
 ) -> None:
-    """Generate two 4-panel summary figures: one vs P00, one vs S00.
-
-    Both include P00 and all isoster configs in the bar charts.  The
-    scatter panels compare against either P00 (photutils) or S00 (isoster
-    baseline) as the reference.
-    """
-    # Build combined list: P00 first, then all isoster results
+    """Generate two 4-panel summary figures: one vs P00 (photutils), one vs S00."""
     combined = []
     if phot_result:
         combined.append(phot_result)
     combined.extend(all_results)
 
-    ids = [r["config_id"] for r in combined]
-    n = len(ids)
-    colors = plt.cm.tab20(np.linspace(0, 1, n))
-
-    # --- Helper to draw one figure ---
     def _draw_figure(results_list, ref_label, filename):
         r_ids = [r["config_id"] for r in results_list]
         r_n = len(r_ids)
@@ -606,18 +707,17 @@ def generate_summary_figure(
         ax.set_title(f"Geometry accuracy (ref: {ref_label})")
         ax.grid(True, alpha=0.3)
 
-        fig.suptitle(f"IC3370_mock2 — Configuration Benchmark (ref: {ref_label})",
-                     fontsize=14, fontweight="bold")
+        fig.suptitle(
+            f"{galaxy_label} — Configuration Sweep (ref: {ref_label})",
+            fontsize=14, fontweight="bold",
+        )
         fig.tight_layout(rect=[0, 0, 1, 0.96])
         out_path = output_dir / filename
         fig.savefig(out_path, dpi=150, bbox_inches="tight")
         plt.close(fig)
         print(f"  Summary figure saved: {out_path}")
 
-    # Figure 1: vs P00 (photutils baseline) — all configs including P00
     _draw_figure(combined, "P00", "summary_vs_P00.png")
-
-    # Figure 2: vs S00 (isoster baseline) — isoster configs only
     _draw_figure(all_results, "S00", "summary_vs_S00.png")
 
 
@@ -630,10 +730,11 @@ def generate_markdown_report(
     phot_result: dict | None,
     re_pix: float,
     output_dir: Path,
+    galaxy_label: str,
 ) -> None:
     """Generate report.md with full metrics tables."""
     lines = [
-        "# IC3370 Exhaustive Configuration Benchmark Report\n",
+        f"# {galaxy_label} — Exhaustive Configuration Sweep Report\n",
         f"Effective radius (Re): {re_pix:.1f} px\n",
         "## Global Metrics\n",
         "| Config | Time(s) | N_iso | sc=0 | sc=1 | sc=2 | sc=3 | sc=-1 "
@@ -697,15 +798,13 @@ def generate_markdown_report(
 # ---------------------------------------------------------------------------
 
 def compile_qa_gallery(output_dir: Path) -> None:
-    """Copy all QA figures into qa_gallery/ subfolder."""
+    """Copy all per-config QA figures into qa_gallery/ subfolder."""
     gallery_dir = output_dir / "qa_gallery"
     gallery_dir.mkdir(parents=True, exist_ok=True)
 
     count = 0
     for cfg_dir in sorted(output_dir.iterdir()):
-        if not cfg_dir.is_dir():
-            continue
-        if cfg_dir.name == "qa_gallery":
+        if not cfg_dir.is_dir() or cfg_dir.name == "qa_gallery":
             continue
         for png in cfg_dir.glob("qa_*.png"):
             dest = gallery_dir / png.name
@@ -716,29 +815,6 @@ def compile_qa_gallery(output_dir: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
-# JIT warmup
-# ---------------------------------------------------------------------------
-
-def _warmup_jit(image: np.ndarray) -> None:
-    """Run a tiny fit_image call to trigger numba JIT compilation.
-
-    Uses a small SMA range so it finishes quickly (~1-2s on first call).
-    Results are discarded.
-    """
-    warmup_cfg = build_config({
-        "maxsma": 20.0,
-        "maxit": 10,
-        "minit": 3,
-    })
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore")
-        t0 = time.perf_counter()
-        fit_image(image, mask=None, config=warmup_cfg)
-        elapsed = time.perf_counter() - t0
-    print(f"  JIT warmup done ({elapsed:.2f}s)")
-
-
-# ---------------------------------------------------------------------------
 # P00 QA figure
 # ---------------------------------------------------------------------------
 
@@ -746,13 +822,9 @@ def _generate_p00_qa(
     image: np.ndarray,
     phot_table: Table,
     output_dir: Path,
+    galaxy_label: str,
 ) -> None:
-    """Build a photutils model and generate QA figure for P00.
-
-    Converts the photutils table into isoster-style dicts so we can reuse
-    plot_qa_summary and build_isoster_model.
-    """
-    # Convert photutils table to isoster-compatible isophote dicts
+    """Build a photutils model and generate QA figure for P00."""
     phot_isos_for_model = []
     phot_sma = _col_values(phot_table, "sma")
     phot_intens = _col_values(phot_table, "intens")
@@ -762,7 +834,6 @@ def _generate_p00_qa(
     phot_x0 = _col_values(phot_table, "x0")
     phot_y0 = _col_values(phot_table, "y0")
 
-    # Optional columns
     has_intens_err = "intens_err" in phot_table.colnames
     has_eps_err = "ellipticity_err" in phot_table.colnames
     has_pa_err = "pa_err" in phot_table.colnames
@@ -785,19 +856,17 @@ def _generate_p00_qa(
             iso["pa_err"] = float(np.radians(_col_values(phot_table, "pa_err")[i]))
         phot_isos_for_model.append(iso)
 
-    # Build 2D model from photutils isophotes
     try:
         model = build_isoster_model(image.shape, phot_isos_for_model)
     except Exception as exc:
         print(f"  P00 model build failed: {exc}")
         return
 
-    # QA figure
     p00_dir = output_dir / "P00"
     p00_dir.mkdir(parents=True, exist_ok=True)
     qa_path = str(p00_dir / "qa_P00.png")
     plot_qa_summary(
-        title="IC3370 — P00: Photutils baseline",
+        title=f"{galaxy_label} — P00: Photutils baseline",
         image=image,
         isoster_model=model,
         isoster_res=phot_isos_for_model,
@@ -806,26 +875,75 @@ def _generate_p00_qa(
 
 
 # ---------------------------------------------------------------------------
+# JIT warmup
+# ---------------------------------------------------------------------------
+
+def _warmup_jit(image: np.ndarray, baseline: dict) -> None:
+    """Run a tiny fit_image call to trigger numba JIT compilation."""
+    warmup_maxsma = min(20.0, baseline.get("maxsma", 100.0) * 0.07)
+    warmup_cfg = build_config(baseline, {"maxsma": warmup_maxsma, "maxit": 10, "minit": 3})
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        t0 = time.perf_counter()
+        fit_image(image, mask=None, config=warmup_cfg)
+        elapsed = time.perf_counter() - t0
+    print(f"  JIT warmup done ({elapsed:.2f}s)")
+
+
+# ---------------------------------------------------------------------------
 # Main orchestrator
 # ---------------------------------------------------------------------------
 
 def main() -> None:
     args = parse_args()
-    output_dir = args.output_dir
+
+    # Galaxy label
+    galaxy_label = args.galaxy_label or args.image.stem
+
+    # Output directory
+    if args.output_dir is not None:
+        output_dir = args.output_dir
+    else:
+        output_dir = DEFAULT_OUTPUT_DIR / galaxy_label
     output_dir.mkdir(parents=True, exist_ok=True)
 
     print("=" * 70)
-    print("IC3370 Exhaustive Configuration Benchmark")
+    print(f"Exhaustive Configuration Sweep — {galaxy_label}")
     print("=" * 70)
 
     # Load image
-    print(f"\nLoading image: {args.image}")
-    image = load_image(args.image)
+    print(f"\nLoading image: {args.image}  (band-index={args.band_index})")
+    image = load_image(args.image, band_index=args.band_index)
     print(f"  Shape: {image.shape}, dtype: {image.dtype}")
+
+    # Resolve geometry
+    geometry = build_geometry(args, image)
+    print(
+        f"\nGeometry: x0={geometry['x0']:.1f}, y0={geometry['y0']:.1f}, "
+        f"eps={geometry['eps']:.3f}, pa={np.degrees(geometry['pa']):.1f} deg, "
+        f"sma0={geometry['sma0']:.1f}, maxsma={geometry['maxsma']:.1f}"
+    )
+
+    # Build baseline (fitting params + geometry)
+    baseline = {**PARAMETER_BASELINE, **geometry}
+
+    # Quick mode
+    if args.quick:
+        configs_filter: set[str] | None = {"S00", "S08"}
+        skip_qa = True
+        skip_model = True
+        print("\n[Quick mode] Running S00 + S08 only, no QA figures, no 2D model.")
+    else:
+        configs_filter = None
+        skip_qa = args.skip_qa_figures
+        skip_model = args.skip_model
+
+    # Override filter from --configs flag (takes priority over --quick)
+    if args.configs:
+        configs_filter = set(args.configs.split(","))
 
     # --- P00: Photutils baseline ---
     phot_table = None
-    phot_isos = None
     phot_result = None
     phot_elapsed = None
 
@@ -833,29 +951,27 @@ def main() -> None:
     if args.skip_photutils and p00_fits.exists():
         print("\nLoading existing photutils baseline ...")
         phot_table = Table.read(p00_fits)
-        phot_elapsed = np.nan  # unknown from cached file
+        phot_elapsed = np.nan
         print(f"  {len(phot_table)} isophotes from {p00_fits}")
     else:
         print("\nRunning photutils baseline (P00) ...")
-        phot_table, phot_isos, phot_elapsed = run_photutils_baseline(
-            image, output_dir
+        phot_table, _, phot_elapsed = run_photutils_baseline(
+            image, geometry, output_dir
         )
 
-    # Always build phot_result from the table so P00 appears in reports
     phot_stop = _col_values(phot_table, "stop_code").astype(int)
     phot_result = {
         "config_id": "P00",
         "description": "Photutils baseline",
         "wall_time": phot_elapsed,
         "n_isophotes": len(phot_table),
-        "stop_counts": {
-            sc: int(np.sum(phot_stop == sc)) for sc in STOP_CODES
-        },
+        "stop_counts": {sc: int(np.sum(phot_stop == sc)) for sc in STOP_CODES},
         "n_matched": len(phot_table),
         "model_stats": {},
+        "zone_metrics": {},
     }
 
-    # Derive effective radius and reference geometry
+    # Effective radius and reference geometry
     re_pix = estimate_effective_radius(phot_table)
     print(f"\nEffective radius (Re): {re_pix:.1f} px")
 
@@ -864,34 +980,33 @@ def main() -> None:
           f"y0={ref_geom['y0']:.1f}, eps={ref_geom['eps']:.3f}, "
           f"pa={np.degrees(ref_geom['pa']):.1f} deg")
 
-    # --- P00 QA figure (photutils model + residual) ---
-    if not args.skip_qa_figures and not args.skip_model:
+    # P00 QA figure
+    if not skip_qa and not skip_model:
         print("\nGenerating P00 photutils QA figure ...")
-        _generate_p00_qa(image, phot_table, output_dir)
+        _generate_p00_qa(image, phot_table, output_dir, galaxy_label)
 
-    # --- Numba JIT warmup ---
+    # Numba JIT warmup
     print("\nWarming up numba JIT (dry run) ...")
-    _warmup_jit(image)
+    _warmup_jit(image, baseline)
 
-    # --- Filter configs if requested ---
+    # Filter configs
     configs_to_run = CONFIGURATIONS
-    if args.configs:
-        requested = set(args.configs.split(","))
+    if configs_filter:
         configs_to_run = [
             (cid, desc, ov) for cid, desc, ov in CONFIGURATIONS
-            if cid in requested
+            if cid in configs_filter
         ]
         print(f"\nRunning subset: {[c[0] for c in configs_to_run]}")
 
-    # --- Run all isoster configs ---
+    # Run all isoster configs
     print(f"\nRunning {len(configs_to_run)} isoster configurations:\n")
     all_results = []
-    timing_log = {}
+    timing_log: dict = {}
 
     for config_id, description, overrides in configs_to_run:
         # Inject reference geometry for S22/S23
         if config_id in NEEDS_REFERENCE_GEOMETRY:
-            overrides = {**overrides}  # copy to avoid mutation
+            overrides = {**overrides}
             if config_id == "S22":
                 overrides["x0"] = ref_geom["x0"]
                 overrides["y0"] = ref_geom["y0"]
@@ -905,13 +1020,14 @@ def main() -> None:
             config_id=config_id,
             description=description,
             image=image,
+            baseline=baseline,
             overrides=overrides,
             phot_table=phot_table,
             re_pix=re_pix,
             output_dir=output_dir,
-            skip_qa=args.skip_qa_figures,
-            skip_model=args.skip_model,
-            phot_isos=phot_isos,
+            galaxy_label=galaxy_label,
+            skip_qa=skip_qa,
+            skip_model=skip_model,
         )
         all_results.append(result)
         timing_log[config_id] = {
@@ -920,29 +1036,27 @@ def main() -> None:
             "stop_counts": result["stop_counts"],
         }
 
-    # --- Save timing log ---
-    if phot_result:
-        timing_log["P00"] = {
-            "wall_time": phot_result["wall_time"],
-            "n_isophotes": phot_result["n_isophotes"],
-            "stop_counts": phot_result["stop_counts"],
-        }
+    # Save timing log
+    timing_log["P00"] = {
+        "wall_time": phot_result["wall_time"],
+        "n_isophotes": phot_result["n_isophotes"],
+        "stop_counts": phot_result["stop_counts"],
+    }
     timing_path = output_dir / "timing_log.json"
     with open(timing_path, "w") as f:
         json.dump(timing_log, f, indent=2)
     print(f"\nTiming log saved: {timing_path}")
 
-    # --- Summary figures ---
-    print("\nGenerating summary figures ...")
-    generate_summary_figure(all_results, phot_result, output_dir)
+    # Summary figures and report (skip in quick mode)
+    if not args.quick:
+        print("\nGenerating summary figures ...")
+        generate_summary_figure(all_results, phot_result, output_dir, galaxy_label)
 
-    # --- Markdown report ---
-    print("Generating markdown report ...")
-    generate_markdown_report(all_results, phot_result, re_pix, output_dir)
+        print("Generating markdown report ...")
+        generate_markdown_report(all_results, phot_result, re_pix, output_dir, galaxy_label)
 
-    # --- QA gallery ---
-    if not args.skip_qa_figures:
-        compile_qa_gallery(output_dir)
+        if not skip_qa:
+            compile_qa_gallery(output_dir)
 
     print("\n" + "=" * 70)
     print("Benchmark complete.")

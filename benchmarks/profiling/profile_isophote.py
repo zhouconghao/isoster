@@ -17,7 +17,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from benchmarks.utils.run_metadata import collect_environment_metadata, write_json  # noqa: E402
-from isoster import fit_image  # noqa: E402
+from isoster import fit_image, IsosterConfig  # noqa: E402
 from isoster.output_paths import resolve_output_directory  # noqa: E402
 
 
@@ -59,23 +59,23 @@ def run_profile(profile_repetitions: int) -> tuple[cProfile.Profile, dict]:
     """Run cProfile on fit_image for one or multiple repetitions."""
     image = create_sersic_image()
     center_x, center_y = 250, 250
-    config = {
-        "x0": center_x,
-        "y0": center_y,
-        "sma0": 10.0,
-        "eps": 0.1,
-        "pa": 0.0,
-        "minsma": 0.0,
-        "maxsma": image.shape[0] / 2,
-        "astep": 0.1,
-        "maxit": 50,
-        "conver": 0.05,
-        "fix_center": False,
-        "fix_eps": False,
-        "fix_pa": False,
-        "compute_errors": True,
-        "compute_deviations": True,
-    }
+    config = IsosterConfig(
+        x0=center_x,
+        y0=center_y,
+        sma0=10.0,
+        eps=0.1,
+        pa=0.0,
+        minsma=0.0,
+        maxsma=image.shape[0] / 2,
+        astep=0.1,
+        maxit=50,
+        conver=0.05,
+        fix_center=False,
+        fix_eps=False,
+        fix_pa=False,
+        compute_errors=True,
+        compute_deviations=True,
+    )
 
     profiler = cProfile.Profile()
     last_results = None

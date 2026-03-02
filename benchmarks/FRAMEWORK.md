@@ -15,7 +15,7 @@ Valid categories:
 | `performance/` | Speed, throughput, method comparisons |
 | `profiling/` | Hotspot analysis, `cProfile`, flame graphs |
 | `baselines/` | Threshold locking, CI regression gates |
-| `ic3370_exhausted/` | Config sweep on IC3370_mock2 |
+| `exhausted/` | 39-config sweep on any galaxy image |
 | New subdirectory | Add when a new class of benchmark warrants its own folder |
 
 **Output folder prefix**: always singular.
@@ -78,15 +78,38 @@ Every benchmark script must:
 ## 6. AutoProf Benchmark Notes
 
 `bench_vs_autoprof.py` uses a subprocess-based adapter because AutoProf requires `numpy < 2`,
-which conflicts with isoster's environment. The adapter spawns a separate Python interpreter.
+which conflicts with isoster's environment. The adapter spawns a separate Python interpreter
+pointed to by the `AUTOPROF_PYTHON` environment variable.
 
-Set the `AUTOPROF_PYTHON` environment variable to point to a compatible Python binary:
+### Setting AUTOPROF_PYTHON
+
+`AUTOPROF_PYTHON` must point to a Python binary in an environment where AutoProf is installed
+with `numpy < 2`. The default is `/Users/mac/miniforge3/bin/python3`, which is
+**machine-specific** and must be overridden on any other system.
 
 ```bash
-export AUTOPROF_PYTHON=/Users/mac/miniforge3/bin/python3
+# Check what python is currently set (or defaulted to)
+echo ${AUTOPROF_PYTHON:-/Users/mac/miniforge3/bin/python3}
+
+# Override for your environment
+export AUTOPROF_PYTHON=/path/to/autoprof-env/bin/python3
+
+# Quick sanity check
+$AUTOPROF_PYTHON -c "import autoprof; import numpy; print(numpy.__version__)"
 ```
 
-Default: `/Users/mac/miniforge3/bin/python3`.
+To create a compatible AutoProf environment with conda/mamba:
+
+```bash
+conda create -n autoprof python=3.9 numpy="<2" && conda activate autoprof
+pip install autoprof
+```
+
+Once set, the benchmark can be verified with:
+
+```bash
+uv run python benchmarks/performance/bench_vs_autoprof.py --quick --plots
+```
 
 ---
 

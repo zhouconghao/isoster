@@ -1,20 +1,23 @@
-"""Configuration registry for IC3370 exhaustive benchmark.
+"""Configuration registry for the exhaustive isoster parameter sweep.
 
 Defines all 39 configurations (P00 + S00-S23 + C01-C12) as a list of
 (config_id, description, overrides_dict) tuples.  Imported by run_benchmark.py.
+
+Galaxy geometry (x0, y0, eps, pa, sma0, maxsma) is NOT defined here —
+it must be supplied at runtime via CLI arguments or auto-detected from the image.
 """
 
 from __future__ import annotations
 
-# Galaxy-specific base parameters from IC3370_mock2_isoster_baseline_run.json.
-# These override IsosterConfig defaults for every configuration.
-BASELINE_OVERRIDES: dict = {
-    "x0": 566.0,
-    "y0": 566.0,
-    "eps": 0.23877770323309452,
-    "pa": -0.48862880623300525,
-    "sma0": 6.0,
-    "maxsma": 283.036528930724,
+# ---------------------------------------------------------------------------
+# Fitting parameter baseline
+# ---------------------------------------------------------------------------
+# These non-geometry fitting parameters are applied to every configuration.
+# Geometry (x0, y0, eps, pa, sma0, maxsma) is injected by run_benchmark.py
+# after parsing CLI arguments.
+# ---------------------------------------------------------------------------
+
+PARAMETER_BASELINE: dict = {
     "nclip": 2,
     "maxit": 100,
     "astep": 0.1,
@@ -27,14 +30,9 @@ BASELINE_OVERRIDES: dict = {
     "compute_deviations": True,
 }
 
-# Photutils-equivalent fit_config keys used by run_photutils_baseline().
-PHOTUTILS_FIT_CONFIG: dict = {
-    "x0": 566.0,
-    "y0": 566.0,
-    "eps": 0.23877770323309452,
-    "pa_deg": -27.99,  # pa in degrees (np.degrees(-0.48862880623300525))
-    "sma0": 6.0,
-    "maxsma": 283.036528930724,
+# Photutils-equivalent fitting parameters used by run_photutils_baseline().
+# Geometry is merged in at runtime from CLI args.
+PHOTUTILS_PARAMETER_CONFIG: dict = {
     "minsma": 1.0,
     "nclip": 2,
     "astep": 0.1,
@@ -45,7 +43,7 @@ PHOTUTILS_FIT_CONFIG: dict = {
 
 # ---------------------------------------------------------------------------
 # Isoster configurations: (config_id, description, overrides_from_S00)
-# S00 uses BASELINE_OVERRIDES as-is (no extra overrides).
+# S00 uses PARAMETER_BASELINE + geometry as-is (no extra overrides).
 # ---------------------------------------------------------------------------
 
 CONFIGURATIONS: list[tuple[str, str, dict]] = [
