@@ -35,54 +35,6 @@
 
 ---
 
-## Active — examples_
-
-| Folder | Script | Approx Size | Notes |
-|--------|--------|------------:|-------|
-| `examples_basic_usage/` | `examples/basic_usage.py` | 100 KB | Basic usage QA figures |
-| `examples_ea_harmonics/` | `examples/compare_isofit_modes.py` | 2.5 MB | EA harmonics mode comparison QA |
-
----
-
-## Active — other
-
-| Folder | Script / Source | Approx Size | Notes |
-|--------|----------------|------------:|-------|
-| `isofit_mode_comparison/` | `examples/compare_isofit_modes.py` | 5.4 MB | ISOFIT mode comparison run |
-| `legacysurvey_highorder_harmonics/` | `examples/real_galaxy_legacysurvey_highorder_harmonics/` | 22 MB | Active example campaign outputs |
-| `legacysurvey_true_isofit/` | Related scripts | 9.6 MB | Active |
-
----
-
-## Flagged for Review
-
-These folders are not deleted but need owner review before clearing.
-
-| Folder | Approx Size | Notes |
-|--------|------------:|-------|
-| `huang2013_campaign_full/` | 54 MB | Likely canonical campaign run; confirm before deleting others |
-| `huang2013_campaign/` | 10 MB | May be redundant with `_full/`; confirm |
-| `huang2013_campaign_eso185_g054/` | 100 KB | Single-galaxy sub-run |
-| `huang2013_test/` | — | Old test run |
-| `huang2013_test_SUMMARY.md` | — | Loose file; should move into a subdir or delete |
-| `huang2013_ic2597_qa_style/` | — | Exploratory QA run |
-| `huang2013_ic3370_ea_test/` | — | EA mode test on IC3370 |
-| `huang2013_initial_geometry_checks/` | — | Early-stage geometry diagnostics |
-| `huang2013_mock1_photutils_maxsma_scan/` | — | Old photutils scan |
-| `huang2013_mock1_photutils_retry_decay/` | — | Old photutils retry test |
-| `huang2013_mock3_isoster_cog_fix/` | — | Bug-fix verification run |
-| `huang2013_mock3_isoster_stopcode2/` | — | Stop-code 2 investigation |
-| `huang2013_mock3_photutils_model_pass1/` | — | Old photutils comparison |
-| `huang2013_mock3_photutils_stopcode2/` | — | Old photutils stop-code run |
-| `huang2013_mock3_stopcode2_compare/` | — | Old comparison run |
-| `huang2013_convergence_benchmark/` | — | Obsolete; superseded by ic3370_exhausted |
-| `ngc3610_highorder_exploration/` | 8.2 MB | Loose exploration; archive candidate |
-| `ngc3610_sma0_effect/` | 4.5 MB | Loose exploration; archive candidate |
-| `ngc1052_mock3_demo/` | 2.3 MB | Demo run; review before deleting |
-| `ngc1209_convergence_stop2_test/` | 8.5 MB | Old NGC1209 convergence run; superseded |
-
----
-
 ## Cleanup Log
 
 | Date | Action |
@@ -94,3 +46,4 @@ These folders are not deleted but need owner review before clearing.
 | 2026-03-02 | Deleted `tmp/` (6.2 MB matplotlib/xdg cache) |
 | 2026-03-02 | Deleted `tmp_eso185_g054_validation/` (24 KB temp prefix) |
 | 2026-03-02 | Deleted loose root files: `convergence_diagnostic.png`, `huang2013_test_fixes.txt`, `qa_m51_test.png` |
+| 2026-03-02 | Deleted all examples_, isofit_mode_comparison/, legacysurvey_*, huang2013_*, ngc* folders |
