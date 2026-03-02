@@ -1,114 +1,29 @@
 # Future Work
 
-This document tracks realistic long-term upgrades that are not yet implemented.
+This document outlines the strategic roadmap for long-term improvements to `isoster`, driven by theoretical analysis from first principles and benchmark comparisons.
 
-## Long-Term Engineering Upgrades
+## 1. Lazy Gradient Evaluation (Efficiency)
+**Goal:** Eliminate redundant image sampling during iterative fitting.
+**Details:** Currently, computing the intensity gradient $\partial I/\partial a$ requires extracting a forward offset isophote at $a+\Delta a$ in every micro-iteration. This effectively doubles interpolation costs. We plan to implement a "Modified Newton Method" where the radial gradient (the Jacobian) is evaluated once at iteration 0 and then frozen (reused) for subsequent iterations.
+**Expected Impact:** Cuts `map_coordinates` sampling calls per isophote by ~40-50%, the primary bottleneck in the fitting loop, with mathematically zero impact on final convergence accuracy.
 
-### 1. Parallel forced/template execution path
+## 2. Explicit Noise Floor & Gradient Error (Accuracy & Robustness)
+**Goal:** Prevent overfitting in the outer disk and ensure rigorous error characterization.
+**Details:**
+- **Explicit Noise Floor:** Introduce an explicit `sigma_bg` parameter to establish a hard lower bound on the convergence threshold: $max(rms, \sigma_{bg}/\sqrt{N})$. This stops the solver from chasing vanishing asymmetries in the noise floor.
+- **Missing Gradient Error:** Correct the geometry error formulas (for $\Delta\epsilon$, $\Delta PA$) to include the uncertainty of the gradient measurement itself ($\sigma^2_g$), which currently dominates at low surface brightness but is omitted.
 
-Why:
+## 3. Vectorized Template Photometry (Efficiency)
+**Goal:** Instantaneous multiband forced extraction.
+**Details:** Instead of drawing 1D elliptical paths and interpolating them sequentially, map the entire $(x, y)$ coordinate grid of the image to elliptical coordinates $(a, \theta)$ given a fixed geometry map. Then use `scipy.stats.binned_statistic` to calculate the mean/median intensity for all $a$ bins simultaneously.
+**Expected Impact:** Transforms template photometry from $O(N_{sma} \times N_{samples})$ sequential interpolations to $O(N_{pixels})$ fast array operations. Massive 10x-100x speedup for multiband survey pipelines.
 
-- Forced and template-based forced photometry process each SMA independently.
-- Current driver loops are serial (`isoster/driver.py`).
+## 4. Gradient-Free Fallback for LSB (Stability)
+**Goal:** Prevent premature failures (`stop_code=-1`) in the noise-dominated outer disk.
+**Details:** The analytic Newton-Raphson geometry updates fail when the radial gradient approaches zero at the noise floor. We plan to implement a gradient-free fallback optimization (e.g., Brent's method minimizing sample variance) that activates only when the gradient signal-to-noise drops below a reliable threshold.
 
-Target:
+## 5. Variance Maps & Exact Covariance (Accuracy)
+**Goal:** Exact parameter covariance and automatic outlier handling.
+**Details:** Support a per-pixel variance map to perform Weighted Least Squares (WLS) harmonic fitting. This replaces residual-based noise estimates with exact photon noise and automatically down-weights outlier pixels (e.g., unmasked cosmic rays).
 
-- Optional parallel backend for forced/template modes with deterministic ordering.
-- Keep regular mode serial unless dependency-safe decomposition is proven.
-
-### 2. Typed isophote result schema
-
-Why:
-
-- Core outputs are dict-based and shape can vary by config/options.
-- This increases downstream fragility in modeling/serialization code (`isoster/model.py`, `isoster/utils.py`).
-
-Target:
-
-- Introduce a typed result model (dataclass or pydantic model) with explicit optional blocks.
-- Preserve backward-compatible dict export methods.
-
-### 3. Model builder robustness against low-quality rows
-
-Why:
-
-- `build_isoster_model` currently accepts all `sma > 0` rows, regardless of stop code and NaN content (`isoster/model.py`).
-
-Target:
-
-- Add explicit stop-code and finite-value filtering options.
-- Provide strict/default filter presets for reproducible QA workflows.
-
-### 4. CLI option parity with advanced config features
-
-Why:
-
-- CLI currently exposes only a small subset of `IsosterConfig` fields (`isoster/cli.py`).
-
-Target:
-
-- Add structured CLI support (or schema-driven config validation command) for advanced options:
-  - eccentric anomaly mode
-  - harmonic orders/simultaneous fitting
-  - CoG options
-  - permissive geometry
-
-### 5. Deprecate `forced=True` in favor of `template_isophotes`
-
-Why:
-
-- `forced=True` uses a single fixed geometry (config scalars) for all SMA values.
-- `template_isophotes` provides per-SMA variable geometry from a prior fit (the IRAF `ellipse` forced-mode equivalent).
-- The naming is confusing: users expect "forced mode" to mean table-driven forced photometry.
-- `forced=True` silently drops many config params without warning.
-
-Target:
-
-- Deprecate `forced` and `forced_sma` config fields with a deprecation warning.
-- Provide a helper to construct a `template_isophotes`-compatible list from fixed geometry + SMA list.
-- Remove `forced`/`forced_sma` in a future major version.
-
-## Long-Term Algorithm and Performance Research
-
-### 1. Gradient estimator redesign
-
-Why:
-
-- Current gradient logic is tightly coupled to fixed normalization and two-radius sampling in `compute_gradient` (`isoster/fitting.py`).
-
-Research direction:
-
-- Compare alternative finite-difference schemes and robust local profile fits.
-- Validate against reference profiles with quantitative error statistics before adoption.
-
-### 2. Adaptive sampling density with error controls
-
-Why:
-
-- Sampling density currently follows `max(64, int(2*pi*sma))` (`isoster/sampling.py`).
-
-Research direction:
-
-- Evaluate adaptive density by ellipticity/SNR/local curvature.
-- Require measured impact on profile accuracy and runtime variance.
-
-### 3. Geometry-history-aware stabilization policy
-
-Why:
-
-- Central-regularization intent exists, but long-term stability policy should be made explicit across inward/outward passes.
-
-Research direction:
-
-- Design a history-aware stabilization mechanism with traceable diagnostics.
-- Benchmark against real-data and mock workflows before promoting to default behavior.
-
-## Deferred Until Evidence Exists
-
-The following are intentionally excluded from active plans until supported by benchmark evidence and maintenance cost analysis:
-
-- full GPU rewrite paths
-- JAX rewrite of the core fitting stack
-- Rust/C++ core replacement
-
-These may be revisited after current architecture reaches stability and test depth targets.
+*(For detailed theoretical derivations of these plans, see the synthesis documents in `docs/archive/review/`)*

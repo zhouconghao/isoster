@@ -14,9 +14,10 @@ Regular mode in `fit_image` (`isoster/driver.py`) runs:
 
 Mode selection priority is:
 
-1. `template_isophotes` provided.
-2. `config.forced=True`.
-3. Regular mode.
+1. `template` provided (e.g., results dict, FITS path, or isophote list).
+2. Regular mode.
+
+(`template_isophotes` is deprecated and will be removed in a future version.)
 
 ## Sampling and Angle Spaces
 
@@ -40,7 +41,7 @@ The returned structure is `IsophoteData(angles, phi, intens, radii)` where `angl
 1. Sample data for current geometry.
 2. Sigma-clip sampled profile (`sigma_clip`).
 3. Early quality exits:
-   - stop code `1` when `actual_points < total_points * fflag`.
+   - stop code `1` when `actual_points < total_points * (1.0 - fflag)`.
    - stop code `3` when `len(intens) < 6`.
 4. Fit first/second harmonics by least squares.
 5. Compute radial gradient using offset SMA sampling.
@@ -48,7 +49,7 @@ The returned structure is `IsophoteData(angles, phi, intens, radii)` where `angl
    - uses `maxgerr`, sign checks, and a two-strike `lexceed` rule before stop code `-1`.
 7. Compute dominant harmonic amplitude and geometry correction target.
 8. Track the best geometry by minimal `effective_amp = abs(max_amp) + regularization_penalty`.
-9. Converge when `abs(max_amp) < conver * rms` and `i >= minit`.
+9. Converge when `abs(max_amp) < conver * convergence_scale * rms` and `i >= minit`.
 10. If iterations reach `maxit` without convergence, return best-so-far geometry with stop code `2`.
 
 On convergence, optional blocks are attached:
@@ -80,13 +81,9 @@ Supported config values:
 
 ## Forced and Template Modes
 
-### Forced (`config.forced=True`)
+### Template-based forced (`template`)
 
-- Extracts per-SMA photometry using a single fixed geometry `(x0, y0, eps, pa)`.
-- Returns stop code `0` for successful extraction, `3` for empty sampled data.
-
-### Template-based forced (`template_isophotes`)
-
+- Accepts results dict, FITS path, or list of isophote dicts.
 - Sorts template by `sma`.
 - Reuses each template isophote geometry at its own SMA.
 - Handles `sma == 0` via `fit_central_pixel`.
@@ -107,5 +104,5 @@ Canonical user-facing reference: `docs/user-guide.md`.
 ## Current Caveats
 
 - Central regularization uses `previous_geometry` propagated by regular `fit_image` outward/inward growth when enabled.
-- In `compute_gradient`, both linear and multiplicative growth use `/ (sma * astep)` normalization; linear-growth users should treat this behavior as implementation-specific.
+- In `compute_gradient`, both linear and multiplicative growth use `/ delta_r` normalization (where `delta_r = step` for linear or `sma * step` for multiplicative).
 - `build_isoster_model` currently filters only on `sma > 0`, not by stop-code quality.

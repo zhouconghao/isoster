@@ -3,15 +3,15 @@
 ## Overview
 
 `IsosterConfig` is a Pydantic model that defines all tunable parameters for the isophote
-fitting algorithm. It contains 42 parameters organized into 12 functional groups covering
+fitting algorithm. It contains 43 parameters organized into 11 functional groups covering
 geometry initialization, fitting control, quality control, output options, and advanced
 algorithm modes.
 
 Source: `isoster/config.py` (`IsosterConfig`)
 
 Pydantic validation enforces type constraints, value ranges, and cross-parameter
-consistency (e.g., `minit <= maxit`, `forced=True` requires `forced_sma`,
-`integrator='adaptive'` requires `lsb_sma_threshold`, all `harmonic_orders >= 3`).
+consistency (e.g., `minit <= maxit`, `integrator='adaptive'` requires `lsb_sma_threshold`,
+all `harmonic_orders >= 3`).
 
 ---
 
@@ -32,8 +32,7 @@ Initial ellipse geometry. When `x0` or `y0` is `None`, the image center is used.
 
 - These values seed the first isophote at `sma0`. Subsequent isophotes inherit geometry
   from the previous converged fit.
-- In forced mode (`forced=True`), these values are used as the single fixed geometry for
-  all SMA values.
+- Template-based forced photometry uses geometry from the template, overriding these.
 - When `fix_center=True`, `x0` and `y0` remain constant throughout the run.
   Similarly for `fix_pa` and `fix_eps`.
 
@@ -159,7 +158,7 @@ Fix individual geometry parameters during iterative fitting.
 - Fixed parameters retain their initial values (from `x0`/`y0`/`eps`/`pa` config or
   inherited from the previous isophote) throughout all iterations.
 - When all three are `True`, fitting becomes pure photometry extraction with
-  predetermined geometry (similar to forced mode but still iterates for convergence).
+  predetermined geometry (still iterates for convergence unless using `template`).
 - Constraints are respected by both `'largest'` and `'simultaneous'`
   `geometry_update_mode`.
 - When `compute_cog=True`, fixing all three affects crossing detection logic in the
@@ -181,7 +180,7 @@ Sampling mode for high-ellipticity isophotes.
   arc-length coverage on the ellipse. Recommended for eps > 0.3.
 - Harmonics are fitted in psi-space; geometry updates are always performed in phi-space
   (position angle) to maintain correct geometric interpretation.
-- Affects both regular fitting and forced/template-forced photometry extraction.
+- Affects both regular fitting and template-based forced photometry extraction.
 - `build_isoster_model()` auto-detects whether eccentric anomaly was used from the
   isophote dicts (presence of `'use_eccentric_anomaly'` key). Can be overridden
   explicitly.
@@ -289,74 +288,48 @@ Controls how the representative intensity is derived from sampled points.
 
 ---
 
-### 12. Forced Mode
+## Forced Photometry (via `template`)
 
-Extract photometry without iterative geometry fitting.
+Forced photometry is performed by passing the `template` argument to `fit_image()`. This
+bypasses the iterative fitting loop and extracts intensity at predetermined geometries.
 
-| Parameter | Default | Type | Description |
-|-----------|---------|------|-------------|
-| `forced` | `False` | `bool` | Enable pure forced photometry mode using a single fixed geometry. |
-| `forced_sma` | `None` | `Optional[List[float]]` | List of SMA values to extract. Required when `forced=True`. |
-
-**Interaction notes:**
-
-- When `forced=True`, the geometry from `x0`, `y0`, `eps`, `pa` is applied at every
-  SMA in `forced_sma` without any iterative fitting.
-- Validated: `forced_sma` must be provided and non-empty when `forced=True`.
-- For variable geometry across SMA values, use `template_isophotes` instead (see next
-  section).
-- `template_isophotes` takes priority over `forced=True` when both are set.
-
----
-
-## Forced Photometry Modes
-
-Isoster provides two forced photometry pathways, both accessible through `fit_image()`.
-
-### Single Fixed Geometry (`forced=True`)
-
-Uses a single geometry (x0, y0, eps, pa) from the config for all SMA values. The SMA
-list is explicitly provided via `forced_sma`. This mode is a simple photometry
-extraction and does not iterate.
-
-### Template-Based Variable Geometry (`template_isophotes`)
+### Template-Based Variable Geometry
 
 Uses per-SMA geometry from a previous isoster run. Each isophote in the template
 provides its own x0, y0, eps, and pa, enabling variable geometry along the radial
 profile. This is the IRAF `ellipse` forced-mode equivalent for multiband analysis.
+
+The `template` argument accepts:
+- A results dict (e.g., from a previous `fit_image()` call)
+- A file path (str/Path) to a FITS file saved by `isophote_results_to_fits()`
+- A list of isophote dicts containing at least `sma`, `x0`, `y0`, `eps`, and `pa`.
 
 ```python
 # Fit reference band
 results_g = isoster.fit_image(image_g, mask_g, config)
 
 # Apply g-band geometry to r-band
-results_r = isoster.fit_image(image_r, mask_r, config,
-                              template_isophotes=results_g['isophotes'])
+results_r = isoster.fit_image(image_r, mask_r, config, template=results_g)
 ```
 
-### Comparison
+### Config parameters silently dropped in forced mode
 
-| Aspect | `forced=True` | `template_isophotes` |
-|--------|---------------|----------------------|
-| Geometry source | Config scalars (x0, y0, eps, pa) | Per-SMA dicts from prior fit |
-| Center | Single fixed value | Varies per SMA |
-| Ellipticity / PA | Single fixed value | Varies per SMA |
-| SMA list | Explicit via `forced_sma` | Inherited from template |
-| Primary use case | Quick extraction at known geometry | Multiband color profiles |
+Template-based forced mode bypasses the iterative fitting loop entirely. The following
+config parameters have no effect in forced mode:
 
-### Config parameters silently dropped in forced modes
-
-Both forced modes bypass the iterative fitting loop entirely. The following config
-parameters have no effect in either forced mode:
-
+- `maxit`, `minit`, `conver`, `convergence_scaling` (no iteration)
+- `geometry_damping`, `geometry_update_mode`, `permissive_geometry` (no updates)
 - `sclip_low`, `sclip_high` (only symmetric `sclip` is used)
 - `fflag` (no flagging check)
 - `full_photometry` (aperture photometry not computed)
 - `compute_errors` (all errors set to 0.0)
 - `compute_deviations` (all deviations set to 0.0)
-- `compute_cog` (curve-of-growth not computed in forced extraction; driver-level CoG
-  is still computed post-sweep if `compute_cog=True` and `forced=True` in normal forced
-  mode)
+- `compute_cog` (curve-of-growth not computed in forced extraction)
+
+---
+
+## Photometry Outputs
+...
 
 ---
 
@@ -447,8 +420,8 @@ the annular width.
 The following limitations are documented based on the current implementation state.
 Cross-references point to `docs/future.md` for planned improvements.
 
-1. **Forced mode drops most output fields.** Both `forced=True` and `template_isophotes`
-   produce isophote dicts with zero-valued errors, zero deviations, and no aperture
+1. **Template-based forced mode drops most output fields.** The `template` mode
+   produces isophote dicts with zero-valued errors, zero deviations, and no aperture
    photometry. Only intensity, RMS, and geometry fields are meaningful.
    (See future.md: "Typed isophote result schema".)
 
@@ -462,7 +435,7 @@ Cross-references point to `docs/future.md` for planned improvements.
    API or a YAML config file.
    (See future.md: "CLI option parity with advanced config features".)
 
-4. **Serial forced/template execution.** Forced and template-based forced modes process
+4. **Serial template-based execution.** Template-based forced mode processes
    each SMA sequentially. No parallel execution path exists.
    (See future.md: "Parallel forced/template execution path".)
 

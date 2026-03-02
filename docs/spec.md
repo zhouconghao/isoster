@@ -6,7 +6,7 @@ ISOSTER is a Python library for elliptical isophote fitting on 2D images, with a
 
 ## Public Interfaces
 
-- `isoster.fit_image(image, mask=None, config=None, template_isophotes=None)`
+- `isoster.fit_image(image, mask=None, config=None, template=None)`
 - `isoster.fit_isophote(...)`
 - `isoster.isophote_results_to_fits(...)`
 - `isoster.isophote_results_from_fits(...)`
@@ -37,9 +37,10 @@ ISOSTER is a Python library for elliptical isophote fitting on 2D images, with a
 
 `fit_image` selects exactly one mode in this priority order:
 
-1. `template_isophotes` provided -> template-based forced photometry (`driver._fit_image_template_forced`).
-2. `config.forced=True` -> fixed-geometry forced photometry (`fitting.extract_forced_photometry`) using `forced_sma`.
-3. Otherwise -> regular iterative fitting (central pixel, outward growth, optional inward growth).
+1. `template` provided -> template-based forced photometry (`_fit_image_template_forced`).
+2. Otherwise -> regular iterative fitting (central pixel, outward growth, optional inward growth).
+
+(`template_isophotes` is supported as a deprecated alias for `template`).
 
 ## Regular Fitting Contract
 
@@ -59,7 +60,7 @@ For each SMA in regular mode:
 Stop codes currently emitted by core `isoster` fitting paths are:
 
 - `0`: converged / successful forced extraction.
-- `1`: too many flagged/clipped samples for the current ellipse.
+- `1`: too many flagged/clipped samples (`actual_points < total_points * (1.0 - fflag)`).
 - `2`: reached `maxit` without convergence; best-so-far geometry fallback.
 - `3`: too few points (`< 6`) for first/second harmonic fit.
 - `-1`: gradient-related failure.
@@ -81,7 +82,7 @@ Each isophote row includes geometry/intensity fields and optional blocks dependi
 
 ## Known Behavior Notes
 
-- `template_isophotes` takes precedence over `forced=True`.
+- `template` takes precedence over regular fitting.
 - `compute_cog` is only run in regular mode in current `fit_image`; forced/template branches return before CoG attachment.
 - Regular mode passes `previous_geometry` during outward/inward growth, so central regularization can apply when enabled.
 - Inward growth starts only when the first fitted isophote has an acceptable stop code (`0`, `1`, or `2`).

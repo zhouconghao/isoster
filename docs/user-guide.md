@@ -35,29 +35,12 @@ isophote_results_to_fits(results, "outputs/m51_isophotes.fits")
 
 `fit_image` mode priority:
 
-1. `template_isophotes` provided -> template-based forced photometry.
-2. `forced=True` -> fixed-geometry forced photometry at `forced_sma`.
-3. Otherwise -> regular iterative fitting.
-
-### Fixed-Geometry Forced Mode
-
-```python
-from isoster import fit_image
-from isoster.config import IsosterConfig
-
-config = IsosterConfig(
-    forced=True,
-    forced_sma=[5, 10, 20, 40, 80],
-    x0=128.0,
-    y0=128.0,
-    eps=0.3,
-    pa=0.2,
-)
-
-results = fit_image(image, mask=None, config=config)
-```
+1. `template` provided -> template-based forced photometry.
+2. Otherwise -> regular iterative fitting.
 
 ### Template-Based Forced Photometry
+
+Forced photometry (multiband analysis) is performed by passing the `template` argument. It accepts a results dict, a FITS path, or a list of isophote dicts.
 
 ```python
 from isoster import fit_image
@@ -65,13 +48,26 @@ from isoster.config import IsosterConfig
 
 config = IsosterConfig()
 
+# Fit reference band (geometry discovery)
 results_g = fit_image(image_g, mask=mask_g, config=config)
+
+# Apply g-band geometry to r-band (forced photometry)
 results_r = fit_image(
     image_r,
     mask=mask_r,
     config=config,
-    template_isophotes=results_g["isophotes"],
+    template=results_g,
 )
+```
+
+To perform forced photometry with a fixed geometry at specific SMAs, provide a list of dicts to `template`:
+
+```python
+template = [
+    {'sma': s, 'x0': 128.0, 'y0': 128.0, 'eps': 0.3, 'pa': 0.2}
+    for s in [5, 10, 20, 40, 80]
+]
+results = fit_image(image, mask=mask, config=config, template=template)
 ```
 
 ## Key Configuration Options
@@ -132,7 +128,7 @@ This section is the canonical stop-code reference for the current `isoster` impl
 | Code | Current Meaning | Primary Trigger in Core Code | Typical Action |
 |---|---|---|---|
 | `0` | Success | Converged fit, or successful forced extraction | Keep |
-| `1` | Too many flagged samples | `actual_points < total_points * fflag` | Inspect mask/clipping; treat cautiously |
+| `1` | Too many flagged samples | `actual_points < total_points * (1.0 - fflag)` | Inspect mask/clipping; treat cautiously |
 | `2` | Max-iteration fallback | Reached `maxit` without convergence criterion | Keep with caution; geometry is best-so-far |
 | `3` | Too few points | `< 6` valid points for harmonic fit | Discard this radius |
 | `-1` | Gradient failure | Gradient checks fail (or zero gradient) | Treat as boundary/failure |

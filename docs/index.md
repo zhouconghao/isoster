@@ -25,9 +25,9 @@ This folder separates stable documentation from historical working notes.
 - `configuration-reference.md`: configuration parameters and guidelines.
 - `algorithm.md`: implementation-level fitting and sampling notes.
 - `testing.md`: testing and benchmark directives.
-- `qa-figures.md`: QA figure layout and style conventions.
-- `stop-codes.md`: compatibility redirect to canonical stop-code section in `user-guide.md`.
-- `future.md`: long-term upgrades and research roadmap.
+- `qa-figures.md`: QA figure layout and style conventions
+- `future.md`: long-term upgrades and optimization roadmap
+
 
 ### Internal Documents (not tracked in git)
 
