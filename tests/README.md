@@ -50,7 +50,7 @@ Low-level module behavior and API contracts. Fast, no I/O, no external dependenc
 - **`test_model.py`** — Verifies `build_isoster_model()` fills the correct pixels and produces a
   finite model everywhere an isophote was fitted.
 - **`test_huang2013_campaign_fault_tolerance.py`** — Regression suite for the fault-tolerance
-  logic in `examples/huang2013/run_huang2013_campaign.py`. Uses JSON fixtures; not a unit test of
+  logic in `examples/example_huang2013/run_huang2013_campaign.py`. Uses JSON fixtures; not a unit test of
   core fitting code.
 - **`test_sampling.py`** — Minimal smoke tests for `sampling.py`. Only two tests; sampling is
   primarily exercised indirectly via `test_fitting.py` and integration tests.

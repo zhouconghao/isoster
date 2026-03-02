@@ -16,11 +16,11 @@ Usage
 -----
 ::
 
-    uv run python examples/compare_isofit_modes.py --galaxy eso243-49
-    uv run python examples/compare_isofit_modes.py --galaxy ngc3610
-    uv run python examples/compare_isofit_modes.py --galaxy all
+    uv run python examples/example_ls_highorder_harmonic/compare_isofit_modes.py --galaxy eso243-49
+    uv run python examples/example_ls_highorder_harmonic/compare_isofit_modes.py --galaxy ngc3610
+    uv run python examples/example_ls_highorder_harmonic/compare_isofit_modes.py --galaxy all
 
-Output goes to ``outputs/isofit_mode_comparison/<galaxy>/``.
+Output goes to ``outputs/example_ls_highorder_harmonic/isofit_mode_comparison/<galaxy>/``.
 """
 
 from __future__ import annotations
@@ -48,9 +48,9 @@ from isoster.plotting import (
     set_x_limits_with_right_margin,
 )
 
-# Reuse data-loading and masking from the existing example
+# Reuse data-loading and masking from the main script in this folder.
 _HERE = Path(__file__).parent
-sys.path.insert(0, str(_HERE / "real_galaxy_legacysurvey_highorder_harmonics"))
+sys.path.insert(0, str(_HERE))
 
 from masking import make_object_mask  # noqa: E402
 from shared import (  # noqa: E402
@@ -525,7 +525,7 @@ def print_statistics_table(mode_stats: dict[str, dict], mode_meta: dict[str, dic
 
 def run_galaxy(galaxy: str, output_dir: Path, band_index: int = 1) -> None:
     """Run the three-mode comparison for one galaxy."""
-    data_dir = _HERE / "data"
+    data_dir = _HERE.parent.parent / "data"
     fits_path = data_dir / FITS_FILENAME[galaxy]
     if not fits_path.exists():
         print(f"ERROR: FITS file not found: {fits_path}")
@@ -657,7 +657,7 @@ def parse_arguments() -> argparse.Namespace:
     parser.add_argument(
         "--output-dir",
         type=Path,
-        default=Path("outputs/isofit_mode_comparison"),
+        default=Path("outputs/example_ls_highorder_harmonic/isofit_mode_comparison"),
         help="Output directory.",
     )
     return parser.parse_args()

@@ -6,7 +6,7 @@ Guidelines for writing tests and benchmarks in the isoster project.
 
 - The canonical basic real-data dataset is `data/m51/M51.fits`; the basic real-data test should be named `m51_test`.
 - For Huang2013 workflows, use a fixed default initial SMA of `6.0` pixels (`sma0`) instead of deriving it from `RE_PX1`.
-- For high-fidelity mock generation, use `examples/huang2013/mockgal.py` (libprofit-based) when PSF convolution and realistic background-noise controls are required.
+- For high-fidelity mock generation, use the external `mockgal.py` workflow referenced by `benchmarks/utils/mockgal_adapter.py` when PSF convolution and realistic background-noise controls are required.
 - For `mockgal.py` benchmark/test workflows, force `--engine libprofit` and do not rely on astropy fallback rendering.
 - For noiseless single-Sersic validation without PSF convolution, compare against an analytic 1-D Sersic truth using accurate `b_n` evaluation (e.g., `scipy.special.gammaincinv`) rather than low-accuracy approximations.
 - Tests and benchmarks must be quantitative, with explicit statistics from 1-D profile deviations and 2-D residual diagnostics.

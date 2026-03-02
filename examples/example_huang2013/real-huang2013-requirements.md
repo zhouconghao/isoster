@@ -13,7 +13,7 @@ Build a reproducible, scalable workflow to compare `photutils.isophote` and `iso
   - `${GALAXY}_mock2.fits`: `z=0.05`, noisy
   - `${GALAXY}_mock3.fits`: `z=0.20`, noisy
   - `${GALAXY}_mock4.fits`: `z=0.50`, noisy
-- Script location requirement: all scripts under `examples/huang2013/`
+- Script location requirement: all scripts under `examples/example_huang2013/`
 - Artifact location requirement: all generated run artifacts saved in the external galaxy folder, not in this repository.
 
 ## Non-Negotiable Workflow Requirements

@@ -23,20 +23,20 @@ from the LegacySurvey / SDSS archive:
 
 ```bash
 # ESO243-49 r-band (index 1)
-uv run python examples/real_galaxy_legacysurvey_highorder_harmonics/run_example.py \
+uv run python examples/example_ls_highorder_harmonic/run_example.py \
     --galaxy eso243-49 --band-index 1 \
-    --output-dir outputs/legacysurvey_highorder_harmonics/
+    --output-dir outputs/example_ls_highorder_harmonic/
 
 # NGC3610 r-band
-uv run python examples/real_galaxy_legacysurvey_highorder_harmonics/run_example.py \
+uv run python examples/example_ls_highorder_harmonic/run_example.py \
     --galaxy ngc3610 --band-index 1 \
-    --output-dir outputs/legacysurvey_highorder_harmonics/
+    --output-dir outputs/example_ls_highorder_harmonic/
 ```
 
 ## Output Layout
 
 ```
-outputs/legacysurvey_highorder_harmonics/<galaxy>/band_<N>/
+outputs/example_ls_highorder_harmonic/<galaxy>/band_<N>/
 ├── mask.fits                # Bad-pixel mask (1 = masked)
 ├── mask_qa.png              # Mask QA figure
 ├── <condition>/
@@ -106,6 +106,20 @@ The two-stage photutils masking pipeline (`masking.py`) uses:
 | `masking.py` | Two-stage photutils masking pipeline with deblending |
 | `shared.py` | Galaxy metadata, config factory, comparison QA function |
 | `run_example.py` | Main CLI script |
+| `compare_isofit_modes.py` | Optional ISOFIT comparison study |
+| `ngc3610_highorder_exploration.py` | Optional NGC3610 harmonic-impact study |
+| `ngc3610_mask_effect.py` | Optional NGC3610 masking-sensitivity study |
+| `ngc3610_sma0_effect.py` | Optional NGC3610 starting-radius study |
+
+## Default Run Policy
+
+- Run `run_example.py` by default.
+- The other scripts in this folder are exploratory follow-ups for high-harmonic behavior and should not be run unless you specifically want those diagnostics.
+- Their default outputs are:
+  - `outputs/example_ls_highorder_harmonic/isofit_mode_comparison/`
+  - `outputs/example_ls_highorder_harmonic/ngc3610_highorder_exploration/`
+  - `outputs/example_ls_highorder_harmonic/ngc3610_mask_effect/`
+  - `outputs/example_ls_highorder_harmonic/ngc3610_sma0_effect/`
 
 ## Notes
 

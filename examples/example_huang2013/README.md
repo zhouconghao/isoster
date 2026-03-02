@@ -56,7 +56,7 @@ Current baseline decisions:
 Run extraction (one-time per method/config):
 
 ```bash
-python examples/huang2013/run_huang2013_profile_extraction.py \
+uv run python examples/example_huang2013/run_huang2013_profile_extraction.py \
   --galaxy IC2597 \
   --mock-id 1 \
   --method both \
@@ -66,7 +66,7 @@ python examples/huang2013/run_huang2013_profile_extraction.py \
 Run QA afterburner (re-runnable):
 
 ```bash
-python examples/huang2013/run_huang2013_qa_afterburner.py \
+uv run python examples/example_huang2013/run_huang2013_qa_afterburner.py \
   --galaxy IC2597 \
   --mock-id 1 \
   --method both \
@@ -79,7 +79,7 @@ python examples/huang2013/run_huang2013_qa_afterburner.py \
 Run the fault-tolerant campaign runner across all discovered galaxy folders and mock IDs 1-4:
 
 ```bash
-uv run python examples/huang2013/run_huang2013_campaign.py \
+uv run python examples/example_huang2013/run_huang2013_campaign.py \
   --huang-root /Users/mac/work/hsc/huang2013 \
   --mock-ids 1 2 3 4 \
   --method both \
@@ -110,7 +110,7 @@ Recommended options for large campaigns:
 Example resume command:
 
 ```bash
-uv run python examples/huang2013/run_huang2013_campaign.py \
+uv run python examples/example_huang2013/run_huang2013_campaign.py \
   --huang-root /Users/mac/work/hsc/huang2013 \
   --mock-ids 1 2 3 4 \
   --method both \
@@ -131,7 +131,7 @@ Extraction/QA status handshake:
 Clean a single test in one galaxy:
 
 ```bash
-uv run python examples/huang2013/clean_huang2013_outputs.py \
+uv run python examples/example_huang2013/clean_huang2013_outputs.py \
   --huang-root /Users/mac/work/hsc/huang2013 \
   --galaxy ESO185-G054 \
   --test-name mock1
@@ -140,7 +140,7 @@ uv run python examples/huang2013/clean_huang2013_outputs.py \
 Clean all test outputs for one galaxy:
 
 ```bash
-uv run python examples/huang2013/clean_huang2013_outputs.py \
+uv run python examples/example_huang2013/clean_huang2013_outputs.py \
   --huang-root /Users/mac/work/hsc/huang2013 \
   --galaxy ESO185-G054
 ```
@@ -148,7 +148,7 @@ uv run python examples/huang2013/clean_huang2013_outputs.py \
 Clean all galaxies:
 
 ```bash
-uv run python examples/huang2013/clean_huang2013_outputs.py \
+uv run python examples/example_huang2013/clean_huang2013_outputs.py \
   --huang-root /Users/mac/work/hsc/huang2013 \
   --all-galaxies
 ```
@@ -166,7 +166,7 @@ Safety:
 If profiles already exist in `~/work/hsc/huang2013/IC2597`, you only need the afterburner:
 
 ```bash
-python examples/huang2013/run_huang2013_qa_afterburner.py \
+uv run python examples/example_huang2013/run_huang2013_qa_afterburner.py \
   --galaxy IC2597 \
   --mock-id 1 \
   --method both \
@@ -178,12 +178,12 @@ Useful variants:
 
 ```bash
 # Regenerate only photutils QA
-python examples/huang2013/run_huang2013_qa_afterburner.py \
+uv run python examples/example_huang2013/run_huang2013_qa_afterburner.py \
   --galaxy IC2597 --mock-id 1 --method photutils --config-tag baseline \
   --output-dir /Users/mac/work/hsc/huang2013/IC2597/mock1
 
 # Skip comparison panel generation
-python examples/huang2013/run_huang2013_qa_afterburner.py \
+uv run python examples/example_huang2013/run_huang2013_qa_afterburner.py \
   --galaxy IC2597 --mock-id 1 --method both --config-tag baseline \
   --skip-comparison --output-dir /Users/mac/work/hsc/huang2013/IC2597/mock1
 ```
@@ -192,7 +192,7 @@ python examples/huang2013/run_huang2013_qa_afterburner.py \
 
 Primary plotting functions are in:
 
-- `examples/huang2013/run_huang2013_real_mock_demo.py`
+- `examples/example_huang2013/run_huang2013_real_mock_demo.py`
   - `build_method_qa_figure(...)`
   - `build_comparison_qa_figure(...)`
 
@@ -203,6 +203,12 @@ After editing plot logic, rerun only `run_huang2013_qa_afterburner.py`; no refit
 Prefix: `<GALAXY>_mock<ID>`
 
 Default artifact directory: `<GALAXY>/mock<ID>/`
+
+This example is the output-layout exception in the `examples/` tree. Unlike the
+smaller examples, its main products are intentionally written under the external
+Huang2013 data root (`--huang-root`) because each case generates many files.
+Campaign-level summary files still go to `outputs/huang2013_campaign*` unless
+you override `--summary-dir`.
 
 Method products:
 

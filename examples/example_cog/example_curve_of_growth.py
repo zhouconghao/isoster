@@ -5,13 +5,13 @@ Sersic Profile CoG Test
 Generate a mock Sersic profile and verify CoG photometry against analytical total flux.
 """
 
-import os
 import numpy as np
 import matplotlib.pyplot as plt
 from scipy.special import gammaincinv
 
 import isoster
 from isoster.config import IsosterConfig
+from isoster.output_paths import resolve_output_directory
 
 def sersic_profile(r, I_e, r_e, n):
     """
@@ -214,11 +214,11 @@ def run_sersic_cog_test():
     print(f"   Negative area flags: {np.sum(flag_neg)} / {len(flag_neg)}")
     
     # Compute analytical CoG
-    print(f"\nComputing analytical CoG...")
+    print("\nComputing analytical CoG...")
     cog_analytical = sersic_analytical_cog(I_e, r_e, n, eps, sma_arr)
     
     # Compute true CoG using aperture photometry on the mock image
-    print(f"Computing aperture CoG (SEP subpixel method)...")
+    print("Computing aperture CoG (SEP subpixel method)...")
     cog_aperture = compute_aperture_cog(image, params['x0'], params['y0'], 
                                         sma_arr, params['eps'], pa)
     
@@ -291,9 +291,8 @@ def run_sersic_cog_test():
     
     plt.tight_layout()
     
-    output_dir = os.path.join(os.path.dirname(__file__), '..', 'outputs')
-    os.makedirs(output_dir, exist_ok=True)
-    qa_path = os.path.join(output_dir, 'sersic_cog_test.png')
+    output_dir = resolve_output_directory("example_cog")
+    qa_path = output_dir / "sersic_cog_test.png"
     plt.savefig(qa_path, dpi=150)
     plt.close()
     print(f"Saved plot to {qa_path}")
