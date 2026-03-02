@@ -4,7 +4,7 @@ Guidelines for writing tests and benchmarks in the isoster project.
 
 ## General Directives
 
-- The canonical basic real-data dataset is `examples/data/m51/M51.fits`; the basic real-data test should be named `m51_test`.
+- The canonical basic real-data dataset is `data/m51/M51.fits`; the basic real-data test should be named `m51_test`.
 - For Huang2013 workflows, use a fixed default initial SMA of `6.0` pixels (`sma0`) instead of deriving it from `RE_PX1`.
 - For high-fidelity mock generation, use `examples/huang2013/mockgal.py` (libprofit-based) when PSF convolution and realistic background-noise controls are required.
 - For `mockgal.py` benchmark/test workflows, force `--engine libprofit` and do not rely on astropy fallback rendering.

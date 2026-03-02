@@ -1,0 +1,27 @@
+{
+  "cases": [
+    {
+      "max_mean_time_threshold": 0.3641528330044821,
+      "minimum_converged_count_threshold": 23,
+      "minimum_convergence_rate_threshold": 1.0,
+      "minimum_isophote_count_threshold": 23,
+      "name": "n1_small_circular"
+    },
+    {
+      "max_mean_time_threshold": 0.09609433298464864,
+      "minimum_converged_count_threshold": 28,
+      "minimum_convergence_rate_threshold": 1.0,
+      "minimum_isophote_count_threshold": 28,
+      "name": "n1_medium_eps04"
+    },
+    {
+      "max_mean_time_threshold": 0.15573649993166327,
+      "minimum_converged_count_threshold": 28,
+      "minimum_convergence_rate_threshold": 1.0,
+      "minimum_isophote_count_threshold": 28,
+      "name": "n4_medium_snr100"
+    }
+  ],
+  "policy": "Thresholds are locked directly from measured efficiency baselines with no synthetic margins. Runtime threshold uses the measured maximum sampled runtime for each case.",
+  "source_baseline_path": "outputs/benchmarks_performance/bench_efficiency/efficiency_benchmark_results.json"
+}

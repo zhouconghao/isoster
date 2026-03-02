@@ -65,7 +65,7 @@ from benchmarks.utils.autoprof_adapter import (  # noqa: E402
 # Galaxy registry
 # ---------------------------------------------------------------------------
 
-DATA_DIR = PROJECT_ROOT / "examples" / "data"
+DATA_DIR = PROJECT_ROOT / "data"
 
 # IC3370_mock2 values from benchmarks/ic3370_exhausted/config_registry.py
 GALAXY_REGISTRY = [
@@ -185,19 +185,19 @@ def estimate_initial_params(image: np.ndarray, galaxy_info: dict) -> dict:
         print("  Running preliminary isoster fit to estimate geometry...")
         ny, nx = image.shape
         cx, cy = nx / 2.0, ny / 2.0
-        prelim_config = {
-            "x0": cx,
-            "y0": cy,
-            "eps": 0.2,
-            "pa": 0.0,
-            "sma0": info["sma0"],
-            "minsma": 1.0,
-            "maxsma": info["maxsma"] or min(nx, ny) / 2 - 20,
-            "astep": 0.2,  # coarse step for speed
-            "maxit": 30,
-            "compute_errors": False,
-            "compute_deviations": False,
-        }
+        prelim_config = IsosterConfig(
+            x0=cx,
+            y0=cy,
+            eps=0.2,
+            pa=0.0,
+            sma0=info["sma0"],
+            minsma=1.0,
+            maxsma=info["maxsma"] or min(nx, ny) / 2 - 20,
+            astep=0.2,  # coarse step for speed
+            maxit=30,
+            compute_errors=False,
+            compute_deviations=False,
+        )
         try:
             result = isoster.fit_image(image, None, prelim_config)
             isophotes = result["isophotes"]
@@ -245,18 +245,18 @@ def estimate_initial_params(image: np.ndarray, galaxy_info: dict) -> dict:
 def warmup_jit(image: np.ndarray):
     """Warm up Numba JIT with a small throwaway fit."""
     ny, nx = image.shape
-    tiny_config = {
-        "x0": nx / 2.0,
-        "y0": ny / 2.0,
-        "eps": 0.2,
-        "pa": 0.0,
-        "sma0": 10.0,
-        "minsma": 5.0,
-        "maxsma": 30.0,
-        "maxit": 5,
-        "compute_errors": False,
-        "compute_deviations": False,
-    }
+    tiny_config = IsosterConfig(
+        x0=nx / 2.0,
+        y0=ny / 2.0,
+        eps=0.2,
+        pa=0.0,
+        sma0=10.0,
+        minsma=5.0,
+        maxsma=30.0,
+        maxit=5,
+        compute_errors=False,
+        compute_deviations=False,
+    )
     try:
         isoster.fit_image(image, None, tiny_config)
     except Exception:
@@ -280,23 +280,23 @@ def run_isoster_benchmark(image: np.ndarray, params: dict) -> dict:
         stop_codes.
     """
     x0, y0 = params["center"]
-    config = {
-        "x0": x0,
-        "y0": y0,
-        "eps": params["eps"],
-        "pa": params["pa"],
-        "sma0": params["sma0"],
-        "minsma": 1.0,
-        "maxsma": params["maxsma"],
-        "astep": 0.1,
-        "linear_growth": False,
-        "compute_errors": True,
-        "compute_deviations": False,
-        "nclip": 2,
-        "sclip": 3.0,
-        "convergence_scaling": "sector_area",
-        "geometry_damping": 0.7,
-    }
+    config = IsosterConfig(
+        x0=x0,
+        y0=y0,
+        eps=params["eps"],
+        pa=params["pa"],
+        sma0=params["sma0"],
+        minsma=1.0,
+        maxsma=params["maxsma"],
+        astep=0.1,
+        linear_growth=False,
+        compute_errors=True,
+        compute_deviations=False,
+        nclip=2,
+        sclip=3.0,
+        convergence_scaling="sector_area",
+        geometry_damping=0.7,
+    )
 
     t0 = time.perf_counter()
     result = isoster.fit_image(image, None, config)

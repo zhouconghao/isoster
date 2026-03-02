@@ -8,8 +8,8 @@ from pathlib import Path
 from typing import Dict, List
 
 
-DEFAULT_INPUT_PATH = Path("benchmarks/baselines/efficiency_baseline.json")
-DEFAULT_OUTPUT_PATH = Path("benchmarks/baselines/efficiency_thresholds_2026-02-14.json")
+DEFAULT_INPUT_PATH = Path("outputs/benchmark_performance/bench_efficiency/efficiency_benchmark_results.json")
+DEFAULT_OUTPUT_PATH = Path("benchmarks/baselines/efficiency_thresholds.json")
 
 
 def _load_cases(payload: object) -> List[Dict[str, object]]:

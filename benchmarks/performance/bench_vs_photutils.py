@@ -39,6 +39,7 @@ if "MPLCONFIGDIR" not in os.environ:
 import matplotlib.pyplot as plt  # noqa: E402
 from matplotlib.backends.backend_pdf import PdfPages  # noqa: E402
 import isoster  # noqa: E402
+from isoster import IsosterConfig  # noqa: E402
 from isoster.output_paths import resolve_output_directory  # noqa: E402
 from benchmarks.utils.run_metadata import collect_environment_metadata, write_json  # noqa: E402
 from benchmarks.utils.sersic_model import (  # noqa: E402
@@ -87,22 +88,22 @@ def run_isoster_fit(image, x0, y0, eps, pa, sma0=10.0, maxsma=None):
     if maxsma is None:
         maxsma = min(image.shape) / 2 - 10
 
-    config = {
-        'x0': x0,
-        'y0': y0,
-        'eps': eps,
-        'pa': pa,
-        'sma0': sma0,
-        'minsma': 1.0,
-        'maxsma': maxsma,
-        'astep': 0.1,
-        'linear_growth': False,
-        'compute_errors': False,
-        'compute_deviations': False,
-        'full_photometry': False,
-        'nclip': 2,
-        'sclip': 3.0,
-    }
+    config = IsosterConfig(
+        x0=x0,
+        y0=y0,
+        eps=eps,
+        pa=pa,
+        sma0=sma0,
+        minsma=1.0,
+        maxsma=maxsma,
+        astep=0.1,
+        linear_growth=False,
+        compute_errors=False,
+        compute_deviations=False,
+        full_photometry=False,
+        nclip=2,
+        sclip=3.0,
+    )
 
     start_time = time.perf_counter()
     results = isoster.fit_image(image, None, config)

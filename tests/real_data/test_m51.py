@@ -17,7 +17,7 @@ from isoster.config import IsosterConfig
 
 
 # Path to M51 data
-M51_PATH = Path(__file__).parent.parent.parent / "examples" / "data" / "m51" / "M51.fits"
+M51_PATH = Path(__file__).parent.parent.parent / "data" / "m51" / "M51.fits"
 
 
 @pytest.mark.real_data

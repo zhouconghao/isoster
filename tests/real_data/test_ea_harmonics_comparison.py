@@ -49,7 +49,7 @@ except ImportError:
 # Data paths
 # =============================================================================
 
-DATA_DIR = Path(__file__).parent / "data"
+DATA_DIR = Path(__file__).parent.parent.parent / "data"
 ESO243_PATH = DATA_DIR / "eso243-49.fits"
 NGC3610_PATH = DATA_DIR / "ngc3610.fits"
 

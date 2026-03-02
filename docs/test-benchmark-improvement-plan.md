@@ -12,7 +12,7 @@ Improve test meaningfulness and benchmark diagnostic quality for ISOSTER by:
 - This plan does not change core fitting algorithms directly unless required by testability/benchmark instrumentation.
 
 ## User-Defined Directives (Persisted)
-1. Treat `examples/data/m51/M51.fits` as the canonical basic real-data test dataset.
+1. Treat `data/m51/M51.fits` as the canonical basic real-data test dataset.
 2. Rename the basic real-data test to `m51_test`.
 3. For future mock generation, use `/Users/mac/Dropbox/work/project/otters/isophote_test/mockgal.py` (libprofit-based) for PSF/noise-capable mock images.
 4. For noiseless single-Sersic validation without PSF, use analytic 1-D Sersic truth with accurate `b_n` evaluation (not low-accuracy approximations).
