@@ -1,0 +1,1194 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Fast isophote fitting for galaxy images.">
+      
+      
+        <meta name="author" content="Shuang">
+      
+      
+      
+      
+      
+        
+      
+      
+      <link rel="icon" href="../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.1">
+    
+    
+      
+        <title>Test and Benchmark Improvement Plan - Isoster Documentation</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.484c7ddc.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    <body dir="ltr">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#test-and-benchmark-improvement-plan" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="Isoster Documentation" class="md-header__button md-logo" aria-label="Isoster Documentation" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            Isoster Documentation
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Test and Benchmark Improvement Plan
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/shuang-stat/isoster" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    GitHub
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="Isoster Documentation" class="md-nav__button md-logo" aria-label="Isoster Documentation" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    Isoster Documentation
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/shuang-stat/isoster" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    GitHub
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../spec/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Spec
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../user-guide/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    User Guide
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../configuration-reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Configuration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../algorithm/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Algorithm
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../testing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Testing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../qa-figures/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    QA Figures
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../future/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Future
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#objective" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Objective
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#scope-and-boundaries" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Scope and Boundaries
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#user-defined-directives-persisted" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        User-Defined Directives (Persisted)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#workstreams" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Workstreams
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Workstreams">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#workstream-a-test-reliability-hardening" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Workstream A: Test Reliability Hardening
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#workstream-b-public-api-coverage-completion" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Workstream B: Public API Coverage Completion
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#workstream-c-real-data-baseline-coverage" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Workstream C: Real-Data Baseline Coverage
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#workstream-d-mock-truth-pipeline-current-future" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Workstream D: Mock Truth Pipeline (Current + Future)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#workstream-e-benchmark-diagnostics-and-output-standardization" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Workstream E: Benchmark Diagnostics and Output Standardization
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#quantitative-criteria-framework" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Quantitative Criteria Framework
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#1-d-profile-criteria" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1-D Profile Criteria
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#2-d-residual-criteria" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2-D Residual Criteria
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#threshold-definition-policy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Threshold Definition Policy
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#locked-thresholds-2026-02-11" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Locked Thresholds (2026-02-11)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#artifact-contract" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Artifact Contract
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#execution-phases" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Execution Phases
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Execution Phases">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#phase-0-baseline-measurement-and-threshold-locking" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 0: Baseline Measurement and Threshold Locking
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#phase-1-test-hardening-and-api-coverage" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 1: Test Hardening and API Coverage
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#phase-2-benchmark-and-profiling-output-upgrades" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 2: Benchmark and Profiling Output Upgrades
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#phase-3-high-fidelity-mock-pipeline-integration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 3: High-Fidelity Mock Pipeline Integration
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#risks-and-mitigations" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Risks and Mitigations
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#deliverables" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Deliverables
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#post-phase4-follow-up-2026-02-12" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Post-Phase4 Follow-up (2026-02-12)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#session-update-2026-02-14-libprofit-system-level-2-d-caveat" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Session Update (2026-02-14): libprofit + System-Level 2-D Caveat
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Session Update (2026-02-14): libprofit + System-Level 2-D Caveat">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#additional-non-negotiables" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Additional Non-Negotiables
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#current-benchmark-review-condensed" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Current Benchmark Review (Condensed)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#proposed-benchmark-plan" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Proposed Benchmark Plan
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Proposed Benchmark Plan">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#workstream-f-mockgal-libprofit-enforcement" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Workstream F: mockgal libprofit Enforcement
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#workstream-g-benchmark-model-set-analytic-mockgal" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Workstream G: Benchmark Model Set (Analytic + mockgal)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#workstream-h-quantitative-qa-criteria-and-gating" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Workstream H: Quantitative QA Criteria and Gating
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#workstream-i-baseline-lock-and-artifacts" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Workstream I: Baseline Lock and Artifacts
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="test-and-benchmark-improvement-plan">Test and Benchmark Improvement Plan</h1>
+<h2 id="objective">Objective</h2>
+<p>Improve test meaningfulness and benchmark diagnostic quality for ISOSTER by:
+- hardening assertions to prevent false-pass behavior
+- increasing public API and real-data coverage
+- standardizing quantitative criteria and artifacts
+- preparing a higher-fidelity mock-generation pathway for future benchmark/test expansion</p>
+<h2 id="scope-and-boundaries">Scope and Boundaries</h2>
+<ul>
+<li>This plan covers <code>tests/</code>, <code>benchmarks/</code>, test/benchmark documentation, and related output standards.</li>
+<li>This plan does not change core fitting algorithms directly unless required by testability/benchmark instrumentation.</li>
+</ul>
+<h2 id="user-defined-directives-persisted">User-Defined Directives (Persisted)</h2>
+<ol>
+<li>Treat <code>examples/data/m51/M51.fits</code> as the canonical basic real-data test dataset.</li>
+<li>Rename the basic real-data test to <code>m51_test</code>.</li>
+<li>For future mock generation, use <code>/Users/mac/Dropbox/work/project/otters/isophote_test/mockgal.py</code> (libprofit-based) for PSF/noise-capable mock images.</li>
+<li>For noiseless single-Sersic validation without PSF, use analytic 1-D Sersic truth with accurate <code>b_n</code> evaluation (not low-accuracy approximations).</li>
+<li>Keep tests and benchmarks quantitative using explicit statistics from 1-D deviations and 2-D residuals.</li>
+</ol>
+<h2 id="workstreams">Workstreams</h2>
+<h3 id="workstream-a-test-reliability-hardening">Workstream A: Test Reliability Hardening</h3>
+<ul>
+<li>Replace conditional metric checks that currently allow silent pass when no valid points exist.</li>
+<li>Add explicit minimum valid-point assertions before computing profile metrics.</li>
+<li>Convert diagnostic-only tests into pass/fail tests with threshold assertions.</li>
+<li>Ensure real-data tests fail clearly when expected input is missing vs silently skipping in normal usage where appropriate.</li>
+</ul>
+<h3 id="workstream-b-public-api-coverage-completion">Workstream B: Public API Coverage Completion</h3>
+<ul>
+<li>Add direct tests for:</li>
+<li><code>isoster.fit_isophote</code></li>
+<li><code>isoster.isophote_results_to_astropy_tables</code></li>
+<li><code>isoster.plot_qa_summary</code> (file artifact generation + basic structure checks)</li>
+<li>CLI entry (<code>isoster/cli.py</code>) with smoke-level integration validation</li>
+<li>Add regression tests for deprecated surface (<code>build_ellipse_model</code>) to guard compatibility behavior.</li>
+</ul>
+<h3 id="workstream-c-real-data-baseline-coverage">Workstream C: Real-Data Baseline Coverage</h3>
+<ul>
+<li>Rename and normalize M51 basic real-data test entrypoint to <code>m51_test</code>.</li>
+<li>Add a reproducible artifact bundle for M51 test runs:</li>
+<li>profile summary JSON</li>
+<li>stop-code distribution</li>
+<li>QA figure with overplotted isophotes and residual map</li>
+<li>Define strict but realistic M51 quality gates based on measured baselines.</li>
+</ul>
+<h3 id="workstream-d-mock-truth-pipeline-current-future">Workstream D: Mock Truth Pipeline (Current + Future)</h3>
+<ul>
+<li>Near-term:</li>
+<li>Standardize analytic Sersic truth generation to use accurate <code>b_n</code> computation (for example, <code>scipy.special.gammaincinv</code>).</li>
+<li>Align 1-D truth evaluation across tests/benchmarks to avoid mixed approximations.</li>
+<li>Future:</li>
+<li>Add an adapter workflow to call <code>mockgal.py</code> from the <code>isophote_test</code> repo for high-fidelity mocks with:<ul>
+<li>PSF convolution</li>
+<li>sky/background noise via <code>sblimit</code></li>
+<li>paired noiseless truth images for aperture-flux validation</li>
+</ul>
+</li>
+<li>Store recipe metadata (input config + seed + environment) with each generated mock set.</li>
+</ul>
+<h3 id="workstream-e-benchmark-diagnostics-and-output-standardization">Workstream E: Benchmark Diagnostics and Output Standardization</h3>
+<ul>
+<li>Standardize all benchmark/profiling outputs under <code>outputs/benchmarks_*</code>.</li>
+<li>Ensure each benchmark writes machine-readable summaries (JSON/CSV) by default.</li>
+<li>Ensure each benchmark can emit QA plots by default for failing/borderline cases.</li>
+<li>Persist profiler artifacts (<code>.prof</code> + parsed hotspot summary) rather than console-only output.</li>
+<li>Add environment metadata to benchmark outputs:</li>
+<li>git SHA</li>
+<li>Python/NumPy/SciPy/Numba versions</li>
+<li>CPU info and relevant env vars</li>
+</ul>
+<h2 id="quantitative-criteria-framework">Quantitative Criteria Framework</h2>
+<h2 id="1-d-profile-criteria">1-D Profile Criteria</h2>
+<ul>
+<li>Primary metric: relative intensity residual</li>
+<li><code>delta_I = (I_isoster - I_truth) / I_truth</code></li>
+<li>Report at minimum:</li>
+<li>median <code>|delta_I|</code></li>
+<li>max <code>|delta_I|</code></li>
+<li>valid-point count used for metrics</li>
+<li>Radial windows:</li>
+<li>noiseless, no-PSF single-Sersic: <code>[max(3 px, 0.5 Re), 8 Re]</code></li>
+<li>noisy mocks: <code>[max(3 px, 0.5 Re), 5 Re]</code></li>
+<li>with PSF: ignore <code>&lt;= 2 * psf_fwhm</code></li>
+</ul>
+<h2 id="2-d-residual-criteria">2-D Residual Criteria</h2>
+<ul>
+<li>Primary metrics:</li>
+<li>fractional residual: <code>100 * (model - data) / data</code></li>
+<li>fractional absolute residual: <code>100 * |model - data| / data</code></li>
+<li>chi-square map for noisy data: <code>(model - data)^2 / sigma^2</code></li>
+<li>Report per radial band:</li>
+<li><code>&lt;0.5 Re</code></li>
+<li><code>0.5-4 Re</code></li>
+<li><code>4-8 Re</code></li>
+<li>Statistics per band:</li>
+<li>median fractional residual</li>
+<li>median fractional absolute residual</li>
+<li>max absolute fractional residual</li>
+<li>integrated chi-square (when sigma is defined)</li>
+</ul>
+<h2 id="threshold-definition-policy">Threshold Definition Policy</h2>
+<ul>
+<li>Do not invent new numeric thresholds.</li>
+<li>Use one baseline-calibration phase to measure current distributions, then lock thresholds from measured statistics and record them in this document.</li>
+<li>Any threshold update requires:</li>
+<li>before/after benchmark evidence</li>
+<li>documented rationale in <code>docs/journal/</code></li>
+</ul>
+<h2 id="locked-thresholds-2026-02-11">Locked Thresholds (2026-02-11)</h2>
+<p>Source files:
+- Baseline metrics: <code>outputs/tests_integration/baseline_metrics/phase4_profile_baseline_metrics.json</code>
+- Locked threshold record: <code>benchmarks/baselines/phase4_profile_thresholds_2026-02-11.json</code></p>
+<p>Locked values (directly measured, no synthetic margin):</p>
+<table>
+<thead>
+<tr>
+<th>Case</th>
+<th>Metric Window (SMA)</th>
+<th style="text-align: right;">Min Valid Points</th>
+<th style="text-align: right;">Max |ΔI| Threshold</th>
+<th style="text-align: right;">Median |ΔI| Threshold</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>sersic_n4_noiseless</code></td>
+<td><code>[10.0, 160.0]</code></td>
+<td style="text-align: right;">19</td>
+<td style="text-align: right;">0.002098</td>
+<td style="text-align: right;">0.000096</td>
+</tr>
+<tr>
+<td><code>sersic_n1_high_eps_noise</code></td>
+<td><code>[12.5, 125.0]</code></td>
+<td style="text-align: right;">15</td>
+<td style="text-align: right;">0.114202</td>
+<td style="text-align: right;">0.003759</td>
+</tr>
+<tr>
+<td><code>sersic_n4_extreme_eps_noise</code></td>
+<td><code>[10.0, 100.0]</code></td>
+<td style="text-align: right;">15</td>
+<td style="text-align: right;">0.009876</td>
+<td style="text-align: right;">0.002971</td>
+</tr>
+</tbody>
+</table>
+<h2 id="artifact-contract">Artifact Contract</h2>
+<p>Every non-trivial validation/benchmark run should produce:
+1. machine-readable metrics (<code>.json</code>)
+2. QA figure(s) (<code>.png</code> or <code>.pdf</code>)
+3. run metadata (<code>git SHA</code>, environment versions, input parameters)</p>
+<p>Recommended output layout:
+- <code>outputs/tests_integration/&lt;run_name&gt;/...</code>
+- <code>outputs/tests_validation/&lt;run_name&gt;/...</code>
+- <code>outputs/tests_real_data/&lt;run_name&gt;/...</code>
+- <code>outputs/benchmarks_performance/&lt;run_name&gt;/...</code>
+- <code>outputs/benchmarks_profiling/&lt;run_name&gt;/...</code></p>
+<h2 id="execution-phases">Execution Phases</h2>
+<h3 id="phase-0-baseline-measurement-and-threshold-locking">Phase 0: Baseline Measurement and Threshold Locking</h3>
+<ul>
+<li>Collect baseline metrics from current suites.</li>
+<li>Confirm metric reproducibility and valid-point counts.</li>
+<li>Propose threshold values from measured distributions.</li>
+</ul>
+<h3 id="phase-1-test-hardening-and-api-coverage">Phase 1: Test Hardening and API Coverage</h3>
+<ul>
+<li>Remove false-pass patterns.</li>
+<li>Add missing API and CLI tests.</li>
+<li>Rename/normalize M51 basic test to <code>m51_test</code>.</li>
+</ul>
+<h3 id="phase-2-benchmark-and-profiling-output-upgrades">Phase 2: Benchmark and Profiling Output Upgrades</h3>
+<ul>
+<li>Standardize outputs for all benchmarks.</li>
+<li>Add default JSON + figure + metadata outputs.</li>
+<li>Save profiler data files and parsed summaries.</li>
+</ul>
+<h3 id="phase-3-high-fidelity-mock-pipeline-integration">Phase 3: High-Fidelity Mock Pipeline Integration</h3>
+<ul>
+<li>Add reproducible bridge to <code>mockgal.py</code> workflows.</li>
+<li>Add PSF/noise-aware benchmark scenarios with paired noiseless truth validation.</li>
+</ul>
+<h2 id="risks-and-mitigations">Risks and Mitigations</h2>
+<ul>
+<li>Risk: threshold instability across machines.</li>
+<li>Mitigation: lock thresholds using robust statistics and include environment metadata.</li>
+<li>Risk: external mock generator path dependency.</li>
+<li>Mitigation: make integration optional with clear skip reason and documented setup.</li>
+<li>Risk: artifact volume growth.</li>
+<li>Mitigation: keep default quick mode small; retain full outputs for scheduled/deep runs.</li>
+</ul>
+<h2 id="deliverables">Deliverables</h2>
+<ul>
+<li>Updated tests with strict meaningful assertions.</li>
+<li>Expanded API/CLI test coverage.</li>
+<li>Renamed and stabilized M51 baseline real-data test (<code>m51_test</code>).</li>
+<li>Unified benchmark/profiling outputs under <code>outputs/</code>.</li>
+<li>Quantitative criteria documented and enforced.</li>
+<li>Future-ready mock generation workflow design using libprofit-based <code>mockgal.py</code>.</li>
+</ul>
+<h2 id="post-phase4-follow-up-2026-02-12">Post-Phase4 Follow-up (2026-02-12)</h2>
+<ul>
+<li>Numba diagnostics were upgraded in <code>benchmarks/performance/bench_numba_speedup.py</code>:</li>
+<li>configurable <code>--n-runs</code></li>
+<li>configurable <code>--scale-factor</code></li>
+<li>first-run vs steady-state speedup diagnostics</li>
+<li>per-case variability and slowdown flags</li>
+<li><code>mockgal</code> adapter gained science-ready presets with override support:</li>
+<li><code>single_noiseless_truth</code></li>
+<li><code>single_psf_noise_sblimit</code></li>
+<li><code>models_config_batch</code></li>
+<li>Preset discovery and execution workflows are now explicit in <code>benchmarks/README.md</code>.</li>
+<li>Added case-specific drill workflow for flagged scenarios in <code>benchmarks/profiling/profile_numba_flagged_cases.py</code>:</li>
+<li>consumes benchmark JSON results from scale1/scale2 runs</li>
+<li>auto-targets slowdown/high-variability cases</li>
+<li>prioritizes <code>n1_medium_eps07__scale2</code></li>
+<li>persists per-case <code>.prof</code> + timing diagnostics and aggregate summary JSON</li>
+<li>Added reusable <code>models_config_batch</code> template files:</li>
+<li><code>examples/mockgal/models_config_batch/galaxies.yaml</code></li>
+<li><code>examples/mockgal/models_config_batch/image_config.yaml</code></li>
+</ul>
+<h2 id="session-update-2026-02-14-libprofit-system-level-2-d-caveat">Session Update (2026-02-14): libprofit + System-Level 2-D Caveat</h2>
+<h3 id="additional-non-negotiables">Additional Non-Negotiables</h3>
+<ul>
+<li>For <code>mockgal.py</code>-based benchmark/test generation, force <code>--engine libprofit</code> explicitly.</li>
+<li>Do not treat 2-D residual metrics as extraction-only diagnostics: they measure the combined behavior of profile extraction and 2-D model reconstruction.</li>
+</ul>
+<h3 id="current-benchmark-review-condensed">Current Benchmark Review (Condensed)</h3>
+<ul>
+<li><code>bench_efficiency.py</code> is useful for runtime + convergence trends, but currently lacks truth-based quantitative quality gates.</li>
+<li><code>bench_numba_speedup.py</code> validates numba/non-numba numerical consistency and timing, but does not validate absolute scientific accuracy against truth.</li>
+<li><code>bench_vs_photutils.py</code> includes pass/fail logic, but tolerance values are hardcoded and should be aligned to the measured baseline-lock policy.</li>
+<li><code>collect_phase4_profile_baseline.py</code> + <code>phase4_profile_thresholds_2026-02-11.json</code> already implement the correct lock-from-measurement policy for 1-D profile metrics.</li>
+</ul>
+<h3 id="proposed-benchmark-plan">Proposed Benchmark Plan</h3>
+<h4 id="workstream-f-mockgal-libprofit-enforcement">Workstream F: mockgal libprofit Enforcement</h4>
+<ul>
+<li>Update <code>benchmarks/baselines/mockgal_adapter.py</code> presets so <code>--engine libprofit</code> is the default for benchmark workflows.</li>
+<li>Add a preflight assertion in adapter metadata: fail fast when requested <code>libprofit</code> engine is unavailable.</li>
+<li>Persist backend provenance (<code>engine</code>, <code>profit_cli_path</code>, <code>mockgal.py</code> git SHA when available) into output metadata JSON.</li>
+</ul>
+<h4 id="workstream-g-benchmark-model-set-analytic-mockgal">Workstream G: Benchmark Model Set (Analytic + mockgal)</h4>
+<p>Use two benchmark families, each with explicit case metadata and seeds:</p>
+<ol>
+<li>Analytic single-Sersic (no PSF/noise) for extraction-focused checks:</li>
+<li>Morphology grid: <code>n in {1, 4}</code>, <code>eps in {0.0, 0.4, 0.6}</code>.</li>
+<li>Sampling scale grid: <code>R_e in {10, 20, 40}</code> pixels.</li>
+<li>
+<p>Oversampling policy: <code>{5, 10, 15}</code> tied to difficulty (higher for high-<code>n</code> and high-<code>eps</code>).</p>
+</li>
+<li>
+<p>mockgal realism (libprofit) for system-level checks:</p>
+</li>
+<li>Paired <code>truth</code> and <code>observed</code> mocks with identical intrinsic component definitions.</li>
+<li>Truth run: no PSF, no sky, no noise.</li>
+<li>Observed run: PSF convolution + sky + noise (using <code>sky_sb_value</code> / <code>sky_sb_limit</code> / <code>gain</code> controls).</li>
+<li>Fixed seed and full config capture per case.</li>
+</ol>
+<h4 id="workstream-h-quantitative-qa-criteria-and-gating">Workstream H: Quantitative QA Criteria and Gating</h4>
+<p>Keep threshold policy evidence-based: measure first, then lock.</p>
+<ol>
+<li>Efficiency criteria (runtime regression gate):</li>
+<li>Per-case <code>mean_time</code>, <code>steady_state_mean_time</code>, <code>coefficient_of_variation</code>.</li>
+<li>
+<p>Compare against locked per-case baseline distributions; no synthetic margins.</p>
+</li>
+<li>
+<p>1-D profile criteria (extraction-centric):</p>
+</li>
+<li><code>delta_I = (I_isoster - I_truth) / I_truth</code>.</li>
+<li>Required stats: <code>median|delta_I|</code>, <code>max|delta_I|</code>, <code>valid_point_count</code>, stop-code distribution.</li>
+<li>Radial windows:</li>
+<li>no-PSF noiseless: <code>[max(3 px, 0.5 Re), 8 Re]</code></li>
+<li>noisy: <code>[max(3 px, 0.5 Re), 5 Re]</code></li>
+<li>
+<p>PSF cases: exclude <code>&lt;= 2 * FWHM</code></p>
+</li>
+<li>
+<p>2-D criteria (system-level, not extraction-only):</p>
+</li>
+<li>Fractional residual, fractional absolute residual, and chi-square by radial bands:</li>
+<li><code>&lt;0.5 Re</code>, <code>0.5-4 Re</code>, <code>4-8 Re</code>.</li>
+<li>Interpretation note must be carried in docs and benchmark outputs:</li>
+<li>failing 2-D metrics can originate from reconstruction/modeling issues even when 1-D extraction is stable.</li>
+</ol>
+<h4 id="workstream-i-baseline-lock-and-artifacts">Workstream I: Baseline Lock and Artifacts</h4>
+<ul>
+<li>Add a dedicated collector for mockgal-case metrics under <code>benchmarks/baselines/</code>.</li>
+<li>Emit lock files for runtime and QA metrics in versioned JSON.</li>
+<li>Every benchmark run writes:</li>
+<li>JSON + CSV metrics,</li>
+<li>QA figure(s),</li>
+<li>environment/backend metadata.</li>
+</ul>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.sections", "navigation.expand", "content.code.copy"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+    
+  </body>
+</html>

@@ -1,0 +1,1611 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Fast isophote fitting for galaxy images.">
+      
+      
+        <meta name="author" content="Shuang">
+      
+      
+      
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.1">
+    
+    
+      
+        <title>ISOSTER Codebase Review: Efficiency, Weaknesses, and Bugs - Isoster Documentation</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../../assets/stylesheets/main.484c7ddc.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("../../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    <body dir="ltr">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#isoster-codebase-review-efficiency-weaknesses-and-bugs" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../../.." title="Isoster Documentation" class="md-header__button md-logo" aria-label="Isoster Documentation" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            Isoster Documentation
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              ISOSTER Codebase Review: Efficiency, Weaknesses, and Bugs
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/shuang-stat/isoster" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    GitHub
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../../.." title="Isoster Documentation" class="md-nav__button md-logo" aria-label="Isoster Documentation" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    Isoster Documentation
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/shuang-stat/isoster" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    GitHub
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../spec/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Spec
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../user-guide/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    User Guide
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../configuration-reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Configuration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../algorithm/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Algorithm
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../testing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Testing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../qa-figures/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    QA Figures
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../future/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Future
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#executive-summary" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Executive Summary
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#part-1-efficiency-improvements" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Part 1: Efficiency Improvements
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Part 1: Efficiency Improvements">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#already-optimized-documented" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ✅ Already Optimized (Documented)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#new-efficiency-opportunities" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        🔍 New Efficiency Opportunities
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="🔍 New Efficiency Opportunities">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#eff-6-redundant-data-extraction-in-compute_gradient" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        EFF-6: Redundant Data Extraction in compute_gradient()
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#eff-7-memory-allocation-in-compute_aperture_photometry" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        EFF-7: Memory Allocation in compute_aperture_photometry()
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#eff-8-matrix-operations-in-harmonic-fitting" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        EFF-8: Matrix Operations in Harmonic Fitting
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#eff-9-repeated-interpolation-in-model-building" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        EFF-9: Repeated Interpolation in Model Building
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#eff-10-inefficient-elliptical-radius-iteration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        EFF-10: Inefficient Elliptical Radius Iteration
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#part-2-code-weaknesses" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Part 2: Code Weaknesses
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Part 2: Code Weaknesses">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#weak-1-position-angle-modulo-bug-high-priority" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        WEAK-1: Position Angle Modulo Bug (HIGH PRIORITY)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#weak-2-inconsistent-error-handling" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        WEAK-2: Inconsistent Error Handling
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#weak-3-magic-numbers-not-configurable" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        WEAK-3: Magic Numbers Not Configurable
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#weak-4-missing-input-validation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        WEAK-4: Missing Input Validation
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#weak-5-numerical-stability-at-edge-cases" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        WEAK-5: Numerical Stability at Edge Cases
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#weak-6-inefficient-config-access-pattern" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        WEAK-6: Inefficient Config Access Pattern
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#weak-7-gradient-computation-logic-issue" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        WEAK-7: Gradient Computation Logic Issue
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#part-3-potential-bugs" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Part 3: Potential Bugs
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Part 3: Potential Bugs">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#bug-1-pa-modulo-using-instead-of-2-confirmed" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        BUG-1: PA Modulo Using π Instead of 2π (CONFIRMED)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#bug-2-gradient-error-not-updated-on-fallback" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        BUG-2: Gradient Error Not Updated on Fallback
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#bug-3-potential-index-out-of-bounds" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        BUG-3: Potential Index Out of Bounds
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#bug-4-division-by-zero-in-model-building" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        BUG-4: Division by Zero in Model Building
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#bug-5-inconsistent-return-types" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        BUG-5: Inconsistent Return Types
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#bug-6-potential-memory-leak-in-model-building" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        BUG-6: Potential Memory Leak in Model Building
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#part-4-code-quality-improvements" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Part 4: Code Quality Improvements
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Part 4: Code Quality Improvements">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#qual-1-type-hints-incomplete" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        QUAL-1: Type Hints Incomplete
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#qual-2-docstring-inconsistencies" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        QUAL-2: Docstring Inconsistencies
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#qual-3-test-coverage-gaps" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        QUAL-3: Test Coverage Gaps
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#priority-recommendations" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Priority Recommendations
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Priority Recommendations">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#immediate-p0-fix-before-next-release" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Immediate (P0 - Fix Before Next Release)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#high-priority-p1-next-sprint" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        High Priority (P1 - Next Sprint)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#medium-priority-p2-future-releases" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Medium Priority (P2 - Future Releases)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#low-priority-p3-nice-to-have" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Low Priority (P3 - Nice to Have)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#files-requiring-attention" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Files Requiring Attention
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Files Requiring Attention">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#high-priority-files" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        High Priority Files
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#medium-priority-files" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Medium Priority Files
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#testing-recommendations" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Testing Recommendations
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#summary-statistics" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Summary Statistics
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#conclusion" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Conclusion
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#references" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        References
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="isoster-codebase-review-efficiency-weaknesses-and-bugs">ISOSTER Codebase Review: Efficiency, Weaknesses, and Bugs</h1>
+<p><strong>Date:</strong> 2026-01-15<br />
+<strong>Reviewer:</strong> Senior Python Programmer &amp; Software Engineer<br />
+<strong>Scope:</strong> Comprehensive code review identifying efficiency improvements, weaknesses, and potential bugs</p>
+<h2 id="executive-summary">Executive Summary</h2>
+<p>This review identifies <strong>efficiency improvements</strong>, <strong>weaknesses</strong>, and <strong>potential bugs</strong> in the isoster codebase. Many critical issues from previous reviews have been addressed, but several opportunities for improvement remain.</p>
+<p><strong>Key Findings:</strong>
+- <strong>1 Critical Bug</strong>: PA modulo using π instead of 2π
+- <strong>5 Efficiency Opportunities</strong>: Memory optimization, matrix operations, caching
+- <strong>7 Code Weaknesses</strong>: Error handling, input validation, numerical stability
+- <strong>6 Potential Bugs</strong>: Edge cases and logic issues</p>
+<hr />
+<h2 id="part-1-efficiency-improvements">Part 1: Efficiency Improvements</h2>
+<h3 id="already-optimized-documented">✅ Already Optimized (Documented)</h3>
+<p>The following optimizations have been successfully implemented:</p>
+<ul>
+<li><strong>EFF-1</strong>: Gradient early termination (2% speedup) - <code>fitting.py:490-518</code></li>
+<li><strong>EFF-2</strong>: Harmonic coefficient reuse (7.7% speedup) - <code>fitting.py:198-243</code></li>
+<li><strong>EFF-3</strong>: Unused coordinate grid removed - <code>model.py</code> (previous version)</li>
+<li><strong>EFF-5</strong>: PA wrap-around vectorization - <code>fitting.py:52</code></li>
+</ul>
+<p><strong>Total documented speedup: 9.8%</strong> (1.294s → 1.167s on benchmark suite)</p>
+<h3 id="new-efficiency-opportunities">🔍 New Efficiency Opportunities</h3>
+<h4 id="eff-6-redundant-data-extraction-in-compute_gradient">EFF-6: Redundant Data Extraction in <code>compute_gradient()</code></h4>
+<p><strong>Location:</strong> <code>isoster/fitting.py:450-453, 468-471</code></p>
+<p><strong>Issue:</strong> Even with <code>current_data</code> parameter, the function still extracts data at gradient SMA (<code>sma + step</code>) when <code>current_data</code> is provided. The gradient computation requires data at <code>sma + step</code>, which is always extracted fresh, even when geometry hasn't changed.</p>
+<p><strong>Current Code:</strong>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="k">if</span> <span class="n">current_data</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>    <span class="n">phi_c</span><span class="p">,</span> <span class="n">intens_c</span> <span class="o">=</span> <span class="n">current_data</span>
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="k">else</span><span class="p">:</span>
+<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>    <span class="n">data_c</span> <span class="o">=</span> <span class="n">extract_isophote_data</span><span class="p">(</span><span class="n">image</span><span class="p">,</span> <span class="n">mask</span><span class="p">,</span> <span class="n">x0</span><span class="p">,</span> <span class="n">y0</span><span class="p">,</span> <span class="n">sma</span><span class="p">,</span> <span class="n">eps</span><span class="p">,</span> <span class="n">pa</span><span class="p">,</span> <span class="o">...</span><span class="p">)</span>
+<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>    <span class="c1"># ...</span>
+<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>
+<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a><span class="c1"># Always extracts fresh data for gradient SMA</span>
+<a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a><span class="n">data_g</span> <span class="o">=</span> <span class="n">extract_isophote_data</span><span class="p">(</span><span class="n">image</span><span class="p">,</span> <span class="n">mask</span><span class="p">,</span> <span class="n">x0</span><span class="p">,</span> <span class="n">y0</span><span class="p">,</span> <span class="n">gradient_sma</span><span class="p">,</span> <span class="n">eps</span><span class="p">,</span> <span class="n">pa</span><span class="p">,</span> <span class="o">...</span><span class="p">)</span>
+</code></pre></div></p>
+<p><strong>Impact:</strong> ~15-20% of gradient computation time (called for every isophote iteration)</p>
+<p><strong>Fix:</strong> Cache gradient SMA data across iterations when geometry hasn't changed significantly:
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="c1"># Cache gradient data in fit_isophote() and pass to compute_gradient()</span>
+<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="c1"># Only re-extract if geometry changed by more than threshold</span>
+</code></pre></div></p>
+<p><strong>Priority:</strong> MEDIUM</p>
+<hr />
+<h4 id="eff-7-memory-allocation-in-compute_aperture_photometry">EFF-7: Memory Allocation in <code>compute_aperture_photometry()</code></h4>
+<p><strong>Location:</strong> <code>isoster/fitting.py:543</code></p>
+<p><strong>Issue:</strong> Creates full coordinate grids for every isophote when <code>full_photometry=True</code>:
+<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="n">y</span><span class="p">,</span> <span class="n">x</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">mgrid</span><span class="p">[</span><span class="n">y_min</span><span class="p">:</span><span class="n">y_max</span><span class="p">,</span> <span class="n">x_min</span><span class="p">:</span><span class="n">x_max</span><span class="p">]</span>
+</code></pre></div></p>
+<p>For large images with many isophotes, this causes repeated allocation/deallocation. For a 4096×4096 image with 100 isophotes, this creates ~100 temporary arrays of size <code>(y_max-y_min) × (x_max-x_min)</code>.</p>
+<p><strong>Impact:</strong> 
+- Memory churn and potential cache misses
+- ~5-10% of aperture photometry time
+- Significant for large images with many isophotes</p>
+<p><strong>Fix Options:</strong>
+1. Pre-allocate reusable coordinate arrays at driver level
+2. Use numba-accelerated version (already identified as opportunity in docs)
+3. Use <code>np.ogrid</code> instead of <code>np.mgrid</code> for memory efficiency</p>
+<p><strong>Priority:</strong> HIGH (easy win)</p>
+<hr />
+<h4 id="eff-8-matrix-operations-in-harmonic-fitting">EFF-8: Matrix Operations in Harmonic Fitting</h4>
+<p><strong>Location:</strong> <code>isoster/fitting.py:148-152</code></p>
+<p><strong>Issue:</strong> For small sample sizes (&lt;20 points, common at small SMAs), <code>np.linalg.lstsq</code> overhead dominates:
+<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="n">coeffs</span><span class="p">,</span> <span class="n">residuals</span><span class="p">,</span> <span class="n">rank</span><span class="p">,</span> <span class="n">s</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">linalg</span><span class="o">.</span><span class="n">lstsq</span><span class="p">(</span><span class="n">A</span><span class="p">,</span> <span class="n">intensity</span><span class="p">,</span> <span class="n">rcond</span><span class="o">=</span><span class="kc">None</span><span class="p">)</span>
+<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="n">ata_inv</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">linalg</span><span class="o">.</span><span class="n">inv</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">dot</span><span class="p">(</span><span class="n">A</span><span class="o">.</span><span class="n">T</span><span class="p">,</span> <span class="n">A</span><span class="p">))</span>
+</code></pre></div></p>
+<p>The <code>A.T @ A</code> is computed twice (once internally in <code>lstsq</code>, once explicitly for covariance).</p>
+<p><strong>Impact:</strong> ~5-10% of harmonic fitting time for small SMAs</p>
+<p><strong>Fix:</strong> For small systems (n &lt; 20), use direct solve:
+<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">intensity</span><span class="p">)</span> <span class="o">&lt;</span> <span class="mi">20</span><span class="p">:</span>
+<a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>    <span class="c1"># Direct solve for small systems</span>
+<a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a>    <span class="n">ATA</span> <span class="o">=</span> <span class="n">A</span><span class="o">.</span><span class="n">T</span> <span class="o">@</span> <span class="n">A</span>
+<a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a>    <span class="n">ATb</span> <span class="o">=</span> <span class="n">A</span><span class="o">.</span><span class="n">T</span> <span class="o">@</span> <span class="n">intensity</span>
+<a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a>    <span class="n">coeffs</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">linalg</span><span class="o">.</span><span class="n">solve</span><span class="p">(</span><span class="n">ATA</span><span class="p">,</span> <span class="n">ATb</span><span class="p">)</span>
+<a id="__codelineno-4-6" name="__codelineno-4-6" href="#__codelineno-4-6"></a>    <span class="n">ata_inv</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">linalg</span><span class="o">.</span><span class="n">inv</span><span class="p">(</span><span class="n">ATA</span><span class="p">)</span>
+<a id="__codelineno-4-7" name="__codelineno-4-7" href="#__codelineno-4-7"></a><span class="k">else</span><span class="p">:</span>
+<a id="__codelineno-4-8" name="__codelineno-4-8" href="#__codelineno-4-8"></a>    <span class="c1"># Use lstsq for larger systems</span>
+<a id="__codelineno-4-9" name="__codelineno-4-9" href="#__codelineno-4-9"></a>    <span class="n">coeffs</span><span class="p">,</span> <span class="n">residuals</span><span class="p">,</span> <span class="n">rank</span><span class="p">,</span> <span class="n">s</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">linalg</span><span class="o">.</span><span class="n">lstsq</span><span class="p">(</span><span class="n">A</span><span class="p">,</span> <span class="n">intensity</span><span class="p">,</span> <span class="n">rcond</span><span class="o">=</span><span class="kc">None</span><span class="p">)</span>
+<a id="__codelineno-4-10" name="__codelineno-4-10" href="#__codelineno-4-10"></a>    <span class="n">ata_inv</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">linalg</span><span class="o">.</span><span class="n">inv</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">dot</span><span class="p">(</span><span class="n">A</span><span class="o">.</span><span class="n">T</span><span class="p">,</span> <span class="n">A</span><span class="p">))</span>
+</code></pre></div></p>
+<p><strong>Priority:</strong> MEDIUM</p>
+<hr />
+<h4 id="eff-9-repeated-interpolation-in-model-building">EFF-9: Repeated Interpolation in Model Building</h4>
+<p><strong>Location:</strong> <code>isoster/model.py:128-143</code></p>
+<p><strong>Issue:</strong> Creates 4 separate <code>interp1d</code> objects for geometry parameters (x0, y0, eps, pa) that are called repeatedly in loops:
+<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="n">x0_interp</span> <span class="o">=</span> <span class="n">interp1d</span><span class="p">(</span><span class="n">sma_values</span><span class="p">,</span> <span class="p">[</span><span class="n">iso</span><span class="p">[</span><span class="s1">&#39;x0&#39;</span><span class="p">]</span> <span class="k">for</span> <span class="n">iso</span> <span class="ow">in</span> <span class="n">sorted_isos</span><span class="p">],</span> <span class="o">...</span><span class="p">)</span>
+<a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a><span class="c1"># Called in loop: x0_local = x0_interp(r_ell_flat).reshape(r_ell.shape)</span>
+</code></pre></div></p>
+<p><code>interp1d</code> has function call overhead. For linear interpolation, <code>np.interp</code> is faster.</p>
+<p><strong>Impact:</strong> ~10-15% of model building time</p>
+<p><strong>Fix:</strong> Use <code>np.interp</code> for linear interpolation:
+<div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="c1"># Instead of interp1d, use np.interp directly</span>
+<a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a><span class="n">x0_local</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">interp</span><span class="p">(</span><span class="n">r_ell_flat</span><span class="p">,</span> <span class="n">sma_values</span><span class="p">,</span> <span class="n">x0_values</span><span class="p">)</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span><span class="n">r_ell</span><span class="o">.</span><span class="n">shape</span><span class="p">)</span>
+</code></pre></div></p>
+<p><strong>Priority:</strong> MEDIUM</p>
+<hr />
+<h4 id="eff-10-inefficient-elliptical-radius-iteration">EFF-10: Inefficient Elliptical Radius Iteration</h4>
+<p><strong>Location:</strong> <code>isoster/model.py:163-187</code></p>
+<p><strong>Issue:</strong> Iterates up to 3 times to find elliptical radius using local geometry:
+<div class="highlight"><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="k">for</span> <span class="n">iteration</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">max_iterations</span><span class="p">):</span>
+<a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a>    <span class="c1"># Get local geometry at current radius estimate</span>
+<a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a>    <span class="c1"># Recompute elliptical radius with local geometry</span>
+<a id="__codelineno-7-4" name="__codelineno-7-4" href="#__codelineno-7-4"></a>    <span class="c1"># Check convergence</span>
+</code></pre></div></p>
+<p>Could converge faster with better initial guess (use previous pixel's radius).</p>
+<p><strong>Impact:</strong> ~10-15% of model building time</p>
+<p><strong>Fix:</strong> Use previous pixel's radius as initial guess for adjacent pixels (spatial coherence).</p>
+<p><strong>Priority:</strong> LOW</p>
+<hr />
+<h2 id="part-2-code-weaknesses">Part 2: Code Weaknesses</h2>
+<h3 id="weak-1-position-angle-modulo-bug-high-priority">WEAK-1: Position Angle Modulo Bug (HIGH PRIORITY)</h3>
+<p><strong>Location:</strong> <code>isoster/fitting.py:805, 810</code></p>
+<p><strong>Issue:</strong> Position angle is wrapped to <code>[0, π)</code> instead of <code>[0, 2π)</code>:
+<div class="highlight"><pre><span></span><code><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="n">pa</span> <span class="o">=</span> <span class="p">(</span><span class="n">pa</span> <span class="o">+</span> <span class="p">(</span><span class="n">max_amp</span> <span class="o">*</span> <span class="mf">2.0</span> <span class="o">*</span> <span class="p">(</span><span class="mf">1.0</span> <span class="o">-</span> <span class="n">eps</span><span class="p">)</span> <span class="o">/</span> <span class="n">sma</span> <span class="o">/</span> <span class="n">gradient</span> <span class="o">/</span> <span class="n">denom</span><span class="p">))</span> <span class="o">%</span> <span class="n">np</span><span class="o">.</span><span class="n">pi</span>
+<a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a><span class="c1"># ...</span>
+<a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a><span class="n">pa</span> <span class="o">=</span> <span class="p">(</span><span class="n">pa</span> <span class="o">+</span> <span class="n">np</span><span class="o">.</span><span class="n">pi</span><span class="o">/</span><span class="mi">2</span><span class="p">)</span> <span class="o">%</span> <span class="n">np</span><span class="o">.</span><span class="n">pi</span>
+</code></pre></div></p>
+<p>This loses information about ellipse orientation (can't distinguish 0° from 180°). Position angle should be in <code>[0, 2π)</code> to fully specify ellipse orientation.</p>
+<p><strong>Impact:</strong> 
+- Incorrect PA values in results
+- Potential geometry errors in downstream analysis
+- Inconsistent with astronomical conventions</p>
+<p><strong>Fix:</strong> Change to <code>% (2.0 * np.pi)</code>:
+<div class="highlight"><pre><span></span><code><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="n">pa</span> <span class="o">=</span> <span class="p">(</span><span class="n">pa</span> <span class="o">+</span> <span class="o">...</span><span class="p">)</span> <span class="o">%</span> <span class="p">(</span><span class="mf">2.0</span> <span class="o">*</span> <span class="n">np</span><span class="o">.</span><span class="n">pi</span><span class="p">)</span>
+<a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a><span class="n">pa</span> <span class="o">=</span> <span class="p">(</span><span class="n">pa</span> <span class="o">+</span> <span class="n">np</span><span class="o">.</span><span class="n">pi</span><span class="o">/</span><span class="mi">2</span><span class="p">)</span> <span class="o">%</span> <span class="p">(</span><span class="mf">2.0</span> <span class="o">*</span> <span class="n">np</span><span class="o">.</span><span class="n">pi</span><span class="p">)</span>
+</code></pre></div></p>
+<p><strong>Priority:</strong> P0 (Critical - Fix Before Next Release)</p>
+<hr />
+<h3 id="weak-2-inconsistent-error-handling">WEAK-2: Inconsistent Error Handling</h3>
+<p><strong>Location:</strong> Multiple files</p>
+<p><strong>Issue:</strong> Mix of error handling patterns:
+- Some functions return <code>(0.0, 0.0, 0.0, 0.0)</code> on error (<code>compute_parameter_errors</code>, <code>compute_deviations</code>)
+- Some return <code>np.nan</code> (<code>fit_central_pixel</code>)
+- Some raise exceptions (<code>IsosterConfig</code> validation)
+- Some use warnings (<code>fitting.py:268-272</code>)</p>
+<p><strong>Impact:</strong> 
+- Unpredictable behavior for downstream code
+- Difficult to distinguish between "no data" and "error"
+- Silent failures can hide bugs</p>
+<p><strong>Fix:</strong> Standardize on exception-based error handling:
+- Use specific exception types (<code>ValueError</code>, <code>RuntimeError</code>, etc.)
+- Only return default values when semantically meaningful (e.g., <code>np.nan</code> for missing data)
+- Document error conditions clearly</p>
+<p><strong>Priority:</strong> P1</p>
+<hr />
+<h3 id="weak-3-magic-numbers-not-configurable">WEAK-3: Magic Numbers Not Configurable</h3>
+<p><strong>Location:</strong> Multiple files</p>
+<p><strong>Issues:</strong>
+- <code>64</code> minimum samples (<code>sampling.py:135</code>) - hardcoded sampling density
+- <code>0.8</code> gradient fallback multiplier (<code>fitting.py:456, 521</code>) - arbitrary fallback value
+- <code>1e-10</code> regularization cutoff (<code>fitting.py:213, 804</code>) - numerical threshold
+- <code>0.95</code> maximum ellipticity (<code>fitting.py:807, 809</code>) - hard limit
+- <code>0.5</code> minimum SMA limit (<code>driver.py:149</code>) - hardcoded lower bound</p>
+<p><strong>Impact:</strong> Hard to tune for different use cases (high-SNR vs low-SNR, different galaxy types)</p>
+<p><strong>Fix:</strong> Add to <code>IsosterConfig</code> with sensible defaults:
+<div class="highlight"><pre><span></span><code><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a><span class="n">min_samples</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="n">Field</span><span class="p">(</span><span class="mi">64</span><span class="p">,</span> <span class="n">description</span><span class="o">=</span><span class="s2">&quot;Minimum number of sampling points per isophote&quot;</span><span class="p">)</span>
+<a id="__codelineno-10-2" name="__codelineno-10-2" href="#__codelineno-10-2"></a><span class="n">gradient_fallback_mult</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="n">Field</span><span class="p">(</span><span class="mf">0.8</span><span class="p">,</span> <span class="n">description</span><span class="o">=</span><span class="s2">&quot;Multiplier for gradient fallback&quot;</span><span class="p">)</span>
+<a id="__codelineno-10-3" name="__codelineno-10-3" href="#__codelineno-10-3"></a><span class="n">reg_cutoff</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="n">Field</span><span class="p">(</span><span class="mf">1e-10</span><span class="p">,</span> <span class="n">description</span><span class="o">=</span><span class="s2">&quot;Regularization cutoff threshold&quot;</span><span class="p">)</span>
+<a id="__codelineno-10-4" name="__codelineno-10-4" href="#__codelineno-10-4"></a><span class="n">max_ellipticity</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="n">Field</span><span class="p">(</span><span class="mf">0.95</span><span class="p">,</span> <span class="n">description</span><span class="o">=</span><span class="s2">&quot;Maximum allowed ellipticity&quot;</span><span class="p">)</span>
+<a id="__codelineno-10-5" name="__codelineno-10-5" href="#__codelineno-10-5"></a><span class="n">min_sma_limit</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="n">Field</span><span class="p">(</span><span class="mf">0.5</span><span class="p">,</span> <span class="n">description</span><span class="o">=</span><span class="s2">&quot;Minimum SMA limit in pixels&quot;</span><span class="p">)</span>
+</code></pre></div></p>
+<p><strong>Priority:</strong> P1</p>
+<hr />
+<h3 id="weak-4-missing-input-validation">WEAK-4: Missing Input Validation</h3>
+<p><strong>Location:</strong> <code>isoster/numba_kernels.py</code>, <code>isoster/sampling.py</code></p>
+<p><strong>Issues:</strong>
+- <code>compute_ellipse_coords()</code> doesn't validate <code>n_samples &gt; 0</code>
+- <code>extract_isophote_data()</code> doesn't validate image shape
+- No bounds checking for <code>eps</code> near 1.0 in EA conversion
+- No validation that <code>sma &gt; 0</code></p>
+<p><strong>Impact:</strong> Runtime errors with unclear messages (e.g., <code>ZeroDivisionError: division by zero</code>)</p>
+<p><strong>Fix:</strong> Add input validation with clear error messages:
+<div class="highlight"><pre><span></span><code><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a><span class="k">def</span><span class="w"> </span><span class="nf">compute_ellipse_coords</span><span class="p">(</span><span class="n">n_samples</span><span class="p">,</span> <span class="n">sma</span><span class="p">,</span> <span class="n">eps</span><span class="p">,</span> <span class="n">pa</span><span class="p">,</span> <span class="n">x0</span><span class="p">,</span> <span class="n">y0</span><span class="p">,</span> <span class="n">use_ea</span><span class="p">):</span>
+<a id="__codelineno-11-2" name="__codelineno-11-2" href="#__codelineno-11-2"></a>    <span class="k">if</span> <span class="n">n_samples</span> <span class="o">&lt;=</span> <span class="mi">0</span><span class="p">:</span>
+<a id="__codelineno-11-3" name="__codelineno-11-3" href="#__codelineno-11-3"></a>        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;n_samples must be &gt; 0, got </span><span class="si">{</span><span class="n">n_samples</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+<a id="__codelineno-11-4" name="__codelineno-11-4" href="#__codelineno-11-4"></a>    <span class="k">if</span> <span class="n">sma</span> <span class="o">&lt;=</span> <span class="mi">0</span><span class="p">:</span>
+<a id="__codelineno-11-5" name="__codelineno-11-5" href="#__codelineno-11-5"></a>        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;sma must be &gt; 0, got </span><span class="si">{</span><span class="n">sma</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+<a id="__codelineno-11-6" name="__codelineno-11-6" href="#__codelineno-11-6"></a>    <span class="k">if</span> <span class="ow">not</span> <span class="p">(</span><span class="mi">0</span> <span class="o">&lt;=</span> <span class="n">eps</span> <span class="o">&lt;</span> <span class="mi">1</span><span class="p">):</span>
+<a id="__codelineno-11-7" name="__codelineno-11-7" href="#__codelineno-11-7"></a>        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;eps must be in [0, 1), got </span><span class="si">{</span><span class="n">eps</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+<a id="__codelineno-11-8" name="__codelineno-11-8" href="#__codelineno-11-8"></a>    <span class="c1"># ...</span>
+</code></pre></div></p>
+<p><strong>Priority:</strong> P1</p>
+<hr />
+<h3 id="weak-5-numerical-stability-at-edge-cases">WEAK-5: Numerical Stability at Edge Cases</h3>
+<p><strong>Location:</strong> Multiple files</p>
+<p><strong>Issues:</strong></p>
+<ol>
+<li>
+<p><strong>EA conversion unstable when <code>eps → 1.0</code></strong> (<code>sampling.py:44-49</code>):
+   <div class="highlight"><pre><span></span><code><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a><span class="n">position_angle</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">arctan2</span><span class="p">((</span><span class="mf">1.0</span> <span class="o">-</span> <span class="n">eps</span><span class="p">)</span> <span class="o">*</span> <span class="n">np</span><span class="o">.</span><span class="n">sin</span><span class="p">(</span><span class="n">psi</span><span class="p">),</span> <span class="n">np</span><span class="o">.</span><span class="n">cos</span><span class="p">(</span><span class="n">psi</span><span class="p">))</span>
+</code></pre></div>
+   When <code>eps ≈ 1.0</code>, <code>(1.0 - eps) * np.sin(psi)</code> becomes very small, leading to numerical instability.</p>
+</li>
+<li>
+<p><strong>Division by <code>(1.0 - eps)</code> when <code>eps ≈ 1.0</code></strong> (<code>model.py:181</code>):
+   <div class="highlight"><pre><span></span><code><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a><span class="n">r_ell_new</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">sqrt</span><span class="p">(</span><span class="n">x_rot</span><span class="o">**</span><span class="mi">2</span> <span class="o">+</span> <span class="p">(</span><span class="n">y_rot</span> <span class="o">/</span> <span class="p">(</span><span class="mf">1.0</span> <span class="o">-</span> <span class="n">eps_safe</span><span class="p">))</span><span class="o">**</span><span class="mi">2</span><span class="p">)</span>
+</code></pre></div>
+   Even with clipping to 0.99, very small denominators can cause issues.</p>
+</li>
+<li>
+<p><strong>Regularization underflow for very small SMA</strong> (<code>fitting.py:37-39</code>):
+   <div class="highlight"><pre><span></span><code><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a><span class="n">lambda_sma</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">central_reg_strength</span> <span class="o">*</span> <span class="n">np</span><span class="o">.</span><span class="n">exp</span><span class="p">(</span><span class="o">-</span><span class="p">(</span><span class="n">sma</span> <span class="o">/</span> <span class="n">config</span><span class="o">.</span><span class="n">central_reg_sma_threshold</span><span class="p">)</span><span class="o">**</span><span class="mi">2</span><span class="p">)</span>
+</code></pre></div>
+   For <code>sma &lt;&lt; threshold</code>, this can underflow to zero.</p>
+</li>
+</ol>
+<p><strong>Impact:</strong> NaN/Inf values, convergence failures, incorrect results</p>
+<p><strong>Fix:</strong> Add epsilon checks and clamping:
+<div class="highlight"><pre><span></span><code><a id="__codelineno-15-1" name="__codelineno-15-1" href="#__codelineno-15-1"></a><span class="c1"># Clamp eps away from 1.0</span>
+<a id="__codelineno-15-2" name="__codelineno-15-2" href="#__codelineno-15-2"></a><span class="n">eps_safe</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">clip</span><span class="p">(</span><span class="n">eps</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mf">0.999</span><span class="p">)</span>
+<a id="__codelineno-15-3" name="__codelineno-15-3" href="#__codelineno-15-3"></a>
+<a id="__codelineno-15-4" name="__codelineno-15-4" href="#__codelineno-15-4"></a><span class="c1"># Add minimum threshold for regularization</span>
+<a id="__codelineno-15-5" name="__codelineno-15-5" href="#__codelineno-15-5"></a><span class="n">lambda_sma</span> <span class="o">=</span> <span class="nb">max</span><span class="p">(</span><span class="n">lambda_sma</span><span class="p">,</span> <span class="mf">1e-12</span><span class="p">)</span> <span class="k">if</span> <span class="n">lambda_sma</span> <span class="o">&gt;</span> <span class="mi">0</span> <span class="k">else</span> <span class="mf">0.0</span>
+</code></pre></div></p>
+<p><strong>Priority:</strong> P1</p>
+<hr />
+<h3 id="weak-6-inefficient-config-access-pattern">WEAK-6: Inefficient Config Access Pattern</h3>
+<p><strong>Location:</strong> <code>isoster/fitting.py:442-445</code></p>
+<p><strong>Issue:</strong> Repeated <code>hasattr()</code> checks in hot path:
+<div class="highlight"><pre><span></span><code><a id="__codelineno-16-1" name="__codelineno-16-1" href="#__codelineno-16-1"></a><span class="n">step</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">astep</span> <span class="k">if</span> <span class="nb">hasattr</span><span class="p">(</span><span class="n">config</span><span class="p">,</span> <span class="s1">&#39;astep&#39;</span><span class="p">)</span> <span class="k">else</span> <span class="n">config</span><span class="p">[</span><span class="s1">&#39;astep&#39;</span><span class="p">]</span>
+<a id="__codelineno-16-2" name="__codelineno-16-2" href="#__codelineno-16-2"></a><span class="n">linear_growth</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">linear_growth</span> <span class="k">if</span> <span class="nb">hasattr</span><span class="p">(</span><span class="n">config</span><span class="p">,</span> <span class="s1">&#39;linear_growth&#39;</span><span class="p">)</span> <span class="k">else</span> <span class="n">config</span><span class="p">[</span><span class="s1">&#39;linear_growth&#39;</span><span class="p">]</span>
+</code></pre></div></p>
+<p>Config should be consistently either object or dict. This pattern suggests unclear API design.</p>
+<p><strong>Impact:</strong> 
+- Minor performance overhead (attribute lookup vs dict access)
+- Code complexity and maintenance burden</p>
+<p><strong>Fix:</strong> Normalize config to object at function entry:
+<div class="highlight"><pre><span></span><code><a id="__codelineno-17-1" name="__codelineno-17-1" href="#__codelineno-17-1"></a><span class="k">def</span><span class="w"> </span><span class="nf">fit_isophote</span><span class="p">(</span><span class="n">image</span><span class="p">,</span> <span class="n">mask</span><span class="p">,</span> <span class="n">sma</span><span class="p">,</span> <span class="n">start_geometry</span><span class="p">,</span> <span class="n">config</span><span class="p">,</span> <span class="o">...</span><span class="p">):</span>
+<a id="__codelineno-17-2" name="__codelineno-17-2" href="#__codelineno-17-2"></a>    <span class="c1"># Normalize config once at entry</span>
+<a id="__codelineno-17-3" name="__codelineno-17-3" href="#__codelineno-17-3"></a>    <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">config</span><span class="p">,</span> <span class="nb">dict</span><span class="p">):</span>
+<a id="__codelineno-17-4" name="__codelineno-17-4" href="#__codelineno-17-4"></a>        <span class="n">cfg</span> <span class="o">=</span> <span class="n">IsosterConfig</span><span class="p">(</span><span class="o">**</span><span class="n">config</span><span class="p">)</span>
+<a id="__codelineno-17-5" name="__codelineno-17-5" href="#__codelineno-17-5"></a>    <span class="k">elif</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">config</span><span class="p">,</span> <span class="n">IsosterConfig</span><span class="p">):</span>
+<a id="__codelineno-17-6" name="__codelineno-17-6" href="#__codelineno-17-6"></a>        <span class="n">cfg</span> <span class="o">=</span> <span class="n">config</span>
+<a id="__codelineno-17-7" name="__codelineno-17-7" href="#__codelineno-17-7"></a>    <span class="k">else</span><span class="p">:</span>
+<a id="__codelineno-17-8" name="__codelineno-17-8" href="#__codelineno-17-8"></a>        <span class="k">raise</span> <span class="ne">TypeError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;config must be dict or IsosterConfig, got </span><span class="si">{</span><span class="nb">type</span><span class="p">(</span><span class="n">config</span><span class="p">)</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+<a id="__codelineno-17-9" name="__codelineno-17-9" href="#__codelineno-17-9"></a>
+<a id="__codelineno-17-10" name="__codelineno-17-10" href="#__codelineno-17-10"></a>    <span class="c1"># Use cfg directly throughout (no hasattr checks needed)</span>
+<a id="__codelineno-17-11" name="__codelineno-17-11" href="#__codelineno-17-11"></a>    <span class="n">step</span> <span class="o">=</span> <span class="n">cfg</span><span class="o">.</span><span class="n">astep</span>
+<a id="__codelineno-17-12" name="__codelineno-17-12" href="#__codelineno-17-12"></a>    <span class="n">linear_growth</span> <span class="o">=</span> <span class="n">cfg</span><span class="o">.</span><span class="n">linear_growth</span>
+</code></pre></div></p>
+<p><strong>Priority:</strong> P2</p>
+<hr />
+<h3 id="weak-7-gradient-computation-logic-issue">WEAK-7: Gradient Computation Logic Issue</h3>
+<p><strong>Location:</strong> <code>isoster/fitting.py:520-522</code></p>
+<p><strong>Issue:</strong> When gradient is suspicious, it's replaced but <code>gradient_error</code> is set to <code>None</code>:
+<div class="highlight"><pre><span></span><code><a id="__codelineno-18-1" name="__codelineno-18-1" href="#__codelineno-18-1"></a><span class="k">if</span> <span class="n">gradient</span> <span class="o">&gt;=</span> <span class="p">(</span><span class="n">previous_gradient</span> <span class="o">/</span> <span class="mf">3.0</span><span class="p">):</span>
+<a id="__codelineno-18-2" name="__codelineno-18-2" href="#__codelineno-18-2"></a>    <span class="n">gradient</span> <span class="o">=</span> <span class="n">previous_gradient</span> <span class="o">*</span> <span class="mf">0.8</span>
+<a id="__codelineno-18-3" name="__codelineno-18-3" href="#__codelineno-18-3"></a>    <span class="n">gradient_error</span> <span class="o">=</span> <span class="kc">None</span>
+</code></pre></div></p>
+<p>This doesn't update <code>previous_gradient</code>, and the error propagation is unclear. Downstream code may not handle <code>gradient_error = None</code> correctly.</p>
+<p><strong>Impact:</strong> 
+- Incorrect error propagation
+- Potential issues in error computation downstream</p>
+<p><strong>Fix:</strong> Either:
+1. Update <code>previous_gradient</code> to the fallback value
+2. Propagate error estimate (use previous error scaled by 0.8)
+3. Document the behavior clearly</p>
+<p><strong>Priority:</strong> P2</p>
+<hr />
+<h2 id="part-3-potential-bugs">Part 3: Potential Bugs</h2>
+<h3 id="bug-1-pa-modulo-using-instead-of-2-confirmed">BUG-1: PA Modulo Using π Instead of 2π (CONFIRMED)</h3>
+<p><strong>Location:</strong> <code>isoster/fitting.py:805, 810</code></p>
+<p><strong>Status:</strong> Still present in current codebase</p>
+<p><strong>Severity:</strong> HIGH - Causes incorrect position angle values</p>
+<p><strong>Current Code:</strong>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-19-1" name="__codelineno-19-1" href="#__codelineno-19-1"></a><span class="n">pa</span> <span class="o">=</span> <span class="p">(</span><span class="n">pa</span> <span class="o">+</span> <span class="p">(</span><span class="n">max_amp</span> <span class="o">*</span> <span class="mf">2.0</span> <span class="o">*</span> <span class="p">(</span><span class="mf">1.0</span> <span class="o">-</span> <span class="n">eps</span><span class="p">)</span> <span class="o">/</span> <span class="n">sma</span> <span class="o">/</span> <span class="n">gradient</span> <span class="o">/</span> <span class="n">denom</span><span class="p">))</span> <span class="o">%</span> <span class="n">np</span><span class="o">.</span><span class="n">pi</span>
+<a id="__codelineno-19-2" name="__codelineno-19-2" href="#__codelineno-19-2"></a><span class="c1"># ...</span>
+<a id="__codelineno-19-3" name="__codelineno-19-3" href="#__codelineno-19-3"></a><span class="n">pa</span> <span class="o">=</span> <span class="p">(</span><span class="n">pa</span> <span class="o">+</span> <span class="n">np</span><span class="o">.</span><span class="n">pi</span><span class="o">/</span><span class="mi">2</span><span class="p">)</span> <span class="o">%</span> <span class="n">np</span><span class="o">.</span><span class="n">pi</span>
+</code></pre></div></p>
+<p><strong>Problem:</strong> Position angle wrapped to <code>[0, π)</code> loses orientation information.</p>
+<p><strong>Fix:</strong> Change to <code>% (2.0 * np.pi)</code>:
+<div class="highlight"><pre><span></span><code><a id="__codelineno-20-1" name="__codelineno-20-1" href="#__codelineno-20-1"></a><span class="n">pa</span> <span class="o">=</span> <span class="p">(</span><span class="n">pa</span> <span class="o">+</span> <span class="o">...</span><span class="p">)</span> <span class="o">%</span> <span class="p">(</span><span class="mf">2.0</span> <span class="o">*</span> <span class="n">np</span><span class="o">.</span><span class="n">pi</span><span class="p">)</span>
+<a id="__codelineno-20-2" name="__codelineno-20-2" href="#__codelineno-20-2"></a><span class="n">pa</span> <span class="o">=</span> <span class="p">(</span><span class="n">pa</span> <span class="o">+</span> <span class="n">np</span><span class="o">.</span><span class="n">pi</span><span class="o">/</span><span class="mi">2</span><span class="p">)</span> <span class="o">%</span> <span class="p">(</span><span class="mf">2.0</span> <span class="o">*</span> <span class="n">np</span><span class="o">.</span><span class="n">pi</span><span class="p">)</span>
+</code></pre></div></p>
+<p><strong>Priority:</strong> P0 (Critical)</p>
+<hr />
+<h3 id="bug-2-gradient-error-not-updated-on-fallback">BUG-2: Gradient Error Not Updated on Fallback</h3>
+<p><strong>Location:</strong> <code>isoster/fitting.py:520-522</code></p>
+<p><strong>Issue:</strong> When gradient is replaced with fallback value, <code>gradient_error</code> is set to <code>None</code> but this may not be handled correctly downstream. The <code>previous_gradient</code> is not updated, which could cause issues in subsequent iterations.</p>
+<p><strong>Severity:</strong> MEDIUM - May cause incorrect error estimates</p>
+<p><strong>Fix:</strong> Update <code>previous_gradient</code> or propagate error estimate:
+<div class="highlight"><pre><span></span><code><a id="__codelineno-21-1" name="__codelineno-21-1" href="#__codelineno-21-1"></a><span class="k">if</span> <span class="n">gradient</span> <span class="o">&gt;=</span> <span class="p">(</span><span class="n">previous_gradient</span> <span class="o">/</span> <span class="mf">3.0</span><span class="p">):</span>
+<a id="__codelineno-21-2" name="__codelineno-21-2" href="#__codelineno-21-2"></a>    <span class="n">gradient</span> <span class="o">=</span> <span class="n">previous_gradient</span> <span class="o">*</span> <span class="mf">0.8</span>
+<a id="__codelineno-21-3" name="__codelineno-21-3" href="#__codelineno-21-3"></a>    <span class="n">gradient_error</span> <span class="o">=</span> <span class="n">previous_gradient_error</span> <span class="o">*</span> <span class="mf">0.8</span> <span class="k">if</span> <span class="n">previous_gradient_error</span> <span class="k">else</span> <span class="kc">None</span>
+<a id="__codelineno-21-4" name="__codelineno-21-4" href="#__codelineno-21-4"></a>    <span class="n">previous_gradient</span> <span class="o">=</span> <span class="n">gradient</span>  <span class="c1"># Update for next iteration</span>
+</code></pre></div></p>
+<p><strong>Priority:</strong> P1</p>
+<hr />
+<h3 id="bug-3-potential-index-out-of-bounds">BUG-3: Potential Index Out of Bounds</h3>
+<p><strong>Location:</strong> <code>isoster/driver.py:21, 24</code></p>
+<p><strong>Issue:</strong> No bounds checking when accessing central pixel:
+<div class="highlight"><pre><span></span><code><a id="__codelineno-22-1" name="__codelineno-22-1" href="#__codelineno-22-1"></a><span class="n">val</span> <span class="o">=</span> <span class="n">image</span><span class="p">[</span><span class="nb">int</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">round</span><span class="p">(</span><span class="n">y0</span><span class="p">)),</span> <span class="nb">int</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">round</span><span class="p">(</span><span class="n">x0</span><span class="p">))]</span>
+</code></pre></div></p>
+<p>If <code>x0</code> or <code>y0</code> are outside image bounds, this will raise <code>IndexError</code>.</p>
+<p><strong>Severity:</strong> MEDIUM - Will crash on edge cases</p>
+<p><strong>Fix:</strong> Add bounds checking:
+<div class="highlight"><pre><span></span><code><a id="__codelineno-23-1" name="__codelineno-23-1" href="#__codelineno-23-1"></a><span class="n">x_idx</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">round</span><span class="p">(</span><span class="n">x0</span><span class="p">))</span>
+<a id="__codelineno-23-2" name="__codelineno-23-2" href="#__codelineno-23-2"></a><span class="n">y_idx</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">round</span><span class="p">(</span><span class="n">y0</span><span class="p">))</span>
+<a id="__codelineno-23-3" name="__codelineno-23-3" href="#__codelineno-23-3"></a><span class="k">if</span> <span class="ow">not</span> <span class="p">(</span><span class="mi">0</span> <span class="o">&lt;=</span> <span class="n">y_idx</span> <span class="o">&lt;</span> <span class="n">image</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="ow">and</span> <span class="mi">0</span> <span class="o">&lt;=</span> <span class="n">x_idx</span> <span class="o">&lt;</span> <span class="n">image</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">1</span><span class="p">]):</span>
+<a id="__codelineno-23-4" name="__codelineno-23-4" href="#__codelineno-23-4"></a>    <span class="k">return</span> <span class="p">{</span>
+<a id="__codelineno-23-5" name="__codelineno-23-5" href="#__codelineno-23-5"></a>        <span class="c1"># ... error result with stop_code=-1</span>
+<a id="__codelineno-23-6" name="__codelineno-23-6" href="#__codelineno-23-6"></a>    <span class="p">}</span>
+<a id="__codelineno-23-7" name="__codelineno-23-7" href="#__codelineno-23-7"></a><span class="n">val</span> <span class="o">=</span> <span class="n">image</span><span class="p">[</span><span class="n">y_idx</span><span class="p">,</span> <span class="n">x_idx</span><span class="p">]</span>
+</code></pre></div></p>
+<p><strong>Priority:</strong> P0 (Critical for robustness)</p>
+<hr />
+<h3 id="bug-4-division-by-zero-in-model-building">BUG-4: Division by Zero in Model Building</h3>
+<p><strong>Location:</strong> <code>isoster/model.py:181</code></p>
+<p><strong>Issue:</strong> Even with <code>eps_safe = np.clip(eps_local, 0, 0.99)</code>, if <code>eps_local</code> values are exactly 1.0 (from bad data), the clipping might not catch all edge cases. The division <code>y_rot / (1.0 - eps_safe)</code> could still be problematic.</p>
+<p><strong>Severity:</strong> LOW - Already has clipping, but could be more robust</p>
+<p><strong>Fix:</strong> Add explicit check and use tighter clipping:
+<div class="highlight"><pre><span></span><code><a id="__codelineno-24-1" name="__codelineno-24-1" href="#__codelineno-24-1"></a><span class="n">eps_safe</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">clip</span><span class="p">(</span><span class="n">eps_local</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mf">0.999</span><span class="p">)</span>  <span class="c1"># Tighter bound</span>
+<a id="__codelineno-24-2" name="__codelineno-24-2" href="#__codelineno-24-2"></a><span class="c1"># Or add explicit check:</span>
+<a id="__codelineno-24-3" name="__codelineno-24-3" href="#__codelineno-24-3"></a><span class="n">denom</span> <span class="o">=</span> <span class="mf">1.0</span> <span class="o">-</span> <span class="n">eps_safe</span>
+<a id="__codelineno-24-4" name="__codelineno-24-4" href="#__codelineno-24-4"></a><span class="n">denom</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">maximum</span><span class="p">(</span><span class="n">denom</span><span class="p">,</span> <span class="mf">1e-6</span><span class="p">)</span>  <span class="c1"># Ensure minimum denominator</span>
+<a id="__codelineno-24-5" name="__codelineno-24-5" href="#__codelineno-24-5"></a><span class="n">r_ell_new</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">sqrt</span><span class="p">(</span><span class="n">x_rot</span><span class="o">**</span><span class="mi">2</span> <span class="o">+</span> <span class="p">(</span><span class="n">y_rot</span> <span class="o">/</span> <span class="n">denom</span><span class="p">)</span><span class="o">**</span><span class="mi">2</span><span class="p">)</span>
+</code></pre></div></p>
+<p><strong>Priority:</strong> P2</p>
+<hr />
+<h3 id="bug-5-inconsistent-return-types">BUG-5: Inconsistent Return Types</h3>
+<p><strong>Location:</strong> <code>isoster/fitting.py:compute_gradient()</code></p>
+<p><strong>Issue:</strong> Returns <code>(gradient, gradient_error)</code> where <code>gradient_error</code> can be <code>None</code>, but callers may not always check. Type hints are missing, making it unclear.</p>
+<p><strong>Severity:</strong> LOW - Currently handled, but fragile</p>
+<p><strong>Fix:</strong> Use <code>Optional[float]</code> type hints and ensure all callers handle None:
+<div class="highlight"><pre><span></span><code><a id="__codelineno-25-1" name="__codelineno-25-1" href="#__codelineno-25-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">Tuple</span><span class="p">,</span> <span class="n">Optional</span>
+<a id="__codelineno-25-2" name="__codelineno-25-2" href="#__codelineno-25-2"></a>
+<a id="__codelineno-25-3" name="__codelineno-25-3" href="#__codelineno-25-3"></a><span class="k">def</span><span class="w"> </span><span class="nf">compute_gradient</span><span class="p">(</span><span class="o">...</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Tuple</span><span class="p">[</span><span class="nb">float</span><span class="p">,</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">float</span><span class="p">]]:</span>
+<a id="__codelineno-25-4" name="__codelineno-25-4" href="#__codelineno-25-4"></a>    <span class="c1"># ...</span>
+</code></pre></div></p>
+<p><strong>Priority:</strong> P2</p>
+<hr />
+<h3 id="bug-6-potential-memory-leak-in-model-building">BUG-6: Potential Memory Leak in Model Building</h3>
+<p><strong>Location:</strong> <code>isoster/model.py:160-187</code></p>
+<p><strong>Issue:</strong> Creates large temporary arrays in iteration loop:
+<div class="highlight"><pre><span></span><code><a id="__codelineno-26-1" name="__codelineno-26-1" href="#__codelineno-26-1"></a><span class="k">for</span> <span class="n">iteration</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">max_iterations</span><span class="p">):</span>
+<a id="__codelineno-26-2" name="__codelineno-26-2" href="#__codelineno-26-2"></a>    <span class="n">r_ell_flat</span> <span class="o">=</span> <span class="n">r_ell</span><span class="o">.</span><span class="n">ravel</span><span class="p">()</span>  <span class="c1"># Creates view, but...</span>
+<a id="__codelineno-26-3" name="__codelineno-26-3" href="#__codelineno-26-3"></a>    <span class="n">x0_local</span> <span class="o">=</span> <span class="n">x0_interp</span><span class="p">(</span><span class="n">r_ell_flat</span><span class="p">)</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span><span class="n">r_ell</span><span class="o">.</span><span class="n">shape</span><span class="p">)</span>  <span class="c1"># Creates new array</span>
+<a id="__codelineno-26-4" name="__codelineno-26-4" href="#__codelineno-26-4"></a>    <span class="c1"># ... more array creation</span>
+</code></pre></div></p>
+<p>For large images, these arrays may not be garbage collected promptly.</p>
+<p><strong>Severity:</strong> LOW - Python GC should handle, but could be optimized</p>
+<p><strong>Fix:</strong> Explicitly delete large arrays or use smaller working arrays:
+<div class="highlight"><pre><span></span><code><a id="__codelineno-27-1" name="__codelineno-27-1" href="#__codelineno-27-1"></a><span class="c1"># Use smaller working arrays or explicit cleanup</span>
+<a id="__codelineno-27-2" name="__codelineno-27-2" href="#__codelineno-27-2"></a><span class="k">del</span> <span class="n">r_ell_flat</span><span class="p">,</span> <span class="n">x0_local</span><span class="p">,</span> <span class="n">y0_local</span><span class="p">,</span> <span class="n">eps_local</span><span class="p">,</span> <span class="n">pa_local</span>
+</code></pre></div></p>
+<p><strong>Priority:</strong> P3</p>
+<hr />
+<h2 id="part-4-code-quality-improvements">Part 4: Code Quality Improvements</h2>
+<h3 id="qual-1-type-hints-incomplete">QUAL-1: Type Hints Incomplete</h3>
+<p><strong>Location:</strong> Most functions</p>
+<p><strong>Issue:</strong> Many functions lack type hints, making it harder to:
+- Catch errors with type checkers (mypy, pyright)
+- Understand function signatures
+- Use with IDEs that support type checking</p>
+<p><strong>Fix:</strong> Add comprehensive type hints:
+<div class="highlight"><pre><span></span><code><a id="__codelineno-28-1" name="__codelineno-28-1" href="#__codelineno-28-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">Tuple</span><span class="p">,</span> <span class="n">Optional</span><span class="p">,</span> <span class="n">Dict</span><span class="p">,</span> <span class="n">List</span><span class="p">,</span> <span class="n">Union</span>
+<a id="__codelineno-28-2" name="__codelineno-28-2" href="#__codelineno-28-2"></a><span class="kn">from</span><span class="w"> </span><span class="nn">numpy.typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">NDArray</span>
+<a id="__codelineno-28-3" name="__codelineno-28-3" href="#__codelineno-28-3"></a>
+<a id="__codelineno-28-4" name="__codelineno-28-4" href="#__codelineno-28-4"></a><span class="k">def</span><span class="w"> </span><span class="nf">fit_isophote</span><span class="p">(</span>
+<a id="__codelineno-28-5" name="__codelineno-28-5" href="#__codelineno-28-5"></a>    <span class="n">image</span><span class="p">:</span> <span class="n">NDArray</span><span class="p">[</span><span class="n">np</span><span class="o">.</span><span class="n">floating</span><span class="p">],</span>
+<a id="__codelineno-28-6" name="__codelineno-28-6" href="#__codelineno-28-6"></a>    <span class="n">mask</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">NDArray</span><span class="p">[</span><span class="n">np</span><span class="o">.</span><span class="n">bool_</span><span class="p">]],</span>
+<a id="__codelineno-28-7" name="__codelineno-28-7" href="#__codelineno-28-7"></a>    <span class="n">sma</span><span class="p">:</span> <span class="nb">float</span><span class="p">,</span>
+<a id="__codelineno-28-8" name="__codelineno-28-8" href="#__codelineno-28-8"></a>    <span class="n">start_geometry</span><span class="p">:</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">float</span><span class="p">],</span>
+<a id="__codelineno-28-9" name="__codelineno-28-9" href="#__codelineno-28-9"></a>    <span class="n">config</span><span class="p">:</span> <span class="n">Union</span><span class="p">[</span><span class="n">Dict</span><span class="p">,</span> <span class="n">IsosterConfig</span><span class="p">],</span>
+<a id="__codelineno-28-10" name="__codelineno-28-10" href="#__codelineno-28-10"></a>    <span class="n">going_inwards</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span>
+<a id="__codelineno-28-11" name="__codelineno-28-11" href="#__codelineno-28-11"></a>    <span class="n">previous_geometry</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">float</span><span class="p">]]</span> <span class="o">=</span> <span class="kc">None</span>
+<a id="__codelineno-28-12" name="__codelineno-28-12" href="#__codelineno-28-12"></a><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Union</span><span class="p">[</span><span class="nb">float</span><span class="p">,</span> <span class="nb">int</span><span class="p">]]:</span>
+<a id="__codelineno-28-13" name="__codelineno-28-13" href="#__codelineno-28-13"></a>    <span class="c1"># ...</span>
+</code></pre></div></p>
+<p><strong>Priority:</strong> P2</p>
+<hr />
+<h3 id="qual-2-docstring-inconsistencies">QUAL-2: Docstring Inconsistencies</h3>
+<p><strong>Location:</strong> Multiple files</p>
+<p><strong>Issue:</strong> Some functions have detailed docstrings (NumPy style), others have minimal or missing ones:
+- <code>fit_isophote()</code>: Comprehensive docstring ✓
+- <code>harmonic_function()</code>: Missing docstring ✗
+- <code>compute_gradient()</code>: Good docstring ✓
+- <code>extract_isophote_data()</code>: Good docstring ✓</p>
+<p><strong>Fix:</strong> Standardize docstring format (NumPy style) across all public functions:
+<div class="highlight"><pre><span></span><code><a id="__codelineno-29-1" name="__codelineno-29-1" href="#__codelineno-29-1"></a><span class="k">def</span><span class="w"> </span><span class="nf">function_name</span><span class="p">(</span><span class="n">param1</span><span class="p">:</span> <span class="nb">type</span><span class="p">,</span> <span class="n">param2</span><span class="p">:</span> <span class="nb">type</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">return_type</span><span class="p">:</span>
+<a id="__codelineno-29-2" name="__codelineno-29-2" href="#__codelineno-29-2"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<a id="__codelineno-29-3" name="__codelineno-29-3" href="#__codelineno-29-3"></a><span class="sd">    Brief description.</span>
+<a id="__codelineno-29-4" name="__codelineno-29-4" href="#__codelineno-29-4"></a>
+<a id="__codelineno-29-5" name="__codelineno-29-5" href="#__codelineno-29-5"></a><span class="sd">    Longer description if needed.</span>
+<a id="__codelineno-29-6" name="__codelineno-29-6" href="#__codelineno-29-6"></a>
+<a id="__codelineno-29-7" name="__codelineno-29-7" href="#__codelineno-29-7"></a><span class="sd">    Parameters</span>
+<a id="__codelineno-29-8" name="__codelineno-29-8" href="#__codelineno-29-8"></a><span class="sd">    ----------</span>
+<a id="__codelineno-29-9" name="__codelineno-29-9" href="#__codelineno-29-9"></a><span class="sd">    param1 : type</span>
+<a id="__codelineno-29-10" name="__codelineno-29-10" href="#__codelineno-29-10"></a><span class="sd">        Description of param1.</span>
+<a id="__codelineno-29-11" name="__codelineno-29-11" href="#__codelineno-29-11"></a><span class="sd">    param2 : type</span>
+<a id="__codelineno-29-12" name="__codelineno-29-12" href="#__codelineno-29-12"></a><span class="sd">        Description of param2.</span>
+<a id="__codelineno-29-13" name="__codelineno-29-13" href="#__codelineno-29-13"></a>
+<a id="__codelineno-29-14" name="__codelineno-29-14" href="#__codelineno-29-14"></a><span class="sd">    Returns</span>
+<a id="__codelineno-29-15" name="__codelineno-29-15" href="#__codelineno-29-15"></a><span class="sd">    -------</span>
+<a id="__codelineno-29-16" name="__codelineno-29-16" href="#__codelineno-29-16"></a><span class="sd">    return_type</span>
+<a id="__codelineno-29-17" name="__codelineno-29-17" href="#__codelineno-29-17"></a><span class="sd">        Description of return value.</span>
+<a id="__codelineno-29-18" name="__codelineno-29-18" href="#__codelineno-29-18"></a>
+<a id="__codelineno-29-19" name="__codelineno-29-19" href="#__codelineno-29-19"></a><span class="sd">    Raises</span>
+<a id="__codelineno-29-20" name="__codelineno-29-20" href="#__codelineno-29-20"></a><span class="sd">    ------</span>
+<a id="__codelineno-29-21" name="__codelineno-29-21" href="#__codelineno-29-21"></a><span class="sd">    ValueError</span>
+<a id="__codelineno-29-22" name="__codelineno-29-22" href="#__codelineno-29-22"></a><span class="sd">        When invalid input is provided.</span>
+<a id="__codelineno-29-23" name="__codelineno-29-23" href="#__codelineno-29-23"></a>
+<a id="__codelineno-29-24" name="__codelineno-29-24" href="#__codelineno-29-24"></a><span class="sd">    Notes</span>
+<a id="__codelineno-29-25" name="__codelineno-29-25" href="#__codelineno-29-25"></a><span class="sd">    -----</span>
+<a id="__codelineno-29-26" name="__codelineno-29-26" href="#__codelineno-29-26"></a><span class="sd">    Additional notes if needed.</span>
+<a id="__codelineno-29-27" name="__codelineno-29-27" href="#__codelineno-29-27"></a><span class="sd">    &quot;&quot;&quot;</span>
+</code></pre></div></p>
+<p><strong>Priority:</strong> P3</p>
+<hr />
+<h3 id="qual-3-test-coverage-gaps">QUAL-3: Test Coverage Gaps</h3>
+<p><strong>Location:</strong> Edge cases</p>
+<p><strong>Issue:</strong> Some edge cases not covered:
+- <code>eps = 0.999</code> (very high ellipticity)
+- <code>sma &lt; 0.5</code> (very small SMA)
+- Empty images (<code>image.shape = (0, 0)</code>)
+- All-masked images
+- <code>x0, y0</code> outside image bounds
+- <code>gradient = None</code> propagation</p>
+<p><strong>Current Coverage:</strong> 63% overall (from CODE_REVIEW.md)</p>
+<p><strong>Fix:</strong> Add comprehensive edge case tests:
+<div class="highlight"><pre><span></span><code><a id="__codelineno-30-1" name="__codelineno-30-1" href="#__codelineno-30-1"></a><span class="k">def</span><span class="w"> </span><span class="nf">test_high_ellipticity</span><span class="p">():</span>
+<a id="__codelineno-30-2" name="__codelineno-30-2" href="#__codelineno-30-2"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Test fitting with eps = 0.999&quot;&quot;&quot;</span>
+<a id="__codelineno-30-3" name="__codelineno-30-3" href="#__codelineno-30-3"></a>    <span class="c1"># ...</span>
+<a id="__codelineno-30-4" name="__codelineno-30-4" href="#__codelineno-30-4"></a>
+<a id="__codelineno-30-5" name="__codelineno-30-5" href="#__codelineno-30-5"></a><span class="k">def</span><span class="w"> </span><span class="nf">test_small_sma</span><span class="p">():</span>
+<a id="__codelineno-30-6" name="__codelineno-30-6" href="#__codelineno-30-6"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Test fitting with sma &lt; 0.5&quot;&quot;&quot;</span>
+<a id="__codelineno-30-7" name="__codelineno-30-7" href="#__codelineno-30-7"></a>    <span class="c1"># ...</span>
+<a id="__codelineno-30-8" name="__codelineno-30-8" href="#__codelineno-30-8"></a>
+<a id="__codelineno-30-9" name="__codelineno-30-9" href="#__codelineno-30-9"></a><span class="k">def</span><span class="w"> </span><span class="nf">test_empty_image</span><span class="p">():</span>
+<a id="__codelineno-30-10" name="__codelineno-30-10" href="#__codelineno-30-10"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Test with empty image&quot;&quot;&quot;</span>
+<a id="__codelineno-30-11" name="__codelineno-30-11" href="#__codelineno-30-11"></a>    <span class="c1"># ...</span>
+</code></pre></div></p>
+<p><strong>Priority:</strong> P2</p>
+<hr />
+<h2 id="priority-recommendations">Priority Recommendations</h2>
+<h3 id="immediate-p0-fix-before-next-release">Immediate (P0 - Fix Before Next Release)</h3>
+<ol>
+<li><strong>BUG-1</strong>: Fix PA modulo to use <code>2π</code> instead of <code>π</code> (<code>fitting.py:805, 810</code>)</li>
+<li><strong>BUG-3</strong>: Add bounds checking in <code>fit_central_pixel()</code> (<code>driver.py:21, 24</code>)</li>
+</ol>
+<h3 id="high-priority-p1-next-sprint">High Priority (P1 - Next Sprint)</h3>
+<ol>
+<li><strong>EFF-7</strong>: Optimize <code>compute_aperture_photometry()</code> memory usage</li>
+<li><strong>EFF-8</strong>: Optimize small matrix operations in harmonic fitting</li>
+<li><strong>WEAK-3</strong>: Expose magic numbers as config parameters</li>
+<li><strong>WEAK-4</strong>: Add input validation with clear error messages</li>
+<li><strong>WEAK-5</strong>: Improve numerical stability at edge cases</li>
+<li><strong>BUG-2</strong>: Fix gradient error propagation on fallback</li>
+</ol>
+<h3 id="medium-priority-p2-future-releases">Medium Priority (P2 - Future Releases)</h3>
+<ol>
+<li><strong>EFF-6</strong>: Cache gradient SMA data across iterations</li>
+<li><strong>EFF-9</strong>: Optimize interpolation in model building</li>
+<li><strong>WEAK-2</strong>: Standardize error handling patterns</li>
+<li><strong>WEAK-6</strong>: Simplify config access pattern</li>
+<li><strong>WEAK-7</strong>: Fix gradient computation logic</li>
+<li><strong>BUG-4</strong>: Improve division by zero handling in model building</li>
+<li><strong>BUG-5</strong>: Add type hints for return types</li>
+<li><strong>QUAL-1</strong>: Add comprehensive type hints</li>
+<li><strong>QUAL-3</strong>: Add edge case tests</li>
+</ol>
+<h3 id="low-priority-p3-nice-to-have">Low Priority (P3 - Nice to Have)</h3>
+<ol>
+<li><strong>EFF-10</strong>: Optimize elliptical radius iteration</li>
+<li><strong>QUAL-2</strong>: Standardize docstrings</li>
+<li><strong>BUG-6</strong>: Optimize memory usage in model building</li>
+</ol>
+<hr />
+<h2 id="files-requiring-attention">Files Requiring Attention</h2>
+<h3 id="high-priority-files">High Priority Files</h3>
+<ol>
+<li><strong><code>isoster/fitting.py</code></strong>: </li>
+<li>PA modulo bug (lines 805, 810)</li>
+<li>Gradient error handling (lines 520-522)</li>
+<li>Matrix operations optimization (lines 148-152)</li>
+<li>
+<p>Config access pattern (lines 442-445)</p>
+</li>
+<li>
+<p><strong><code>isoster/model.py</code></strong>: </p>
+</li>
+<li>Interpolation efficiency (lines 128-143)</li>
+<li>Numerical stability (line 181)</li>
+<li>
+<p>Elliptical radius iteration (lines 163-187)</p>
+</li>
+<li>
+<p><strong><code>isoster/driver.py</code></strong>: </p>
+</li>
+<li>Bounds checking (lines 21, 24)</li>
+</ol>
+<h3 id="medium-priority-files">Medium Priority Files</h3>
+<ol>
+<li><strong><code>isoster/sampling.py</code></strong>: </li>
+<li>Input validation</li>
+<li>
+<p>EA stability (lines 44-49)</p>
+</li>
+<li>
+<p><strong><code>isoster/numba_kernels.py</code></strong>: </p>
+</li>
+<li>
+<p>Input validation</p>
+</li>
+<li>
+<p><strong><code>isoster/config.py</code></strong>: </p>
+</li>
+<li>Add magic number parameters</li>
+</ol>
+<hr />
+<h2 id="testing-recommendations">Testing Recommendations</h2>
+<ol>
+<li><strong>PA Modulo Tests</strong>: Add tests to verify PA values are in <code>[0, 2π)</code> and can distinguish 0° from 180°</li>
+<li><strong>Edge Case Tests</strong>: Add tests for:</li>
+<li><code>eps = 0.999</code> (very high ellipticity)</li>
+<li><code>sma &lt; 0.5</code> (very small SMA)</li>
+<li>Empty images</li>
+<li>All-masked images</li>
+<li><code>x0, y0</code> outside image bounds</li>
+<li><strong>Performance Benchmarks</strong>: Add benchmarks for identified efficiency issues</li>
+<li><strong>Numerical Stability Tests</strong>: Test extreme parameter values (eps → 1.0, sma → 0)</li>
+</ol>
+<hr />
+<h2 id="summary-statistics">Summary Statistics</h2>
+<table>
+<thead>
+<tr>
+<th>Category</th>
+<th>Critical</th>
+<th>High</th>
+<th>Medium</th>
+<th>Low</th>
+<th>Total</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Bugs</strong></td>
+<td>2</td>
+<td>1</td>
+<td>2</td>
+<td>1</td>
+<td><strong>6</strong></td>
+</tr>
+<tr>
+<td><strong>Efficiency</strong></td>
+<td>0</td>
+<td>2</td>
+<td>3</td>
+<td>1</td>
+<td><strong>6</strong></td>
+</tr>
+<tr>
+<td><strong>Weaknesses</strong></td>
+<td>1</td>
+<td>4</td>
+<td>2</td>
+<td>0</td>
+<td><strong>7</strong></td>
+</tr>
+<tr>
+<td><strong>Quality</strong></td>
+<td>0</td>
+<td>0</td>
+<td>2</td>
+<td>1</td>
+<td><strong>3</strong></td>
+</tr>
+<tr>
+<td><strong>Total</strong></td>
+<td><strong>3</strong></td>
+<td><strong>7</strong></td>
+<td><strong>9</strong></td>
+<td><strong>3</strong></td>
+<td><strong>22</strong></td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="conclusion">Conclusion</h2>
+<p>The isoster codebase is generally well-structured with good vectorization and performance optimizations. However, there are several critical issues that should be addressed:</p>
+<ol>
+<li><strong>Critical Bug</strong>: PA modulo bug must be fixed before next release</li>
+<li><strong>Efficiency</strong>: Several easy wins for memory and computation optimization</li>
+<li><strong>Robustness</strong>: Input validation and error handling need improvement</li>
+<li><strong>Code Quality</strong>: Type hints and documentation need standardization</li>
+</ol>
+<p>The codebase shows evidence of active maintenance and improvement (many issues from previous reviews have been resolved). The remaining issues are mostly edge cases and code quality improvements that will enhance robustness and maintainability.</p>
+<hr />
+<h2 id="references">References</h2>
+<ul>
+<li>Previous code reviews: <code>CODE_REVIEW.md</code> (original), <code>docs/development/cc_plan1_260111.md</code></li>
+<li>Efficiency documentation: <code>docs/development/EFFICIENCY_OPTIMIZATION_PLAN.md</code>, <code>docs/development/EFFICIENCY_RESULTS.md</code></li>
+<li>Numba optimization: <code>docs/development/NUMBA_CODE_REVIEW.md</code></li>
+<li>Model improvements: <code>docs/development/MODEL_IMPROVEMENTS.md</code></li>
+</ul>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../../..", "features": ["navigation.sections", "navigation.expand", "content.code.copy"], "search": "../../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../../../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+    
+  </body>
+</html>

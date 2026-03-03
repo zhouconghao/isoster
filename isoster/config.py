@@ -44,6 +44,13 @@ class IsosterConfig(BaseModel):
                     "'sqrt_sma': multiply by sqrt(sma). "
                     "'none': constant threshold (legacy behavior)."
     )
+    use_lazy_gradient: bool = Field(
+        default=True,
+        description="If True, use 'Lazy Gradient Evaluation' (Modified Newton Method). "
+                    "The radial gradient is computed only on the first iteration and reused "
+                    "for subsequent iterations unless convergence stalls. This significantly "
+                    "reduces image sampling overhead."
+    )
 
     # Geometry update control
     geometry_damping: float = Field(

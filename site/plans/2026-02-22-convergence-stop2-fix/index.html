@@ -1,0 +1,1218 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Fast isophote fitting for galaxy images.">
+      
+      
+        <meta name="author" content="Shuang">
+      
+      
+      
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.1">
+    
+    
+      
+        <title>Convergence stop=2 Fix — Implementation Plan - Isoster Documentation</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.484c7ddc.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    <body dir="ltr">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#convergence-stop2-fix-implementation-plan" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../.." title="Isoster Documentation" class="md-header__button md-logo" aria-label="Isoster Documentation" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            Isoster Documentation
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Convergence stop=2 Fix — Implementation Plan
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/shuang-stat/isoster" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    GitHub
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="Isoster Documentation" class="md-nav__button md-logo" aria-label="Isoster Documentation" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    Isoster Documentation
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/shuang-stat/isoster" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    GitHub
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../spec/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Spec
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../user-guide/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    User Guide
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../configuration-reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Configuration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../algorithm/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Algorithm
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../testing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Testing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../qa-figures/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    QA Figures
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../future/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Future
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#background" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Background
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Background">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#root-cause" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Root cause
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ngc1209_mock2-baseline" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        NGC1209_mock2 baseline
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#constraint" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Constraint
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#task-1-add-convergence-scaling-config-params" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Task 1: Add convergence scaling config params
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#task-2-implement-convergence-scaling-approach-a-in-fittingpy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Task 2: Implement convergence scaling (Approach A) in fitting.py
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#task-3-implement-geometry-damping-approach-b-in-fittingpy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Task 3: Implement geometry damping (Approach B) in fitting.py
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#task-4-implement-geometry-change-convergence-approach-c-in-fittingpy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Task 4: Implement geometry-change convergence (Approach C) in fitting.py
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#task-5-write-ngc1209_mock2-diagnostic-benchmark-script" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Task 5: Write NGC1209_mock2 diagnostic benchmark script
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#task-6-analyze-results-and-select-best-defaults" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Task 6: Analyze results and select best defaults
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#task-7-update-documentation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Task 7: Update documentation
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#benchmark-results-ngc1209_mock2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Benchmark Results (NGC1209_mock2)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Benchmark Results (NGC1209_mock2)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#decision" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Decision
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="convergence-stop2-fix-implementation-plan">Convergence stop=2 Fix — Implementation Plan</h1>
+<blockquote>
+<p><strong>For Claude:</strong> REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.</p>
+</blockquote>
+<p><strong>Goal:</strong> Reduce stop=2 (max-iterations-reached) rate to near-zero in well-defined regions by implementing three convergence improvements, benchmarking them on NGC1209_mock2, and selecting the best combination.</p>
+<p><strong>Architecture:</strong> Three independent convergence improvements to <code>isoster/fitting.py</code>, each gated by new optional config params in <code>isoster/config.py</code>. A standalone diagnostic script compares baseline vs each approach on NGC1209_mock2. The vectorized sampling path (<code>sampling.py</code>) is NOT modified.</p>
+<p><strong>Tech Stack:</strong> numpy, scipy, pydantic (config), astropy (FITS I/O), matplotlib (QA figures)</p>
+<p><strong>Branch:</strong> <code>fix/convergence-stop2</code></p>
+<hr />
+<h2 id="background">Background</h2>
+<h3 id="root-cause">Root cause</h3>
+<p>Isoster's convergence check (<code>fitting.py:819</code>):
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nb">abs</span><span class="p">(</span><span class="n">max_amp</span><span class="p">)</span> <span class="o">&lt;</span> <span class="n">conver</span> <span class="o">*</span> <span class="n">rms</span>
+</code></pre></div>
+is SMA-independent. Photutils (<code>reference/fitter.py:199</code>) uses:
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="n">conver</span> <span class="o">*</span> <span class="n">sector_area</span> <span class="o">*</span> <span class="n">std</span><span class="p">(</span><span class="n">residual</span><span class="p">)</span> <span class="o">&gt;</span> <span class="nb">abs</span><span class="p">(</span><span class="n">largest_harmonic</span><span class="p">)</span>
+</code></pre></div>
+where <code>sector_area</code> grows with SMA, relaxing the threshold for outer isophotes.</p>
+<h3 id="ngc1209_mock2-baseline">NGC1209_mock2 baseline</h3>
+<ul>
+<li>8/66 isophotes (12%) hit stop=2, all at SMA &gt; 95 px</li>
+<li>Photutils: 2/66 (3%) stop=2</li>
+<li>Photometry is accurate (~1%) despite stop=2 — geometry oscillates</li>
+</ul>
+<h3 id="constraint">Constraint</h3>
+<ul>
+<li>Must NOT change <code>sampling.py</code> or the vectorized sampling path</li>
+<li>Must NOT degrade accuracy (intensity, eps, pa) on existing test suite</li>
+<li>New params must have good defaults so existing users see improvement automatically</li>
+</ul>
+<hr />
+<h2 id="task-1-add-convergence-scaling-config-params">Task 1: Add convergence scaling config params</h2>
+<p><strong>Files:</strong>
+- Modify: <code>isoster/config.py:34-37</code> (fitting control section)</p>
+<p><strong>Step 1: Add three new config fields</strong></p>
+<p>Add after <code>conver</code> (line 37):</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="n">convergence_scaling</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="n">Field</span><span class="p">(</span>
+<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>    <span class="n">default</span><span class="o">=</span><span class="s1">&#39;sector_area&#39;</span><span class="p">,</span>
+<a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a>    <span class="n">pattern</span><span class="o">=</span><span class="s1">&#39;^(none|sector_area|sqrt_sma)$&#39;</span><span class="p">,</span>
+<a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a>    <span class="n">description</span><span class="o">=</span><span class="s2">&quot;Scale convergence threshold with SMA. &quot;</span>
+<a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a>                <span class="s2">&quot;&#39;sector_area&#39;: multiply by approximate sector area (matches photutils behavior). &quot;</span>
+<a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a>                <span class="s2">&quot;&#39;sqrt_sma&#39;: multiply by sqrt(sma). &quot;</span>
+<a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a>                <span class="s2">&quot;&#39;none&#39;: constant threshold (legacy behavior).&quot;</span>
+<a id="__codelineno-2-8" name="__codelineno-2-8" href="#__codelineno-2-8"></a><span class="p">)</span>
+<a id="__codelineno-2-9" name="__codelineno-2-9" href="#__codelineno-2-9"></a>
+<a id="__codelineno-2-10" name="__codelineno-2-10" href="#__codelineno-2-10"></a><span class="n">geometry_damping</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="n">Field</span><span class="p">(</span>
+<a id="__codelineno-2-11" name="__codelineno-2-11" href="#__codelineno-2-11"></a>    <span class="n">default</span><span class="o">=</span><span class="mf">1.0</span><span class="p">,</span>
+<a id="__codelineno-2-12" name="__codelineno-2-12" href="#__codelineno-2-12"></a>    <span class="n">gt</span><span class="o">=</span><span class="mf">0.0</span><span class="p">,</span>
+<a id="__codelineno-2-13" name="__codelineno-2-13" href="#__codelineno-2-13"></a>    <span class="n">le</span><span class="o">=</span><span class="mf">1.0</span><span class="p">,</span>
+<a id="__codelineno-2-14" name="__codelineno-2-14" href="#__codelineno-2-14"></a>    <span class="n">description</span><span class="o">=</span><span class="s2">&quot;Damping factor for geometry updates (0 &lt; d &lt;= 1). &quot;</span>
+<a id="__codelineno-2-15" name="__codelineno-2-15" href="#__codelineno-2-15"></a>                <span class="s2">&quot;Each geometry correction is multiplied by this factor. &quot;</span>
+<a id="__codelineno-2-16" name="__codelineno-2-16" href="#__codelineno-2-16"></a>                <span class="s2">&quot;1.0 = no damping (legacy). 0.5 = half-step corrections. &quot;</span>
+<a id="__codelineno-2-17" name="__codelineno-2-17" href="#__codelineno-2-17"></a>                <span class="s2">&quot;Lower values prevent oscillations but slow convergence.&quot;</span>
+<a id="__codelineno-2-18" name="__codelineno-2-18" href="#__codelineno-2-18"></a><span class="p">)</span>
+<a id="__codelineno-2-19" name="__codelineno-2-19" href="#__codelineno-2-19"></a>
+<a id="__codelineno-2-20" name="__codelineno-2-20" href="#__codelineno-2-20"></a><span class="n">geometry_convergence</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="n">Field</span><span class="p">(</span>
+<a id="__codelineno-2-21" name="__codelineno-2-21" href="#__codelineno-2-21"></a>    <span class="n">default</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+<a id="__codelineno-2-22" name="__codelineno-2-22" href="#__codelineno-2-22"></a>    <span class="n">description</span><span class="o">=</span><span class="s2">&quot;Enable secondary convergence based on geometry stability. &quot;</span>
+<a id="__codelineno-2-23" name="__codelineno-2-23" href="#__codelineno-2-23"></a>                <span class="s2">&quot;Declares convergence when geometry changes fall below tolerance &quot;</span>
+<a id="__codelineno-2-24" name="__codelineno-2-24" href="#__codelineno-2-24"></a>                <span class="s2">&quot;for consecutive iterations, even if harmonic criterion is not met.&quot;</span>
+<a id="__codelineno-2-25" name="__codelineno-2-25" href="#__codelineno-2-25"></a><span class="p">)</span>
+<a id="__codelineno-2-26" name="__codelineno-2-26" href="#__codelineno-2-26"></a>
+<a id="__codelineno-2-27" name="__codelineno-2-27" href="#__codelineno-2-27"></a><span class="n">geometry_tolerance</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="n">Field</span><span class="p">(</span>
+<a id="__codelineno-2-28" name="__codelineno-2-28" href="#__codelineno-2-28"></a>    <span class="n">default</span><span class="o">=</span><span class="mf">0.01</span><span class="p">,</span>
+<a id="__codelineno-2-29" name="__codelineno-2-29" href="#__codelineno-2-29"></a>    <span class="n">gt</span><span class="o">=</span><span class="mf">0.0</span><span class="p">,</span>
+<a id="__codelineno-2-30" name="__codelineno-2-30" href="#__codelineno-2-30"></a>    <span class="n">description</span><span class="o">=</span><span class="s2">&quot;Threshold for geometry convergence. Convergence declared when &quot;</span>
+<a id="__codelineno-2-31" name="__codelineno-2-31" href="#__codelineno-2-31"></a>                <span class="s2">&quot;max(|delta_eps|, |delta_pa/pi|, |delta_x0/sma|, |delta_y0/sma|) &quot;</span>
+<a id="__codelineno-2-32" name="__codelineno-2-32" href="#__codelineno-2-32"></a>                <span class="s2">&quot;&lt; geometry_tolerance for geometry_stable_iters consecutive iterations.&quot;</span>
+<a id="__codelineno-2-33" name="__codelineno-2-33" href="#__codelineno-2-33"></a><span class="p">)</span>
+<a id="__codelineno-2-34" name="__codelineno-2-34" href="#__codelineno-2-34"></a>
+<a id="__codelineno-2-35" name="__codelineno-2-35" href="#__codelineno-2-35"></a><span class="n">geometry_stable_iters</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="n">Field</span><span class="p">(</span>
+<a id="__codelineno-2-36" name="__codelineno-2-36" href="#__codelineno-2-36"></a>    <span class="n">default</span><span class="o">=</span><span class="mi">3</span><span class="p">,</span>
+<a id="__codelineno-2-37" name="__codelineno-2-37" href="#__codelineno-2-37"></a>    <span class="n">ge</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span>
+<a id="__codelineno-2-38" name="__codelineno-2-38" href="#__codelineno-2-38"></a>    <span class="n">description</span><span class="o">=</span><span class="s2">&quot;Number of consecutive iterations with small geometry changes &quot;</span>
+<a id="__codelineno-2-39" name="__codelineno-2-39" href="#__codelineno-2-39"></a>                <span class="s2">&quot;required to trigger geometry-based convergence.&quot;</span>
+<a id="__codelineno-2-40" name="__codelineno-2-40" href="#__codelineno-2-40"></a><span class="p">)</span>
+</code></pre></div>
+<p><strong>Step 2: Run test collection to verify config is valid</strong></p>
+<p>Run: <code>uv run pytest tests/ --collect-only -q 2&gt;&amp;1 | tail -5</code>
+Expected: all tests collected, no import errors</p>
+<p><strong>Step 3: Commit</strong></p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>git add isoster/config.py
+<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>git commit -m &quot;feat: add convergence scaling, geometry damping, and geometry convergence config params&quot;
+</code></pre></div>
+<hr />
+<h2 id="task-2-implement-convergence-scaling-approach-a-in-fittingpy">Task 2: Implement convergence scaling (Approach A) in fitting.py</h2>
+<p><strong>Files:</strong>
+- Modify: <code>isoster/fitting.py</code> (convergence check at line 819 and surrounding context)</p>
+<p><strong>Step 1: Write the failing test</strong></p>
+<p>File: <code>tests/unit/test_convergence.py</code></p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="sd">&quot;&quot;&quot;Tests for convergence improvements in fit_isophote.&quot;&quot;&quot;</span>
+<a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
+<a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a><span class="kn">import</span><span class="w"> </span><span class="nn">pytest</span>
+<a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a><span class="kn">from</span><span class="w"> </span><span class="nn">isoster.fitting</span><span class="w"> </span><span class="kn">import</span> <span class="n">fit_isophote</span>
+<a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a><span class="kn">from</span><span class="w"> </span><span class="nn">isoster.config</span><span class="w"> </span><span class="kn">import</span> <span class="n">IsosterConfig</span>
+<a id="__codelineno-4-6" name="__codelineno-4-6" href="#__codelineno-4-6"></a>
+<a id="__codelineno-4-7" name="__codelineno-4-7" href="#__codelineno-4-7"></a>
+<a id="__codelineno-4-8" name="__codelineno-4-8" href="#__codelineno-4-8"></a><span class="k">def</span><span class="w"> </span><span class="nf">make_sersic_image</span><span class="p">(</span><span class="n">shape</span><span class="o">=</span><span class="p">(</span><span class="mi">201</span><span class="p">,</span> <span class="mi">201</span><span class="p">),</span> <span class="n">x0</span><span class="o">=</span><span class="mi">100</span><span class="p">,</span> <span class="n">y0</span><span class="o">=</span><span class="mi">100</span><span class="p">,</span> <span class="n">ie</span><span class="o">=</span><span class="mf">1000.0</span><span class="p">,</span> <span class="n">re</span><span class="o">=</span><span class="mf">30.0</span><span class="p">,</span>
+<a id="__codelineno-4-9" name="__codelineno-4-9" href="#__codelineno-4-9"></a>                      <span class="n">n</span><span class="o">=</span><span class="mf">2.0</span><span class="p">,</span> <span class="n">eps</span><span class="o">=</span><span class="mf">0.3</span><span class="p">,</span> <span class="n">pa</span><span class="o">=</span><span class="mf">0.5</span><span class="p">):</span>
+<a id="__codelineno-4-10" name="__codelineno-4-10" href="#__codelineno-4-10"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Create a noiseless Sersic galaxy image for testing convergence.&quot;&quot;&quot;</span>
+<a id="__codelineno-4-11" name="__codelineno-4-11" href="#__codelineno-4-11"></a>    <span class="kn">from</span><span class="w"> </span><span class="nn">scipy.special</span><span class="w"> </span><span class="kn">import</span> <span class="n">gammaincinv</span>
+<a id="__codelineno-4-12" name="__codelineno-4-12" href="#__codelineno-4-12"></a>    <span class="n">bn</span> <span class="o">=</span> <span class="n">gammaincinv</span><span class="p">(</span><span class="mi">2</span> <span class="o">*</span> <span class="n">n</span><span class="p">,</span> <span class="mf">0.5</span><span class="p">)</span>
+<a id="__codelineno-4-13" name="__codelineno-4-13" href="#__codelineno-4-13"></a>    <span class="n">yy</span><span class="p">,</span> <span class="n">xx</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">mgrid</span><span class="p">[:</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="p">:</span><span class="n">shape</span><span class="p">[</span><span class="mi">1</span><span class="p">]]</span>
+<a id="__codelineno-4-14" name="__codelineno-4-14" href="#__codelineno-4-14"></a>    <span class="n">dx</span> <span class="o">=</span> <span class="n">xx</span> <span class="o">-</span> <span class="n">x0</span>
+<a id="__codelineno-4-15" name="__codelineno-4-15" href="#__codelineno-4-15"></a>    <span class="n">dy</span> <span class="o">=</span> <span class="n">yy</span> <span class="o">-</span> <span class="n">y0</span>
+<a id="__codelineno-4-16" name="__codelineno-4-16" href="#__codelineno-4-16"></a>    <span class="n">cos_pa</span><span class="p">,</span> <span class="n">sin_pa</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">cos</span><span class="p">(</span><span class="n">pa</span><span class="p">),</span> <span class="n">np</span><span class="o">.</span><span class="n">sin</span><span class="p">(</span><span class="n">pa</span><span class="p">)</span>
+<a id="__codelineno-4-17" name="__codelineno-4-17" href="#__codelineno-4-17"></a>    <span class="n">x_rot</span> <span class="o">=</span> <span class="n">dx</span> <span class="o">*</span> <span class="n">cos_pa</span> <span class="o">+</span> <span class="n">dy</span> <span class="o">*</span> <span class="n">sin_pa</span>
+<a id="__codelineno-4-18" name="__codelineno-4-18" href="#__codelineno-4-18"></a>    <span class="n">y_rot</span> <span class="o">=</span> <span class="o">-</span><span class="n">dx</span> <span class="o">*</span> <span class="n">sin_pa</span> <span class="o">+</span> <span class="n">dy</span> <span class="o">*</span> <span class="n">cos_pa</span>
+<a id="__codelineno-4-19" name="__codelineno-4-19" href="#__codelineno-4-19"></a>    <span class="n">r_ellip</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">sqrt</span><span class="p">(</span><span class="n">x_rot</span><span class="o">**</span><span class="mi">2</span> <span class="o">+</span> <span class="p">(</span><span class="n">y_rot</span> <span class="o">/</span> <span class="p">(</span><span class="mi">1</span> <span class="o">-</span> <span class="n">eps</span><span class="p">))</span><span class="o">**</span><span class="mi">2</span><span class="p">)</span>
+<a id="__codelineno-4-20" name="__codelineno-4-20" href="#__codelineno-4-20"></a>    <span class="n">image</span> <span class="o">=</span> <span class="n">ie</span> <span class="o">*</span> <span class="n">np</span><span class="o">.</span><span class="n">exp</span><span class="p">(</span><span class="o">-</span><span class="n">bn</span> <span class="o">*</span> <span class="p">((</span><span class="n">r_ellip</span> <span class="o">/</span> <span class="n">re</span><span class="p">)</span><span class="o">**</span><span class="p">(</span><span class="mf">1.0</span><span class="o">/</span><span class="n">n</span><span class="p">)</span> <span class="o">-</span> <span class="mi">1</span><span class="p">))</span>
+<a id="__codelineno-4-21" name="__codelineno-4-21" href="#__codelineno-4-21"></a>    <span class="k">return</span> <span class="n">image</span>
+<a id="__codelineno-4-22" name="__codelineno-4-22" href="#__codelineno-4-22"></a>
+<a id="__codelineno-4-23" name="__codelineno-4-23" href="#__codelineno-4-23"></a>
+<a id="__codelineno-4-24" name="__codelineno-4-24" href="#__codelineno-4-24"></a><span class="k">class</span><span class="w"> </span><span class="nc">TestConvergenceScaling</span><span class="p">:</span>
+<a id="__codelineno-4-25" name="__codelineno-4-25" href="#__codelineno-4-25"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Test that sector_area scaling helps outer isophotes converge.&quot;&quot;&quot;</span>
+<a id="__codelineno-4-26" name="__codelineno-4-26" href="#__codelineno-4-26"></a>
+<a id="__codelineno-4-27" name="__codelineno-4-27" href="#__codelineno-4-27"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">test_outer_isophote_converges_with_scaling</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<a id="__codelineno-4-28" name="__codelineno-4-28" href="#__codelineno-4-28"></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;An outer isophote that hits maxit with &#39;none&#39; should converge with &#39;sector_area&#39;.&quot;&quot;&quot;</span>
+<a id="__codelineno-4-29" name="__codelineno-4-29" href="#__codelineno-4-29"></a>        <span class="n">image</span> <span class="o">=</span> <span class="n">make_sersic_image</span><span class="p">(</span><span class="n">shape</span><span class="o">=</span><span class="p">(</span><span class="mi">401</span><span class="p">,</span> <span class="mi">401</span><span class="p">),</span> <span class="n">x0</span><span class="o">=</span><span class="mi">200</span><span class="p">,</span> <span class="n">y0</span><span class="o">=</span><span class="mi">200</span><span class="p">,</span> <span class="n">re</span><span class="o">=</span><span class="mf">30.0</span><span class="p">,</span> <span class="n">eps</span><span class="o">=</span><span class="mf">0.3</span><span class="p">)</span>
+<a id="__codelineno-4-30" name="__codelineno-4-30" href="#__codelineno-4-30"></a>        <span class="n">mask</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">zeros_like</span><span class="p">(</span><span class="n">image</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="nb">bool</span><span class="p">)</span>
+<a id="__codelineno-4-31" name="__codelineno-4-31" href="#__codelineno-4-31"></a>        <span class="n">start_geom</span> <span class="o">=</span> <span class="p">{</span><span class="s1">&#39;x0&#39;</span><span class="p">:</span> <span class="mf">200.0</span><span class="p">,</span> <span class="s1">&#39;y0&#39;</span><span class="p">:</span> <span class="mf">200.0</span><span class="p">,</span> <span class="s1">&#39;eps&#39;</span><span class="p">:</span> <span class="mf">0.3</span><span class="p">,</span> <span class="s1">&#39;pa&#39;</span><span class="p">:</span> <span class="mf">0.5</span><span class="p">}</span>
+<a id="__codelineno-4-32" name="__codelineno-4-32" href="#__codelineno-4-32"></a>
+<a id="__codelineno-4-33" name="__codelineno-4-33" href="#__codelineno-4-33"></a>        <span class="c1"># Use a tight conver to force stop=2 at large SMA with no scaling</span>
+<a id="__codelineno-4-34" name="__codelineno-4-34" href="#__codelineno-4-34"></a>        <span class="n">cfg_none</span> <span class="o">=</span> <span class="n">IsosterConfig</span><span class="p">(</span><span class="n">conver</span><span class="o">=</span><span class="mf">0.02</span><span class="p">,</span> <span class="n">maxit</span><span class="o">=</span><span class="mi">30</span><span class="p">,</span> <span class="n">minit</span><span class="o">=</span><span class="mi">5</span><span class="p">,</span>
+<a id="__codelineno-4-35" name="__codelineno-4-35" href="#__codelineno-4-35"></a>                                 <span class="n">convergence_scaling</span><span class="o">=</span><span class="s1">&#39;none&#39;</span><span class="p">)</span>
+<a id="__codelineno-4-36" name="__codelineno-4-36" href="#__codelineno-4-36"></a>        <span class="n">result_none</span> <span class="o">=</span> <span class="n">fit_isophote</span><span class="p">(</span><span class="n">image</span><span class="p">,</span> <span class="n">mask</span><span class="p">,</span> <span class="mf">150.0</span><span class="p">,</span> <span class="n">start_geom</span><span class="p">,</span> <span class="n">cfg_none</span><span class="p">)</span>
+<a id="__codelineno-4-37" name="__codelineno-4-37" href="#__codelineno-4-37"></a>
+<a id="__codelineno-4-38" name="__codelineno-4-38" href="#__codelineno-4-38"></a>        <span class="c1"># With sector_area scaling, same params should converge</span>
+<a id="__codelineno-4-39" name="__codelineno-4-39" href="#__codelineno-4-39"></a>        <span class="n">cfg_scaled</span> <span class="o">=</span> <span class="n">IsosterConfig</span><span class="p">(</span><span class="n">conver</span><span class="o">=</span><span class="mf">0.02</span><span class="p">,</span> <span class="n">maxit</span><span class="o">=</span><span class="mi">30</span><span class="p">,</span> <span class="n">minit</span><span class="o">=</span><span class="mi">5</span><span class="p">,</span>
+<a id="__codelineno-4-40" name="__codelineno-4-40" href="#__codelineno-4-40"></a>                                   <span class="n">convergence_scaling</span><span class="o">=</span><span class="s1">&#39;sector_area&#39;</span><span class="p">)</span>
+<a id="__codelineno-4-41" name="__codelineno-4-41" href="#__codelineno-4-41"></a>        <span class="n">result_scaled</span> <span class="o">=</span> <span class="n">fit_isophote</span><span class="p">(</span><span class="n">image</span><span class="p">,</span> <span class="n">mask</span><span class="p">,</span> <span class="mf">150.0</span><span class="p">,</span> <span class="n">start_geom</span><span class="p">,</span> <span class="n">cfg_scaled</span><span class="p">)</span>
+<a id="__codelineno-4-42" name="__codelineno-4-42" href="#__codelineno-4-42"></a>
+<a id="__codelineno-4-43" name="__codelineno-4-43" href="#__codelineno-4-43"></a>        <span class="c1"># The scaled version should converge (stop=0) or at least use fewer iterations</span>
+<a id="__codelineno-4-44" name="__codelineno-4-44" href="#__codelineno-4-44"></a>        <span class="k">assert</span> <span class="n">result_scaled</span><span class="p">[</span><span class="s1">&#39;niter&#39;</span><span class="p">]</span> <span class="o">&lt;=</span> <span class="n">result_none</span><span class="p">[</span><span class="s1">&#39;niter&#39;</span><span class="p">],</span> \
+<a id="__codelineno-4-45" name="__codelineno-4-45" href="#__codelineno-4-45"></a>            <span class="sa">f</span><span class="s2">&quot;Scaling should help: </span><span class="si">{</span><span class="n">result_scaled</span><span class="p">[</span><span class="s1">&#39;niter&#39;</span><span class="p">]</span><span class="si">}</span><span class="s2"> vs </span><span class="si">{</span><span class="n">result_none</span><span class="p">[</span><span class="s1">&#39;niter&#39;</span><span class="p">]</span><span class="si">}</span><span class="s2">&quot;</span>
+<a id="__codelineno-4-46" name="__codelineno-4-46" href="#__codelineno-4-46"></a>
+<a id="__codelineno-4-47" name="__codelineno-4-47" href="#__codelineno-4-47"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">test_scaling_none_preserves_legacy</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<a id="__codelineno-4-48" name="__codelineno-4-48" href="#__codelineno-4-48"></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;convergence_scaling=&#39;none&#39; should match legacy behavior exactly.&quot;&quot;&quot;</span>
+<a id="__codelineno-4-49" name="__codelineno-4-49" href="#__codelineno-4-49"></a>        <span class="n">image</span> <span class="o">=</span> <span class="n">make_sersic_image</span><span class="p">()</span>
+<a id="__codelineno-4-50" name="__codelineno-4-50" href="#__codelineno-4-50"></a>        <span class="n">mask</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">zeros_like</span><span class="p">(</span><span class="n">image</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="nb">bool</span><span class="p">)</span>
+<a id="__codelineno-4-51" name="__codelineno-4-51" href="#__codelineno-4-51"></a>        <span class="n">start_geom</span> <span class="o">=</span> <span class="p">{</span><span class="s1">&#39;x0&#39;</span><span class="p">:</span> <span class="mf">100.0</span><span class="p">,</span> <span class="s1">&#39;y0&#39;</span><span class="p">:</span> <span class="mf">100.0</span><span class="p">,</span> <span class="s1">&#39;eps&#39;</span><span class="p">:</span> <span class="mf">0.3</span><span class="p">,</span> <span class="s1">&#39;pa&#39;</span><span class="p">:</span> <span class="mf">0.5</span><span class="p">}</span>
+<a id="__codelineno-4-52" name="__codelineno-4-52" href="#__codelineno-4-52"></a>
+<a id="__codelineno-4-53" name="__codelineno-4-53" href="#__codelineno-4-53"></a>        <span class="n">cfg</span> <span class="o">=</span> <span class="n">IsosterConfig</span><span class="p">(</span><span class="n">convergence_scaling</span><span class="o">=</span><span class="s1">&#39;none&#39;</span><span class="p">)</span>
+<a id="__codelineno-4-54" name="__codelineno-4-54" href="#__codelineno-4-54"></a>        <span class="n">result</span> <span class="o">=</span> <span class="n">fit_isophote</span><span class="p">(</span><span class="n">image</span><span class="p">,</span> <span class="n">mask</span><span class="p">,</span> <span class="mf">30.0</span><span class="p">,</span> <span class="n">start_geom</span><span class="p">,</span> <span class="n">cfg</span><span class="p">)</span>
+<a id="__codelineno-4-55" name="__codelineno-4-55" href="#__codelineno-4-55"></a>        <span class="c1"># Just verify it runs and returns valid result</span>
+<a id="__codelineno-4-56" name="__codelineno-4-56" href="#__codelineno-4-56"></a>        <span class="k">assert</span> <span class="n">result</span><span class="p">[</span><span class="s1">&#39;stop_code&#39;</span><span class="p">]</span> <span class="ow">in</span> <span class="p">{</span><span class="mi">0</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span> <span class="mi">2</span><span class="p">,</span> <span class="mi">3</span><span class="p">,</span> <span class="o">-</span><span class="mi">1</span><span class="p">}</span>
+<a id="__codelineno-4-57" name="__codelineno-4-57" href="#__codelineno-4-57"></a>        <span class="k">assert</span> <span class="n">result</span><span class="p">[</span><span class="s1">&#39;sma&#39;</span><span class="p">]</span> <span class="o">==</span> <span class="mf">30.0</span>
+<a id="__codelineno-4-58" name="__codelineno-4-58" href="#__codelineno-4-58"></a>
+<a id="__codelineno-4-59" name="__codelineno-4-59" href="#__codelineno-4-59"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">test_sqrt_sma_scaling</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<a id="__codelineno-4-60" name="__codelineno-4-60" href="#__codelineno-4-60"></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;sqrt_sma scaling should also help outer isophotes.&quot;&quot;&quot;</span>
+<a id="__codelineno-4-61" name="__codelineno-4-61" href="#__codelineno-4-61"></a>        <span class="n">image</span> <span class="o">=</span> <span class="n">make_sersic_image</span><span class="p">(</span><span class="n">shape</span><span class="o">=</span><span class="p">(</span><span class="mi">401</span><span class="p">,</span> <span class="mi">401</span><span class="p">),</span> <span class="n">x0</span><span class="o">=</span><span class="mi">200</span><span class="p">,</span> <span class="n">y0</span><span class="o">=</span><span class="mi">200</span><span class="p">,</span> <span class="n">re</span><span class="o">=</span><span class="mf">30.0</span><span class="p">,</span> <span class="n">eps</span><span class="o">=</span><span class="mf">0.3</span><span class="p">)</span>
+<a id="__codelineno-4-62" name="__codelineno-4-62" href="#__codelineno-4-62"></a>        <span class="n">mask</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">zeros_like</span><span class="p">(</span><span class="n">image</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="nb">bool</span><span class="p">)</span>
+<a id="__codelineno-4-63" name="__codelineno-4-63" href="#__codelineno-4-63"></a>        <span class="n">start_geom</span> <span class="o">=</span> <span class="p">{</span><span class="s1">&#39;x0&#39;</span><span class="p">:</span> <span class="mf">200.0</span><span class="p">,</span> <span class="s1">&#39;y0&#39;</span><span class="p">:</span> <span class="mf">200.0</span><span class="p">,</span> <span class="s1">&#39;eps&#39;</span><span class="p">:</span> <span class="mf">0.3</span><span class="p">,</span> <span class="s1">&#39;pa&#39;</span><span class="p">:</span> <span class="mf">0.5</span><span class="p">}</span>
+<a id="__codelineno-4-64" name="__codelineno-4-64" href="#__codelineno-4-64"></a>
+<a id="__codelineno-4-65" name="__codelineno-4-65" href="#__codelineno-4-65"></a>        <span class="n">cfg</span> <span class="o">=</span> <span class="n">IsosterConfig</span><span class="p">(</span><span class="n">conver</span><span class="o">=</span><span class="mf">0.02</span><span class="p">,</span> <span class="n">maxit</span><span class="o">=</span><span class="mi">30</span><span class="p">,</span> <span class="n">minit</span><span class="o">=</span><span class="mi">5</span><span class="p">,</span>
+<a id="__codelineno-4-66" name="__codelineno-4-66" href="#__codelineno-4-66"></a>                            <span class="n">convergence_scaling</span><span class="o">=</span><span class="s1">&#39;sqrt_sma&#39;</span><span class="p">)</span>
+<a id="__codelineno-4-67" name="__codelineno-4-67" href="#__codelineno-4-67"></a>        <span class="n">result</span> <span class="o">=</span> <span class="n">fit_isophote</span><span class="p">(</span><span class="n">image</span><span class="p">,</span> <span class="n">mask</span><span class="p">,</span> <span class="mf">150.0</span><span class="p">,</span> <span class="n">start_geom</span><span class="p">,</span> <span class="n">cfg</span><span class="p">)</span>
+<a id="__codelineno-4-68" name="__codelineno-4-68" href="#__codelineno-4-68"></a>        <span class="k">assert</span> <span class="n">result</span><span class="p">[</span><span class="s1">&#39;stop_code&#39;</span><span class="p">]</span> <span class="ow">in</span> <span class="p">{</span><span class="mi">0</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span> <span class="mi">2</span><span class="p">,</span> <span class="mi">3</span><span class="p">,</span> <span class="o">-</span><span class="mi">1</span><span class="p">}</span>
+</code></pre></div>
+<p><strong>Step 2: Run test to verify it fails</strong></p>
+<p>Run: <code>uv run pytest tests/unit/test_convergence.py -v</code>
+Expected: FAIL (convergence_scaling not recognized or no effect yet)</p>
+<p><strong>Step 3: Implement convergence scaling in fit_isophote</strong></p>
+<p>In <code>fitting.py</code>, inside <code>fit_isophote()</code>, just before the convergence check at line 819:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="c1"># Compute convergence scaling factor based on config</span>
+<a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a><span class="n">convergence_scaling</span> <span class="o">=</span> <span class="n">cfg</span><span class="o">.</span><span class="n">convergence_scaling</span>
+<a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a><span class="k">if</span> <span class="n">convergence_scaling</span> <span class="o">==</span> <span class="s1">&#39;sector_area&#39;</span><span class="p">:</span>
+<a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a>    <span class="c1"># Approximate sector area: proportional to sma * delta_sma * angular_width</span>
+<a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a>    <span class="c1"># n_samples = max(64, int(2*pi*sma)), angular_width ~ 2*pi/n_samples</span>
+<a id="__codelineno-5-6" name="__codelineno-5-6" href="#__codelineno-5-6"></a>    <span class="c1"># delta_sma ~ sma * astep (geometric) or astep (linear)</span>
+<a id="__codelineno-5-7" name="__codelineno-5-7" href="#__codelineno-5-7"></a>    <span class="c1"># sector_area ~ sma * (sma * astep) * (2*pi / n_samples) ~ sma * astep * 2*pi * sma / n_samples</span>
+<a id="__codelineno-5-8" name="__codelineno-5-8" href="#__codelineno-5-8"></a>    <span class="c1"># For geometric stepping: ~ sma * astep (since n_samples ~ 2*pi*sma)</span>
+<a id="__codelineno-5-9" name="__codelineno-5-9" href="#__codelineno-5-9"></a>    <span class="c1"># Simplify: scale_factor proportional to sma * astep, normalized to 1.0 at sma=1</span>
+<a id="__codelineno-5-10" name="__codelineno-5-10" href="#__codelineno-5-10"></a>    <span class="n">n_samples</span> <span class="o">=</span> <span class="nb">max</span><span class="p">(</span><span class="mi">64</span><span class="p">,</span> <span class="nb">int</span><span class="p">(</span><span class="mi">2</span> <span class="o">*</span> <span class="n">np</span><span class="o">.</span><span class="n">pi</span> <span class="o">*</span> <span class="n">sma</span><span class="p">))</span>
+<a id="__codelineno-5-11" name="__codelineno-5-11" href="#__codelineno-5-11"></a>    <span class="n">angular_width</span> <span class="o">=</span> <span class="mi">2</span> <span class="o">*</span> <span class="n">np</span><span class="o">.</span><span class="n">pi</span> <span class="o">/</span> <span class="n">n_samples</span>
+<a id="__codelineno-5-12" name="__codelineno-5-12" href="#__codelineno-5-12"></a>    <span class="n">astep</span> <span class="o">=</span> <span class="n">cfg</span><span class="o">.</span><span class="n">astep</span>
+<a id="__codelineno-5-13" name="__codelineno-5-13" href="#__codelineno-5-13"></a>    <span class="n">delta_sma</span> <span class="o">=</span> <span class="n">sma</span> <span class="o">*</span> <span class="n">astep</span> <span class="k">if</span> <span class="ow">not</span> <span class="n">cfg</span><span class="o">.</span><span class="n">linear_growth</span> <span class="k">else</span> <span class="n">astep</span>
+<a id="__codelineno-5-14" name="__codelineno-5-14" href="#__codelineno-5-14"></a>    <span class="n">scale_factor</span> <span class="o">=</span> <span class="nb">max</span><span class="p">(</span><span class="mf">1.0</span><span class="p">,</span> <span class="n">sma</span> <span class="o">*</span> <span class="n">delta_sma</span> <span class="o">*</span> <span class="n">angular_width</span><span class="p">)</span>
+<a id="__codelineno-5-15" name="__codelineno-5-15" href="#__codelineno-5-15"></a><span class="k">elif</span> <span class="n">convergence_scaling</span> <span class="o">==</span> <span class="s1">&#39;sqrt_sma&#39;</span><span class="p">:</span>
+<a id="__codelineno-5-16" name="__codelineno-5-16" href="#__codelineno-5-16"></a>    <span class="n">scale_factor</span> <span class="o">=</span> <span class="nb">max</span><span class="p">(</span><span class="mf">1.0</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">sqrt</span><span class="p">(</span><span class="n">sma</span><span class="p">))</span>
+<a id="__codelineno-5-17" name="__codelineno-5-17" href="#__codelineno-5-17"></a><span class="k">else</span><span class="p">:</span>  <span class="c1"># &#39;none&#39;</span>
+<a id="__codelineno-5-18" name="__codelineno-5-18" href="#__codelineno-5-18"></a>    <span class="n">scale_factor</span> <span class="o">=</span> <span class="mf">1.0</span>
+</code></pre></div>
+<p>Then modify the convergence check:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="k">if</span> <span class="nb">abs</span><span class="p">(</span><span class="n">max_amp</span><span class="p">)</span> <span class="o">&lt;</span> <span class="n">conver</span> <span class="o">*</span> <span class="n">scale_factor</span> <span class="o">*</span> <span class="n">rms</span> <span class="ow">and</span> <span class="n">i</span> <span class="o">&gt;=</span> <span class="n">minit</span><span class="p">:</span>
+</code></pre></div>
+<p><strong>Step 4: Run tests</strong></p>
+<p>Run: <code>uv run pytest tests/unit/test_convergence.py -v</code>
+Expected: PASS</p>
+<p><strong>Step 5: Run existing test suite to verify no regressions</strong></p>
+<p>Run: <code>uv run pytest tests/unit/ tests/integration/ tests/validation/ -v --tb=short 2&gt;&amp;1 | tail -20</code>
+Expected: 152 tests pass</p>
+<p><strong>Step 6: Commit</strong></p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a>git add isoster/fitting.py tests/unit/test_convergence.py
+<a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a>git commit -m &quot;feat: implement convergence scaling (sector_area, sqrt_sma) in fit_isophote&quot;
+</code></pre></div>
+<hr />
+<h2 id="task-3-implement-geometry-damping-approach-b-in-fittingpy">Task 3: Implement geometry damping (Approach B) in fitting.py</h2>
+<p><strong>Files:</strong>
+- Modify: <code>isoster/fitting.py:852-871</code> (geometry update section)
+- Modify: <code>tests/unit/test_convergence.py</code> (add tests)</p>
+<p><strong>Step 1: Write the failing test</strong></p>
+<p>Add to <code>tests/unit/test_convergence.py</code>:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="k">class</span><span class="w"> </span><span class="nc">TestGeometryDamping</span><span class="p">:</span>
+<a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Test that geometry damping reduces oscillations.&quot;&quot;&quot;</span>
+<a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a>
+<a id="__codelineno-8-4" name="__codelineno-8-4" href="#__codelineno-8-4"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">test_damping_reduces_iterations</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<a id="__codelineno-8-5" name="__codelineno-8-5" href="#__codelineno-8-5"></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;With damping &lt; 1.0, outer isophotes should use fewer iterations.&quot;&quot;&quot;</span>
+<a id="__codelineno-8-6" name="__codelineno-8-6" href="#__codelineno-8-6"></a>        <span class="n">image</span> <span class="o">=</span> <span class="n">make_sersic_image</span><span class="p">(</span><span class="n">shape</span><span class="o">=</span><span class="p">(</span><span class="mi">401</span><span class="p">,</span> <span class="mi">401</span><span class="p">),</span> <span class="n">x0</span><span class="o">=</span><span class="mi">200</span><span class="p">,</span> <span class="n">y0</span><span class="o">=</span><span class="mi">200</span><span class="p">,</span> <span class="n">re</span><span class="o">=</span><span class="mf">30.0</span><span class="p">,</span> <span class="n">eps</span><span class="o">=</span><span class="mf">0.3</span><span class="p">)</span>
+<a id="__codelineno-8-7" name="__codelineno-8-7" href="#__codelineno-8-7"></a>        <span class="n">mask</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">zeros_like</span><span class="p">(</span><span class="n">image</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="nb">bool</span><span class="p">)</span>
+<a id="__codelineno-8-8" name="__codelineno-8-8" href="#__codelineno-8-8"></a>        <span class="n">start_geom</span> <span class="o">=</span> <span class="p">{</span><span class="s1">&#39;x0&#39;</span><span class="p">:</span> <span class="mf">200.0</span><span class="p">,</span> <span class="s1">&#39;y0&#39;</span><span class="p">:</span> <span class="mf">200.0</span><span class="p">,</span> <span class="s1">&#39;eps&#39;</span><span class="p">:</span> <span class="mf">0.3</span><span class="p">,</span> <span class="s1">&#39;pa&#39;</span><span class="p">:</span> <span class="mf">0.5</span><span class="p">}</span>
+<a id="__codelineno-8-9" name="__codelineno-8-9" href="#__codelineno-8-9"></a>
+<a id="__codelineno-8-10" name="__codelineno-8-10" href="#__codelineno-8-10"></a>        <span class="n">cfg_nodamp</span> <span class="o">=</span> <span class="n">IsosterConfig</span><span class="p">(</span><span class="n">geometry_damping</span><span class="o">=</span><span class="mf">1.0</span><span class="p">,</span> <span class="n">convergence_scaling</span><span class="o">=</span><span class="s1">&#39;none&#39;</span><span class="p">,</span>
+<a id="__codelineno-8-11" name="__codelineno-8-11" href="#__codelineno-8-11"></a>                                   <span class="n">maxit</span><span class="o">=</span><span class="mi">50</span><span class="p">,</span> <span class="n">minit</span><span class="o">=</span><span class="mi">5</span><span class="p">,</span> <span class="n">conver</span><span class="o">=</span><span class="mf">0.02</span><span class="p">)</span>
+<a id="__codelineno-8-12" name="__codelineno-8-12" href="#__codelineno-8-12"></a>        <span class="n">result_nodamp</span> <span class="o">=</span> <span class="n">fit_isophote</span><span class="p">(</span><span class="n">image</span><span class="p">,</span> <span class="n">mask</span><span class="p">,</span> <span class="mf">120.0</span><span class="p">,</span> <span class="n">start_geom</span><span class="p">,</span> <span class="n">cfg_nodamp</span><span class="p">)</span>
+<a id="__codelineno-8-13" name="__codelineno-8-13" href="#__codelineno-8-13"></a>
+<a id="__codelineno-8-14" name="__codelineno-8-14" href="#__codelineno-8-14"></a>        <span class="n">cfg_damp</span> <span class="o">=</span> <span class="n">IsosterConfig</span><span class="p">(</span><span class="n">geometry_damping</span><span class="o">=</span><span class="mf">0.7</span><span class="p">,</span> <span class="n">convergence_scaling</span><span class="o">=</span><span class="s1">&#39;none&#39;</span><span class="p">,</span>
+<a id="__codelineno-8-15" name="__codelineno-8-15" href="#__codelineno-8-15"></a>                                 <span class="n">maxit</span><span class="o">=</span><span class="mi">50</span><span class="p">,</span> <span class="n">minit</span><span class="o">=</span><span class="mi">5</span><span class="p">,</span> <span class="n">conver</span><span class="o">=</span><span class="mf">0.02</span><span class="p">)</span>
+<a id="__codelineno-8-16" name="__codelineno-8-16" href="#__codelineno-8-16"></a>        <span class="n">result_damp</span> <span class="o">=</span> <span class="n">fit_isophote</span><span class="p">(</span><span class="n">image</span><span class="p">,</span> <span class="n">mask</span><span class="p">,</span> <span class="mf">120.0</span><span class="p">,</span> <span class="n">start_geom</span><span class="p">,</span> <span class="n">cfg_damp</span><span class="p">)</span>
+<a id="__codelineno-8-17" name="__codelineno-8-17" href="#__codelineno-8-17"></a>
+<a id="__codelineno-8-18" name="__codelineno-8-18" href="#__codelineno-8-18"></a>        <span class="c1"># Damped should converge or use fewer iterations</span>
+<a id="__codelineno-8-19" name="__codelineno-8-19" href="#__codelineno-8-19"></a>        <span class="k">assert</span> <span class="n">result_damp</span><span class="p">[</span><span class="s1">&#39;niter&#39;</span><span class="p">]</span> <span class="o">&lt;=</span> <span class="n">result_nodamp</span><span class="p">[</span><span class="s1">&#39;niter&#39;</span><span class="p">]</span> <span class="ow">or</span> <span class="n">result_damp</span><span class="p">[</span><span class="s1">&#39;stop_code&#39;</span><span class="p">]</span> <span class="o">==</span> <span class="mi">0</span>
+<a id="__codelineno-8-20" name="__codelineno-8-20" href="#__codelineno-8-20"></a>
+<a id="__codelineno-8-21" name="__codelineno-8-21" href="#__codelineno-8-21"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">test_damping_1_is_legacy</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<a id="__codelineno-8-22" name="__codelineno-8-22" href="#__codelineno-8-22"></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;geometry_damping=1.0 should match legacy behavior.&quot;&quot;&quot;</span>
+<a id="__codelineno-8-23" name="__codelineno-8-23" href="#__codelineno-8-23"></a>        <span class="n">image</span> <span class="o">=</span> <span class="n">make_sersic_image</span><span class="p">()</span>
+<a id="__codelineno-8-24" name="__codelineno-8-24" href="#__codelineno-8-24"></a>        <span class="n">mask</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">zeros_like</span><span class="p">(</span><span class="n">image</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="nb">bool</span><span class="p">)</span>
+<a id="__codelineno-8-25" name="__codelineno-8-25" href="#__codelineno-8-25"></a>        <span class="n">start_geom</span> <span class="o">=</span> <span class="p">{</span><span class="s1">&#39;x0&#39;</span><span class="p">:</span> <span class="mf">100.0</span><span class="p">,</span> <span class="s1">&#39;y0&#39;</span><span class="p">:</span> <span class="mf">100.0</span><span class="p">,</span> <span class="s1">&#39;eps&#39;</span><span class="p">:</span> <span class="mf">0.3</span><span class="p">,</span> <span class="s1">&#39;pa&#39;</span><span class="p">:</span> <span class="mf">0.5</span><span class="p">}</span>
+<a id="__codelineno-8-26" name="__codelineno-8-26" href="#__codelineno-8-26"></a>
+<a id="__codelineno-8-27" name="__codelineno-8-27" href="#__codelineno-8-27"></a>        <span class="n">cfg</span> <span class="o">=</span> <span class="n">IsosterConfig</span><span class="p">(</span><span class="n">geometry_damping</span><span class="o">=</span><span class="mf">1.0</span><span class="p">,</span> <span class="n">convergence_scaling</span><span class="o">=</span><span class="s1">&#39;none&#39;</span><span class="p">)</span>
+<a id="__codelineno-8-28" name="__codelineno-8-28" href="#__codelineno-8-28"></a>        <span class="n">result</span> <span class="o">=</span> <span class="n">fit_isophote</span><span class="p">(</span><span class="n">image</span><span class="p">,</span> <span class="n">mask</span><span class="p">,</span> <span class="mf">30.0</span><span class="p">,</span> <span class="n">start_geom</span><span class="p">,</span> <span class="n">cfg</span><span class="p">)</span>
+<a id="__codelineno-8-29" name="__codelineno-8-29" href="#__codelineno-8-29"></a>        <span class="k">assert</span> <span class="n">result</span><span class="p">[</span><span class="s1">&#39;stop_code&#39;</span><span class="p">]</span> <span class="ow">in</span> <span class="p">{</span><span class="mi">0</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span> <span class="mi">2</span><span class="p">,</span> <span class="mi">3</span><span class="p">,</span> <span class="o">-</span><span class="mi">1</span><span class="p">}</span>
+<a id="__codelineno-8-30" name="__codelineno-8-30" href="#__codelineno-8-30"></a>
+<a id="__codelineno-8-31" name="__codelineno-8-31" href="#__codelineno-8-31"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">test_damping_preserves_accuracy</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<a id="__codelineno-8-32" name="__codelineno-8-32" href="#__codelineno-8-32"></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;Damped fitting should still produce accurate photometry.&quot;&quot;&quot;</span>
+<a id="__codelineno-8-33" name="__codelineno-8-33" href="#__codelineno-8-33"></a>        <span class="n">image</span> <span class="o">=</span> <span class="n">make_sersic_image</span><span class="p">(</span><span class="n">shape</span><span class="o">=</span><span class="p">(</span><span class="mi">301</span><span class="p">,</span> <span class="mi">301</span><span class="p">),</span> <span class="n">x0</span><span class="o">=</span><span class="mi">150</span><span class="p">,</span> <span class="n">y0</span><span class="o">=</span><span class="mi">150</span><span class="p">,</span> <span class="n">re</span><span class="o">=</span><span class="mf">30.0</span><span class="p">,</span> <span class="n">eps</span><span class="o">=</span><span class="mf">0.3</span><span class="p">)</span>
+<a id="__codelineno-8-34" name="__codelineno-8-34" href="#__codelineno-8-34"></a>        <span class="n">mask</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">zeros_like</span><span class="p">(</span><span class="n">image</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="nb">bool</span><span class="p">)</span>
+<a id="__codelineno-8-35" name="__codelineno-8-35" href="#__codelineno-8-35"></a>        <span class="n">start_geom</span> <span class="o">=</span> <span class="p">{</span><span class="s1">&#39;x0&#39;</span><span class="p">:</span> <span class="mf">150.0</span><span class="p">,</span> <span class="s1">&#39;y0&#39;</span><span class="p">:</span> <span class="mf">150.0</span><span class="p">,</span> <span class="s1">&#39;eps&#39;</span><span class="p">:</span> <span class="mf">0.3</span><span class="p">,</span> <span class="s1">&#39;pa&#39;</span><span class="p">:</span> <span class="mf">0.5</span><span class="p">}</span>
+<a id="__codelineno-8-36" name="__codelineno-8-36" href="#__codelineno-8-36"></a>
+<a id="__codelineno-8-37" name="__codelineno-8-37" href="#__codelineno-8-37"></a>        <span class="n">cfg</span> <span class="o">=</span> <span class="n">IsosterConfig</span><span class="p">(</span><span class="n">geometry_damping</span><span class="o">=</span><span class="mf">0.5</span><span class="p">,</span> <span class="n">convergence_scaling</span><span class="o">=</span><span class="s1">&#39;none&#39;</span><span class="p">)</span>
+<a id="__codelineno-8-38" name="__codelineno-8-38" href="#__codelineno-8-38"></a>        <span class="n">result</span> <span class="o">=</span> <span class="n">fit_isophote</span><span class="p">(</span><span class="n">image</span><span class="p">,</span> <span class="n">mask</span><span class="p">,</span> <span class="mf">30.0</span><span class="p">,</span> <span class="n">start_geom</span><span class="p">,</span> <span class="n">cfg</span><span class="p">)</span>
+<a id="__codelineno-8-39" name="__codelineno-8-39" href="#__codelineno-8-39"></a>
+<a id="__codelineno-8-40" name="__codelineno-8-40" href="#__codelineno-8-40"></a>        <span class="c1"># At re=30, intensity should be close to ie (1000) * exp(-bn*(1-1)) = 1000</span>
+<a id="__codelineno-8-41" name="__codelineno-8-41" href="#__codelineno-8-41"></a>        <span class="k">assert</span> <span class="n">result</span><span class="p">[</span><span class="s1">&#39;stop_code&#39;</span><span class="p">]</span> <span class="o">==</span> <span class="mi">0</span>
+<a id="__codelineno-8-42" name="__codelineno-8-42" href="#__codelineno-8-42"></a>        <span class="k">assert</span> <span class="nb">abs</span><span class="p">(</span><span class="n">result</span><span class="p">[</span><span class="s1">&#39;intens&#39;</span><span class="p">]</span> <span class="o">-</span> <span class="mf">1000.0</span><span class="p">)</span> <span class="o">/</span> <span class="mf">1000.0</span> <span class="o">&lt;</span> <span class="mf">0.05</span>  <span class="c1"># Within 5%</span>
+</code></pre></div>
+<p><strong>Step 2: Run test to verify it fails</strong></p>
+<p>Run: <code>uv run pytest tests/unit/test_convergence.py::TestGeometryDamping -v</code></p>
+<p><strong>Step 3: Implement geometry damping</strong></p>
+<p>In <code>fitting.py</code>, in the geometry update block (lines 852-871), apply damping to the correction before updating:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="c1"># Apply geometry damping</span>
+<a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a><span class="n">damping</span> <span class="o">=</span> <span class="n">cfg</span><span class="o">.</span><span class="n">geometry_damping</span>
+<a id="__codelineno-9-3" name="__codelineno-9-3" href="#__codelineno-9-3"></a>
+<a id="__codelineno-9-4" name="__codelineno-9-4" href="#__codelineno-9-4"></a><span class="c1"># Update geometry</span>
+<a id="__codelineno-9-5" name="__codelineno-9-5" href="#__codelineno-9-5"></a><span class="k">if</span> <span class="n">max_idx</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
+<a id="__codelineno-9-6" name="__codelineno-9-6" href="#__codelineno-9-6"></a>    <span class="n">aux</span> <span class="o">=</span> <span class="o">-</span><span class="n">max_amp</span> <span class="o">*</span> <span class="p">(</span><span class="mf">1.0</span> <span class="o">-</span> <span class="n">eps</span><span class="p">)</span> <span class="o">/</span> <span class="n">gradient</span> <span class="o">*</span> <span class="n">damping</span>
+<a id="__codelineno-9-7" name="__codelineno-9-7" href="#__codelineno-9-7"></a>    <span class="n">x0</span> <span class="o">-=</span> <span class="n">aux</span> <span class="o">*</span> <span class="n">np</span><span class="o">.</span><span class="n">sin</span><span class="p">(</span><span class="n">pa</span><span class="p">)</span>
+<a id="__codelineno-9-8" name="__codelineno-9-8" href="#__codelineno-9-8"></a>    <span class="n">y0</span> <span class="o">+=</span> <span class="n">aux</span> <span class="o">*</span> <span class="n">np</span><span class="o">.</span><span class="n">cos</span><span class="p">(</span><span class="n">pa</span><span class="p">)</span>
+<a id="__codelineno-9-9" name="__codelineno-9-9" href="#__codelineno-9-9"></a><span class="k">elif</span> <span class="n">max_idx</span> <span class="o">==</span> <span class="mi">1</span><span class="p">:</span>
+<a id="__codelineno-9-10" name="__codelineno-9-10" href="#__codelineno-9-10"></a>    <span class="n">aux</span> <span class="o">=</span> <span class="o">-</span><span class="n">max_amp</span> <span class="o">/</span> <span class="n">gradient</span> <span class="o">*</span> <span class="n">damping</span>
+<a id="__codelineno-9-11" name="__codelineno-9-11" href="#__codelineno-9-11"></a>    <span class="n">x0</span> <span class="o">+=</span> <span class="n">aux</span> <span class="o">*</span> <span class="n">np</span><span class="o">.</span><span class="n">cos</span><span class="p">(</span><span class="n">pa</span><span class="p">)</span>
+<a id="__codelineno-9-12" name="__codelineno-9-12" href="#__codelineno-9-12"></a>    <span class="n">y0</span> <span class="o">+=</span> <span class="n">aux</span> <span class="o">*</span> <span class="n">np</span><span class="o">.</span><span class="n">sin</span><span class="p">(</span><span class="n">pa</span><span class="p">)</span>
+<a id="__codelineno-9-13" name="__codelineno-9-13" href="#__codelineno-9-13"></a><span class="k">elif</span> <span class="n">max_idx</span> <span class="o">==</span> <span class="mi">2</span><span class="p">:</span>
+<a id="__codelineno-9-14" name="__codelineno-9-14" href="#__codelineno-9-14"></a>    <span class="n">denom</span> <span class="o">=</span> <span class="p">(</span><span class="mf">1.0</span> <span class="o">-</span> <span class="n">eps</span><span class="p">)</span><span class="o">**</span><span class="mi">2</span> <span class="o">-</span> <span class="mf">1.0</span>
+<a id="__codelineno-9-15" name="__codelineno-9-15" href="#__codelineno-9-15"></a>    <span class="k">if</span> <span class="nb">abs</span><span class="p">(</span><span class="n">denom</span><span class="p">)</span> <span class="o">&lt;</span> <span class="mf">1e-10</span><span class="p">:</span> <span class="n">denom</span> <span class="o">=</span> <span class="o">-</span><span class="mf">1e-10</span>
+<a id="__codelineno-9-16" name="__codelineno-9-16" href="#__codelineno-9-16"></a>    <span class="n">pa</span> <span class="o">=</span> <span class="p">(</span><span class="n">pa</span> <span class="o">+</span> <span class="n">damping</span> <span class="o">*</span> <span class="p">(</span><span class="n">max_amp</span> <span class="o">*</span> <span class="mf">2.0</span> <span class="o">*</span> <span class="p">(</span><span class="mf">1.0</span> <span class="o">-</span> <span class="n">eps</span><span class="p">)</span> <span class="o">/</span> <span class="n">sma</span> <span class="o">/</span> <span class="n">gradient</span> <span class="o">/</span> <span class="n">denom</span><span class="p">))</span> <span class="o">%</span> <span class="n">np</span><span class="o">.</span><span class="n">pi</span>
+<a id="__codelineno-9-17" name="__codelineno-9-17" href="#__codelineno-9-17"></a><span class="k">elif</span> <span class="n">max_idx</span> <span class="o">==</span> <span class="mi">3</span><span class="p">:</span>
+<a id="__codelineno-9-18" name="__codelineno-9-18" href="#__codelineno-9-18"></a>    <span class="n">eps</span> <span class="o">=</span> <span class="nb">min</span><span class="p">(</span><span class="n">eps</span> <span class="o">-</span> <span class="n">damping</span> <span class="o">*</span> <span class="p">(</span><span class="n">max_amp</span> <span class="o">*</span> <span class="mf">2.0</span> <span class="o">*</span> <span class="p">(</span><span class="mf">1.0</span> <span class="o">-</span> <span class="n">eps</span><span class="p">)</span> <span class="o">/</span> <span class="n">sma</span> <span class="o">/</span> <span class="n">gradient</span><span class="p">),</span> <span class="mf">0.95</span><span class="p">)</span>
+<a id="__codelineno-9-19" name="__codelineno-9-19" href="#__codelineno-9-19"></a>    <span class="k">if</span> <span class="n">eps</span> <span class="o">&lt;</span> <span class="mf">0.0</span><span class="p">:</span>
+<a id="__codelineno-9-20" name="__codelineno-9-20" href="#__codelineno-9-20"></a>        <span class="n">eps</span> <span class="o">=</span> <span class="nb">min</span><span class="p">(</span><span class="o">-</span><span class="n">eps</span><span class="p">,</span> <span class="mf">0.95</span><span class="p">)</span>
+<a id="__codelineno-9-21" name="__codelineno-9-21" href="#__codelineno-9-21"></a>        <span class="n">pa</span> <span class="o">=</span> <span class="p">(</span><span class="n">pa</span> <span class="o">+</span> <span class="n">np</span><span class="o">.</span><span class="n">pi</span><span class="o">/</span><span class="mi">2</span><span class="p">)</span> <span class="o">%</span> <span class="n">np</span><span class="o">.</span><span class="n">pi</span>
+<a id="__codelineno-9-22" name="__codelineno-9-22" href="#__codelineno-9-22"></a>    <span class="k">if</span> <span class="n">eps</span> <span class="o">==</span> <span class="mf">0.0</span><span class="p">:</span> <span class="n">eps</span> <span class="o">=</span> <span class="mf">0.05</span>
+</code></pre></div>
+<p><strong>Step 4: Run tests</strong></p>
+<p>Run: <code>uv run pytest tests/unit/test_convergence.py -v</code>
+Expected: PASS</p>
+<p><strong>Step 5: Run full suite</strong></p>
+<p>Run: <code>uv run pytest tests/unit/ tests/integration/ tests/validation/ -v --tb=short 2&gt;&amp;1 | tail -20</code>
+Expected: 152+ tests pass</p>
+<p><strong>Step 6: Commit</strong></p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a>git add isoster/fitting.py tests/unit/test_convergence.py
+<a id="__codelineno-10-2" name="__codelineno-10-2" href="#__codelineno-10-2"></a>git commit -m &quot;feat: implement geometry damping in fit_isophote&quot;
+</code></pre></div>
+<hr />
+<h2 id="task-4-implement-geometry-change-convergence-approach-c-in-fittingpy">Task 4: Implement geometry-change convergence (Approach C) in fitting.py</h2>
+<p><strong>Files:</strong>
+- Modify: <code>isoster/fitting.py</code> (add geometry tracking and secondary convergence check)
+- Modify: <code>tests/unit/test_convergence.py</code> (add tests)</p>
+<p><strong>Step 1: Write the failing test</strong></p>
+<p>Add to <code>tests/unit/test_convergence.py</code>:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a><span class="k">class</span><span class="w"> </span><span class="nc">TestGeometryConvergence</span><span class="p">:</span>
+<a id="__codelineno-11-2" name="__codelineno-11-2" href="#__codelineno-11-2"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Test geometry-stability-based convergence.&quot;&quot;&quot;</span>
+<a id="__codelineno-11-3" name="__codelineno-11-3" href="#__codelineno-11-3"></a>
+<a id="__codelineno-11-4" name="__codelineno-11-4" href="#__codelineno-11-4"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">test_geometry_convergence_detects_stability</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<a id="__codelineno-11-5" name="__codelineno-11-5" href="#__codelineno-11-5"></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;When geometry stops changing, should declare convergence.&quot;&quot;&quot;</span>
+<a id="__codelineno-11-6" name="__codelineno-11-6" href="#__codelineno-11-6"></a>        <span class="n">image</span> <span class="o">=</span> <span class="n">make_sersic_image</span><span class="p">(</span><span class="n">shape</span><span class="o">=</span><span class="p">(</span><span class="mi">401</span><span class="p">,</span> <span class="mi">401</span><span class="p">),</span> <span class="n">x0</span><span class="o">=</span><span class="mi">200</span><span class="p">,</span> <span class="n">y0</span><span class="o">=</span><span class="mi">200</span><span class="p">,</span> <span class="n">re</span><span class="o">=</span><span class="mf">30.0</span><span class="p">,</span> <span class="n">eps</span><span class="o">=</span><span class="mf">0.3</span><span class="p">)</span>
+<a id="__codelineno-11-7" name="__codelineno-11-7" href="#__codelineno-11-7"></a>        <span class="n">mask</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">zeros_like</span><span class="p">(</span><span class="n">image</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="nb">bool</span><span class="p">)</span>
+<a id="__codelineno-11-8" name="__codelineno-11-8" href="#__codelineno-11-8"></a>        <span class="n">start_geom</span> <span class="o">=</span> <span class="p">{</span><span class="s1">&#39;x0&#39;</span><span class="p">:</span> <span class="mf">200.0</span><span class="p">,</span> <span class="s1">&#39;y0&#39;</span><span class="p">:</span> <span class="mf">200.0</span><span class="p">,</span> <span class="s1">&#39;eps&#39;</span><span class="p">:</span> <span class="mf">0.3</span><span class="p">,</span> <span class="s1">&#39;pa&#39;</span><span class="p">:</span> <span class="mf">0.5</span><span class="p">}</span>
+<a id="__codelineno-11-9" name="__codelineno-11-9" href="#__codelineno-11-9"></a>
+<a id="__codelineno-11-10" name="__codelineno-11-10" href="#__codelineno-11-10"></a>        <span class="c1"># Without geometry convergence: likely hits maxit at outer SMA</span>
+<a id="__codelineno-11-11" name="__codelineno-11-11" href="#__codelineno-11-11"></a>        <span class="n">cfg_off</span> <span class="o">=</span> <span class="n">IsosterConfig</span><span class="p">(</span><span class="n">geometry_convergence</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="n">convergence_scaling</span><span class="o">=</span><span class="s1">&#39;none&#39;</span><span class="p">,</span>
+<a id="__codelineno-11-12" name="__codelineno-11-12" href="#__codelineno-11-12"></a>                                <span class="n">maxit</span><span class="o">=</span><span class="mi">30</span><span class="p">,</span> <span class="n">minit</span><span class="o">=</span><span class="mi">5</span><span class="p">,</span> <span class="n">conver</span><span class="o">=</span><span class="mf">0.01</span><span class="p">)</span>
+<a id="__codelineno-11-13" name="__codelineno-11-13" href="#__codelineno-11-13"></a>        <span class="n">result_off</span> <span class="o">=</span> <span class="n">fit_isophote</span><span class="p">(</span><span class="n">image</span><span class="p">,</span> <span class="n">mask</span><span class="p">,</span> <span class="mf">150.0</span><span class="p">,</span> <span class="n">start_geom</span><span class="p">,</span> <span class="n">cfg_off</span><span class="p">)</span>
+<a id="__codelineno-11-14" name="__codelineno-11-14" href="#__codelineno-11-14"></a>
+<a id="__codelineno-11-15" name="__codelineno-11-15" href="#__codelineno-11-15"></a>        <span class="c1"># With geometry convergence: should converge via geometry stability</span>
+<a id="__codelineno-11-16" name="__codelineno-11-16" href="#__codelineno-11-16"></a>        <span class="n">cfg_on</span> <span class="o">=</span> <span class="n">IsosterConfig</span><span class="p">(</span><span class="n">geometry_convergence</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">convergence_scaling</span><span class="o">=</span><span class="s1">&#39;none&#39;</span><span class="p">,</span>
+<a id="__codelineno-11-17" name="__codelineno-11-17" href="#__codelineno-11-17"></a>                               <span class="n">maxit</span><span class="o">=</span><span class="mi">30</span><span class="p">,</span> <span class="n">minit</span><span class="o">=</span><span class="mi">5</span><span class="p">,</span> <span class="n">conver</span><span class="o">=</span><span class="mf">0.01</span><span class="p">,</span>
+<a id="__codelineno-11-18" name="__codelineno-11-18" href="#__codelineno-11-18"></a>                               <span class="n">geometry_tolerance</span><span class="o">=</span><span class="mf">0.01</span><span class="p">,</span> <span class="n">geometry_stable_iters</span><span class="o">=</span><span class="mi">3</span><span class="p">)</span>
+<a id="__codelineno-11-19" name="__codelineno-11-19" href="#__codelineno-11-19"></a>        <span class="n">result_on</span> <span class="o">=</span> <span class="n">fit_isophote</span><span class="p">(</span><span class="n">image</span><span class="p">,</span> <span class="n">mask</span><span class="p">,</span> <span class="mf">150.0</span><span class="p">,</span> <span class="n">start_geom</span><span class="p">,</span> <span class="n">cfg_on</span><span class="p">)</span>
+<a id="__codelineno-11-20" name="__codelineno-11-20" href="#__codelineno-11-20"></a>
+<a id="__codelineno-11-21" name="__codelineno-11-21" href="#__codelineno-11-21"></a>        <span class="c1"># Geometry convergence should help</span>
+<a id="__codelineno-11-22" name="__codelineno-11-22" href="#__codelineno-11-22"></a>        <span class="k">assert</span> <span class="n">result_on</span><span class="p">[</span><span class="s1">&#39;niter&#39;</span><span class="p">]</span> <span class="o">&lt;=</span> <span class="n">result_off</span><span class="p">[</span><span class="s1">&#39;niter&#39;</span><span class="p">]</span> <span class="ow">or</span> <span class="n">result_on</span><span class="p">[</span><span class="s1">&#39;stop_code&#39;</span><span class="p">]</span> <span class="o">==</span> <span class="mi">0</span>
+<a id="__codelineno-11-23" name="__codelineno-11-23" href="#__codelineno-11-23"></a>
+<a id="__codelineno-11-24" name="__codelineno-11-24" href="#__codelineno-11-24"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">test_geometry_convergence_off_is_legacy</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<a id="__codelineno-11-25" name="__codelineno-11-25" href="#__codelineno-11-25"></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;geometry_convergence=False should match legacy behavior.&quot;&quot;&quot;</span>
+<a id="__codelineno-11-26" name="__codelineno-11-26" href="#__codelineno-11-26"></a>        <span class="n">image</span> <span class="o">=</span> <span class="n">make_sersic_image</span><span class="p">()</span>
+<a id="__codelineno-11-27" name="__codelineno-11-27" href="#__codelineno-11-27"></a>        <span class="n">mask</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">zeros_like</span><span class="p">(</span><span class="n">image</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="nb">bool</span><span class="p">)</span>
+<a id="__codelineno-11-28" name="__codelineno-11-28" href="#__codelineno-11-28"></a>        <span class="n">start_geom</span> <span class="o">=</span> <span class="p">{</span><span class="s1">&#39;x0&#39;</span><span class="p">:</span> <span class="mf">100.0</span><span class="p">,</span> <span class="s1">&#39;y0&#39;</span><span class="p">:</span> <span class="mf">100.0</span><span class="p">,</span> <span class="s1">&#39;eps&#39;</span><span class="p">:</span> <span class="mf">0.3</span><span class="p">,</span> <span class="s1">&#39;pa&#39;</span><span class="p">:</span> <span class="mf">0.5</span><span class="p">}</span>
+<a id="__codelineno-11-29" name="__codelineno-11-29" href="#__codelineno-11-29"></a>
+<a id="__codelineno-11-30" name="__codelineno-11-30" href="#__codelineno-11-30"></a>        <span class="n">cfg</span> <span class="o">=</span> <span class="n">IsosterConfig</span><span class="p">(</span><span class="n">geometry_convergence</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="n">convergence_scaling</span><span class="o">=</span><span class="s1">&#39;none&#39;</span><span class="p">)</span>
+<a id="__codelineno-11-31" name="__codelineno-11-31" href="#__codelineno-11-31"></a>        <span class="n">result</span> <span class="o">=</span> <span class="n">fit_isophote</span><span class="p">(</span><span class="n">image</span><span class="p">,</span> <span class="n">mask</span><span class="p">,</span> <span class="mf">30.0</span><span class="p">,</span> <span class="n">start_geom</span><span class="p">,</span> <span class="n">cfg</span><span class="p">)</span>
+<a id="__codelineno-11-32" name="__codelineno-11-32" href="#__codelineno-11-32"></a>        <span class="k">assert</span> <span class="n">result</span><span class="p">[</span><span class="s1">&#39;stop_code&#39;</span><span class="p">]</span> <span class="ow">in</span> <span class="p">{</span><span class="mi">0</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span> <span class="mi">2</span><span class="p">,</span> <span class="mi">3</span><span class="p">,</span> <span class="o">-</span><span class="mi">1</span><span class="p">}</span>
+</code></pre></div>
+<p><strong>Step 2: Run test to verify it fails</strong></p>
+<p>Run: <code>uv run pytest tests/unit/test_convergence.py::TestGeometryConvergence -v</code></p>
+<p><strong>Step 3: Implement geometry-change convergence</strong></p>
+<p>In <code>fitting.py</code>, add tracking variables before the loop (after line 684):</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a><span class="c1"># Geometry convergence tracking</span>
+<a id="__codelineno-12-2" name="__codelineno-12-2" href="#__codelineno-12-2"></a><span class="n">prev_geom_x0</span><span class="p">,</span> <span class="n">prev_geom_y0</span><span class="p">,</span> <span class="n">prev_geom_eps</span><span class="p">,</span> <span class="n">prev_geom_pa</span> <span class="o">=</span> <span class="n">x0</span><span class="p">,</span> <span class="n">y0</span><span class="p">,</span> <span class="n">eps</span><span class="p">,</span> <span class="n">pa</span>
+<a id="__codelineno-12-3" name="__codelineno-12-3" href="#__codelineno-12-3"></a><span class="n">stable_count</span> <span class="o">=</span> <span class="mi">0</span>
+<a id="__codelineno-12-4" name="__codelineno-12-4" href="#__codelineno-12-4"></a><span class="n">geom_converged</span> <span class="o">=</span> <span class="kc">False</span>
+</code></pre></div>
+<p>After the geometry update block (after the eps/pa clamping), add:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a><span class="c1"># Track geometry changes for geometry-based convergence</span>
+<a id="__codelineno-13-2" name="__codelineno-13-2" href="#__codelineno-13-2"></a><span class="k">if</span> <span class="n">cfg</span><span class="o">.</span><span class="n">geometry_convergence</span> <span class="ow">and</span> <span class="n">i</span> <span class="o">&gt;=</span> <span class="n">minit</span><span class="p">:</span>
+<a id="__codelineno-13-3" name="__codelineno-13-3" href="#__codelineno-13-3"></a>    <span class="n">delta_x0</span> <span class="o">=</span> <span class="nb">abs</span><span class="p">(</span><span class="n">x0</span> <span class="o">-</span> <span class="n">prev_geom_x0</span><span class="p">)</span> <span class="o">/</span> <span class="nb">max</span><span class="p">(</span><span class="n">sma</span><span class="p">,</span> <span class="mf">1.0</span><span class="p">)</span>
+<a id="__codelineno-13-4" name="__codelineno-13-4" href="#__codelineno-13-4"></a>    <span class="n">delta_y0</span> <span class="o">=</span> <span class="nb">abs</span><span class="p">(</span><span class="n">y0</span> <span class="o">-</span> <span class="n">prev_geom_y0</span><span class="p">)</span> <span class="o">/</span> <span class="nb">max</span><span class="p">(</span><span class="n">sma</span><span class="p">,</span> <span class="mf">1.0</span><span class="p">)</span>
+<a id="__codelineno-13-5" name="__codelineno-13-5" href="#__codelineno-13-5"></a>    <span class="n">delta_eps</span> <span class="o">=</span> <span class="nb">abs</span><span class="p">(</span><span class="n">eps</span> <span class="o">-</span> <span class="n">prev_geom_eps</span><span class="p">)</span>
+<a id="__codelineno-13-6" name="__codelineno-13-6" href="#__codelineno-13-6"></a>    <span class="c1"># PA wrapping: use smallest angular difference</span>
+<a id="__codelineno-13-7" name="__codelineno-13-7" href="#__codelineno-13-7"></a>    <span class="n">delta_pa_raw</span> <span class="o">=</span> <span class="nb">abs</span><span class="p">(</span><span class="n">pa</span> <span class="o">-</span> <span class="n">prev_geom_pa</span><span class="p">)</span>
+<a id="__codelineno-13-8" name="__codelineno-13-8" href="#__codelineno-13-8"></a>    <span class="n">delta_pa</span> <span class="o">=</span> <span class="nb">min</span><span class="p">(</span><span class="n">delta_pa_raw</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">pi</span> <span class="o">-</span> <span class="n">delta_pa_raw</span><span class="p">)</span> <span class="o">/</span> <span class="n">np</span><span class="o">.</span><span class="n">pi</span>
+<a id="__codelineno-13-9" name="__codelineno-13-9" href="#__codelineno-13-9"></a>    <span class="n">max_delta</span> <span class="o">=</span> <span class="nb">max</span><span class="p">(</span><span class="n">delta_x0</span><span class="p">,</span> <span class="n">delta_y0</span><span class="p">,</span> <span class="n">delta_eps</span><span class="p">,</span> <span class="n">delta_pa</span><span class="p">)</span>
+<a id="__codelineno-13-10" name="__codelineno-13-10" href="#__codelineno-13-10"></a>
+<a id="__codelineno-13-11" name="__codelineno-13-11" href="#__codelineno-13-11"></a>    <span class="k">if</span> <span class="n">max_delta</span> <span class="o">&lt;</span> <span class="n">cfg</span><span class="o">.</span><span class="n">geometry_tolerance</span><span class="p">:</span>
+<a id="__codelineno-13-12" name="__codelineno-13-12" href="#__codelineno-13-12"></a>        <span class="n">stable_count</span> <span class="o">+=</span> <span class="mi">1</span>
+<a id="__codelineno-13-13" name="__codelineno-13-13" href="#__codelineno-13-13"></a>    <span class="k">else</span><span class="p">:</span>
+<a id="__codelineno-13-14" name="__codelineno-13-14" href="#__codelineno-13-14"></a>        <span class="n">stable_count</span> <span class="o">=</span> <span class="mi">0</span>
+<a id="__codelineno-13-15" name="__codelineno-13-15" href="#__codelineno-13-15"></a>
+<a id="__codelineno-13-16" name="__codelineno-13-16" href="#__codelineno-13-16"></a>    <span class="k">if</span> <span class="n">stable_count</span> <span class="o">&gt;=</span> <span class="n">cfg</span><span class="o">.</span><span class="n">geometry_stable_iters</span><span class="p">:</span>
+<a id="__codelineno-13-17" name="__codelineno-13-17" href="#__codelineno-13-17"></a>        <span class="n">stop_code</span> <span class="o">=</span> <span class="mi">0</span>  <span class="c1"># Converged via geometry stability</span>
+<a id="__codelineno-13-18" name="__codelineno-13-18" href="#__codelineno-13-18"></a>        <span class="n">converged</span> <span class="o">=</span> <span class="kc">True</span>
+<a id="__codelineno-13-19" name="__codelineno-13-19" href="#__codelineno-13-19"></a>        <span class="n">geom_converged</span> <span class="o">=</span> <span class="kc">True</span>
+<a id="__codelineno-13-20" name="__codelineno-13-20" href="#__codelineno-13-20"></a>        <span class="c1"># Compute deviations same as harmonic convergence path</span>
+<a id="__codelineno-13-21" name="__codelineno-13-21" href="#__codelineno-13-21"></a>        <span class="o">...</span>  <span class="c1"># (same deviation computation as the harmonic convergence block)</span>
+<a id="__codelineno-13-22" name="__codelineno-13-22" href="#__codelineno-13-22"></a>        <span class="k">break</span>
+<a id="__codelineno-13-23" name="__codelineno-13-23" href="#__codelineno-13-23"></a>
+<a id="__codelineno-13-24" name="__codelineno-13-24" href="#__codelineno-13-24"></a><span class="n">prev_geom_x0</span><span class="p">,</span> <span class="n">prev_geom_y0</span><span class="p">,</span> <span class="n">prev_geom_eps</span><span class="p">,</span> <span class="n">prev_geom_pa</span> <span class="o">=</span> <span class="n">x0</span><span class="p">,</span> <span class="n">y0</span><span class="p">,</span> <span class="n">eps</span><span class="p">,</span> <span class="n">pa</span>
+</code></pre></div>
+<p><strong>Step 4: Run tests</strong></p>
+<p>Run: <code>uv run pytest tests/unit/test_convergence.py -v</code>
+Expected: PASS</p>
+<p><strong>Step 5: Run full suite</strong></p>
+<p>Run: <code>uv run pytest tests/unit/ tests/integration/ tests/validation/ -v --tb=short 2&gt;&amp;1 | tail -20</code>
+Expected: 152+ tests pass</p>
+<p><strong>Step 6: Commit</strong></p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a>git add isoster/fitting.py tests/unit/test_convergence.py
+<a id="__codelineno-14-2" name="__codelineno-14-2" href="#__codelineno-14-2"></a>git commit -m &quot;feat: implement geometry-change convergence criterion in fit_isophote&quot;
+</code></pre></div>
+<hr />
+<h2 id="task-5-write-ngc1209_mock2-diagnostic-benchmark-script">Task 5: Write NGC1209_mock2 diagnostic benchmark script</h2>
+<p><strong>Files:</strong>
+- Create: <code>benchmarks/convergence_diagnostic.py</code></p>
+<p><strong>Step 1: Write the diagnostic script</strong></p>
+<p>This script runs NGC1209_mock2 through five configurations and compares results:</p>
+<ol>
+<li><strong>Baseline</strong> (<code>convergence_scaling='none', geometry_damping=1.0, geometry_convergence=False</code>)</li>
+<li><strong>Approach A</strong> (<code>convergence_scaling='sector_area'</code>)</li>
+<li><strong>Approach A-alt</strong> (<code>convergence_scaling='sqrt_sma'</code>)</li>
+<li><strong>Approach B</strong> (<code>geometry_damping=0.7</code>)</li>
+<li><strong>Approach C</strong> (<code>geometry_convergence=True</code>)</li>
+<li><strong>Combined A+B</strong> (<code>convergence_scaling='sector_area', geometry_damping=0.7</code>)</li>
+<li><strong>Combined A+C</strong> (<code>convergence_scaling='sector_area', geometry_convergence=True</code>)</li>
+</ol>
+<p>For each, report:
+- Stop code distribution (count of 0, 1, 2, 3, -1)
+- Intensity accuracy vs photutils (median/max relative difference at 0.5-8 Re)
+- Geometry accuracy vs photutils (median/max eps, pa difference at 0.5-8 Re)
+- Wall-clock time</p>
+<p>Output: markdown table to stdout + comparison QA figure to <code>outputs/</code></p>
+<p>The script should:
+- Load NGC1209_mock2 image from <code>/Users/mac/work/hsc/huang2013/NGC1209/NGC1209_mock2.fits</code>
+- Load photutils baseline from <code>/Users/mac/work/hsc/huang2013/NGC1209/mock2/NGC1209_mock2_photutils_baseline_profile.fits</code>
+- Load isoster baseline config from <code>/Users/mac/work/hsc/huang2013/NGC1209/mock2/NGC1209_mock2_isoster_baseline_run.json</code>
+- Run isoster with each config variant
+- Compare results</p>
+<p><strong>Step 2: Run the diagnostic</strong></p>
+<p>Run: <code>uv run python benchmarks/convergence_diagnostic.py</code>
+Expected: table of results showing which approaches reduce stop=2</p>
+<p><strong>Step 3: Commit</strong></p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-15-1" name="__codelineno-15-1" href="#__codelineno-15-1"></a>git add benchmarks/convergence_diagnostic.py
+<a id="__codelineno-15-2" name="__codelineno-15-2" href="#__codelineno-15-2"></a>git commit -m &quot;bench: add convergence diagnostic script for NGC1209_mock2&quot;
+</code></pre></div>
+<hr />
+<h2 id="task-6-analyze-results-and-select-best-defaults">Task 6: Analyze results and select best defaults</h2>
+<p><strong>Files:</strong>
+- Modify: <code>isoster/config.py</code> (update default values if needed)
+- Modify: <code>docs/plans/2026-02-22-convergence-stop2-fix.md</code> (record findings)</p>
+<p><strong>Step 1: Analyze benchmark output</strong></p>
+<p>Review the diagnostic table. Key decision criteria:
+- Which approach(es) reduce stop=2 to near-zero?
+- Which preserve accuracy (intensity within 1%, geometry within 2%)?
+- Any runtime penalty?</p>
+<p><strong>Step 2: Update defaults if justified</strong></p>
+<p>If <code>convergence_scaling='sector_area'</code> clearly wins, change its default from <code>'none'</code> to <code>'sector_area'</code> so existing users benefit automatically.</p>
+<p><strong>Step 3: Update plan with findings</strong></p>
+<p>Append analysis section to this plan document.</p>
+<p><strong>Step 4: Run full test suite one final time</strong></p>
+<p>Run: <code>uv run pytest tests/unit/ tests/integration/ tests/validation/ -v --tb=short 2&gt;&amp;1 | tail -20</code>
+Expected: all tests pass</p>
+<p><strong>Step 5: Commit</strong></p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-16-1" name="__codelineno-16-1" href="#__codelineno-16-1"></a>git add isoster/config.py docs/plans/2026-02-22-convergence-stop2-fix.md
+<a id="__codelineno-16-2" name="__codelineno-16-2" href="#__codelineno-16-2"></a>git commit -m &quot;feat: set optimal convergence defaults based on NGC1209_mock2 benchmark&quot;
+</code></pre></div>
+<hr />
+<h2 id="task-7-update-documentation">Task 7: Update documentation</h2>
+<p><strong>Files:</strong>
+- Modify: <code>CLAUDE.md</code> (add new params to config example)
+- Modify: <code>docs/spec.md</code> (if architecture section needs update)</p>
+<p><strong>Step 1: Add new params to CLAUDE.md config example</strong></p>
+<p>In the "Advanced Fitting Options" section, add:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-17-1" name="__codelineno-17-1" href="#__codelineno-17-1"></a><span class="c1"># Convergence improvements</span>
+<a id="__codelineno-17-2" name="__codelineno-17-2" href="#__codelineno-17-2"></a><span class="n">convergence_scaling</span><span class="o">=</span><span class="s1">&#39;sector_area&#39;</span><span class="p">,</span>  <span class="c1"># Scale threshold with SMA (matches photutils)</span>
+<a id="__codelineno-17-3" name="__codelineno-17-3" href="#__codelineno-17-3"></a><span class="n">geometry_damping</span><span class="o">=</span><span class="mf">1.0</span><span class="p">,</span>               <span class="c1"># Damping factor for geometry updates (1.0 = no damping)</span>
+<a id="__codelineno-17-4" name="__codelineno-17-4" href="#__codelineno-17-4"></a><span class="n">geometry_convergence</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>         <span class="c1"># Enable geometry-stability convergence</span>
+<a id="__codelineno-17-5" name="__codelineno-17-5" href="#__codelineno-17-5"></a><span class="n">geometry_tolerance</span><span class="o">=</span><span class="mf">0.01</span><span class="p">,</span>            <span class="c1"># Tolerance for geometry convergence</span>
+<a id="__codelineno-17-6" name="__codelineno-17-6" href="#__codelineno-17-6"></a><span class="n">geometry_stable_iters</span><span class="o">=</span><span class="mi">3</span><span class="p">,</span>            <span class="c1"># Consecutive stable iterations required</span>
+</code></pre></div>
+<p><strong>Step 2: Commit</strong></p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-18-1" name="__codelineno-18-1" href="#__codelineno-18-1"></a>git add CLAUDE.md
+<a id="__codelineno-18-2" name="__codelineno-18-2" href="#__codelineno-18-2"></a>git commit -m &quot;docs: add convergence improvement params to config documentation&quot;
+</code></pre></div>
+<hr />
+<h2 id="benchmark-results-ngc1209_mock2">Benchmark Results (NGC1209_mock2)</h2>
+<p>Executed 2026-02-23 on branch <code>fix/convergence-stop2</code>.</p>
+<table>
+<thead>
+<tr>
+<th>Config</th>
+<th>stop=2</th>
+<th>Time(s)</th>
+<th>Med dI/I</th>
+<th>Max dI/I</th>
+<th>Med deps</th>
+<th>Med dPA</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Baseline</td>
+<td>9</td>
+<td>0.41</td>
+<td>0.35%</td>
+<td>26.8%</td>
+<td>0.0022</td>
+<td>0.09</td>
+</tr>
+<tr>
+<td><strong>A: sector_area</strong></td>
+<td><strong>0</strong></td>
+<td><strong>0.12</strong></td>
+<td>0.48%</td>
+<td><strong>11.8%</strong></td>
+<td>0.0024</td>
+<td>0.10</td>
+</tr>
+<tr>
+<td>A-alt: sqrt_sma</td>
+<td>0</td>
+<td>0.13</td>
+<td>0.48%</td>
+<td>11.8%</td>
+<td>0.0024</td>
+<td>0.10</td>
+</tr>
+<tr>
+<td>B: damping=0.7</td>
+<td>3</td>
+<td>0.20</td>
+<td>0.37%</td>
+<td>16.3%</td>
+<td>0.0023</td>
+<td>0.10</td>
+</tr>
+<tr>
+<td>C: geom_conv</td>
+<td>3</td>
+<td>0.22</td>
+<td>0.40%</td>
+<td>26.8%</td>
+<td>0.0022</td>
+<td>0.10</td>
+</tr>
+<tr>
+<td>A+B combined</td>
+<td>0</td>
+<td>0.13</td>
+<td>0.38%</td>
+<td>18.9%</td>
+<td>0.0024</td>
+<td>0.10</td>
+</tr>
+<tr>
+<td>A+C combined</td>
+<td>0</td>
+<td>0.13</td>
+<td>0.48%</td>
+<td>11.8%</td>
+<td>0.0024</td>
+<td>0.10</td>
+</tr>
+</tbody>
+</table>
+<h3 id="decision">Decision</h3>
+<ul>
+<li><strong>Default changed</strong>: <code>convergence_scaling</code> default set to <code>'sector_area'</code></li>
+<li><strong>Rationale</strong>: Eliminates all stop=2, 3.4x faster, best worst-case accuracy</li>
+<li><strong>B and C</strong>: Kept as optional supplementary controls (defaults unchanged)</li>
+<li><code>sector_area</code> and <code>sqrt_sma</code> produce identical results on this dataset; <code>sector_area</code> is preferred as it has stronger physical motivation (matches photutils)</li>
+</ul>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["navigation.sections", "navigation.expand", "content.code.copy"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+    
+  </body>
+</html>

@@ -71,6 +71,7 @@ Iteration limits and convergence criteria.
 | `minit` | `10` | `int` (> 0) | Minimum iterations before convergence check. |
 | `conver` | `0.05` | `float` (> 0) | Convergence threshold: `max_harmonic_amplitude / rms`. |
 | `convergence_scaling` | `'sector_area'` | `str` | Scale convergence threshold with SMA. Options: `'none'`, `'sector_area'`, `'sqrt_sma'`. |
+| `use_lazy_gradient` | `True` | `bool` | Enable Lazy Gradient Evaluation (Modified Newton Method). |
 
 **Interaction notes:**
 
@@ -80,6 +81,9 @@ Iteration limits and convergence criteria.
   failures at outer isophotes. The scale factor grows with SMA.
 - `'none'` uses a constant threshold (legacy behavior).
 - `'sqrt_sma'` multiplies by `sqrt(sma)`.
+- `use_lazy_gradient=True` (default) calculates the radial gradient only on the first
+  iteration and reuses it for subsequent iterations. This cuts sampling calls by ~45%.
+  The gradient is re-evaluated if convergence stalls for 3 iterations.
 - `minit` iterations always run before the convergence criterion is checked.
 - Validated: `minit <= maxit`.
 

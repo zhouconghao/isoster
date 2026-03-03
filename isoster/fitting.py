@@ -878,6 +878,11 @@ def fit_isophote(image, mask, sma, start_geometry, config, going_inwards=False, 
     # Geometry convergence tracking
     prev_geom = (x0, y0, eps, pa)
     stable_count = 0
+    
+    # Lazy gradient tracking
+    cached_gradient = None
+    cached_gradient_error = None
+    no_improvement_count = 0
 
     for i in range(maxit):
         niter = i + 1
@@ -956,18 +961,28 @@ def fit_isophote(image, mask, sma, start_geometry, config, going_inwards=False, 
         A1, B1, A2, B2 = coeffs[1], coeffs[2], coeffs[3], coeffs[4]
         
         # GRADIENT computed using φ and current geometry
-        geometry = {'x0': x0, 'y0': y0, 'sma': sma, 'eps': eps, 'pa': pa}
-        gradient_config = {
-            'astep': astep,
-            'linear_growth': linear_growth,
-            'integrator': eff_integrator,
-            'use_eccentric_anomaly': use_eccentric_anomaly
-        }
-        gradient, gradient_error = compute_gradient(
-            image, mask, geometry, gradient_config,
-            previous_gradient=previous_gradient,
-            current_data=(phi, intens)
-        )
+        # Lazy Evaluation: reuse gradient unless convergence stalls
+        if i == 0 or not cfg.use_lazy_gradient or no_improvement_count >= 3:
+            geometry = {'x0': x0, 'y0': y0, 'sma': sma, 'eps': eps, 'pa': pa}
+            gradient_config = {
+                'astep': astep,
+                'linear_growth': linear_growth,
+                'integrator': eff_integrator,
+                'use_eccentric_anomaly': use_eccentric_anomaly
+            }
+            gradient, gradient_error = compute_gradient(
+                image, mask, geometry, gradient_config,
+                previous_gradient=previous_gradient,
+                current_data=(phi, intens)
+            )
+            cached_gradient = gradient
+            cached_gradient_error = gradient_error
+            if no_improvement_count >= 3:
+                no_improvement_count = 0  # Reset after forced re-evaluation
+        else:
+            gradient = cached_gradient
+            gradient_error = cached_gradient_error
+
         if gradient_error is not None:
             previous_gradient = gradient
         
@@ -1014,6 +1029,7 @@ def fit_isophote(image, mask, sma, start_geometry, config, going_inwards=False, 
         
         if effective_amp < min_amplitude:
             min_amplitude = effective_amp
+            no_improvement_count = 0
             intens_err = rms / np.sqrt(len(intens))
             # For ISOFIT in_loop, pass 5x5 sub-matrix and first 5 coefficients
             # so compute_parameter_errors uses correct dimensions
@@ -1068,6 +1084,8 @@ def fit_isophote(image, mask, sma, start_geometry, config, going_inwards=False, 
                 best_geometry.update({'ndata': actual_points, 'nflag': total_points - actual_points, 'grad': gradient,
                                       'grad_error': gradient_error if gradient_error is not None else np.nan,
                                       'grad_r_error': gradient_relative_error if gradient_relative_error is not None else np.nan})
+        else:
+            no_improvement_count += 1
             
         if abs(max_amp) < conver * convergence_scale * rms and i >= minit:
             stop_code = 0  # STOP_CODE 0: Converged successfully

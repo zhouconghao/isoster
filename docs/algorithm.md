@@ -45,6 +45,10 @@ The returned structure is `IsophoteData(angles, phi, intens, radii)` where `angl
    - stop code `3` when `len(intens) < 6`.
 4. Fit first/second harmonics by least squares.
 5. Compute radial gradient using offset SMA sampling.
+   - **Lazy Evaluation**: If `use_lazy_gradient=True`, the gradient is evaluated only
+     on iteration 0 and reused for subsequent iterations. It is re-evaluated if
+     convergence stalls (3 iterations without amplitude improvement). This typically
+     reduces sampling overhead by ~45%.
 6. Apply gradient quality checks (outward mode only):
    - uses `maxgerr`, sign checks, and a two-strike `lexceed` rule before stop code `-1`.
 7. Compute dominant harmonic amplitude and geometry correction target.

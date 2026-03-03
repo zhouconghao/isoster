@@ -1,0 +1,1272 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Fast isophote fitting for galaxy images.">
+      
+      
+        <meta name="author" content="Shuang">
+      
+      
+      
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.1">
+    
+    
+      
+        <title>Model Building Improvements: build_isoster_model() - Isoster Documentation</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../../assets/stylesheets/main.484c7ddc.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("../../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    <body dir="ltr">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#model-building-improvements-build_isoster_model" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../../.." title="Isoster Documentation" class="md-header__button md-logo" aria-label="Isoster Documentation" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            Isoster Documentation
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Model Building Improvements: build_isoster_model()
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/shuang-stat/isoster" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    GitHub
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../../.." title="Isoster Documentation" class="md-nav__button md-logo" aria-label="Isoster Documentation" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    Isoster Documentation
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/shuang-stat/isoster" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    GitHub
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../spec/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Spec
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../user-guide/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    User Guide
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../configuration-reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Configuration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../algorithm/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Algorithm
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../testing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Testing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../qa-figures/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    QA Figures
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../future/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Future
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#executive-summary" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Executive Summary
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#issues-identified-in-original-implementation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Issues Identified in Original Implementation
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Issues Identified in Original Implementation">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#1-critical-incorrect-reconstruction-algorithm" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. CRITICAL: Incorrect Reconstruction Algorithm
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#2-waste-unused-memory-allocation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. WASTE: Unused Memory Allocation
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#3-incomplete-harmonic-reconstruction" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3. INCOMPLETE: Harmonic Reconstruction
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#4-suboptimal-bounding-box-calculation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4. SUBOPTIMAL: Bounding Box Calculation
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#new-implementation-build_isoster_model" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        New Implementation: build_isoster_model()
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="New Implementation: build_isoster_model()">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#algorithm-overview" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Algorithm Overview
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#key-features" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Key Features
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#performance-comparison" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Performance Comparison
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Performance Comparison">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#residual-statistics-noiseless-sersic-n4-re20-eps04" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Residual Statistics (Noiseless Sersic n=4, Re=20, eps=0.4)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#computational-cost" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Computational Cost
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#testing" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Testing
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Testing">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#unit-tests" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Unit Tests
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#integration-tests" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Integration Tests
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#all-existing-tests" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        All Existing Tests
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#further-speed-optimization-recommendations" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Further Speed Optimization Recommendations
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Further Speed Optimization Recommendations">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#1-reduce-iteration-count-low-hanging-fruit" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. Reduce Iteration Count (Low Hanging Fruit)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#2-numba-jit-compilation-medium-effort-high-impact" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. Numba JIT Compilation (Medium Effort, High Impact)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#3-caching-for-multiple-models-use-case-dependent" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3. Caching for Multiple Models (Use Case Dependent)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#4-parallel-processing-for-large-images-high-effort" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4. Parallel Processing for Large Images (High Effort)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#5-gpu-acceleration-very-high-effort" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5. GPU Acceleration (Very High Effort)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#recommended-speedup-priority" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Recommended Speedup Priority
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#api-changes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        API Changes
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="API Changes">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#public-api" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Public API
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#backward-compatibility" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Backward Compatibility
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#documentation-updates" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Documentation Updates
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Documentation Updates">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#updated-files" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Updated Files
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#new-files" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        New Files
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#future-work" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Future Work
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Future Work">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#short-term" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Short Term
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#medium-term" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Medium Term
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#long-term" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Long Term
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#conclusion" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Conclusion
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="model-building-improvements-build_isoster_model">Model Building Improvements: build_isoster_model()</h1>
+<h2 id="executive-summary">Executive Summary</h2>
+<p>The <code>build_ellipse_model()</code> function has been completely rewritten as <code>build_isoster_model()</code> with dramatic improvements in accuracy and correctness. The new implementation uses radial interpolation instead of layer-by-layer filling, resulting in <strong>20x better residuals</strong> for noiseless Sersic models.</p>
+<p><strong>Key Results:</strong>
+- <strong>Before</strong>: 25.5% max error, 11.5% median error (0.5-4 Re range)
+- <strong>After</strong>: 1.3% max error, 0.74% median error (0.5-4 Re range)
+- <strong>Improvement</strong>: 19x better max error, 15x better median error</p>
+<hr />
+<h2 id="issues-identified-in-original-implementation">Issues Identified in Original Implementation</h2>
+<h3 id="1-critical-incorrect-reconstruction-algorithm">1. <strong>CRITICAL: Incorrect Reconstruction Algorithm</strong></h3>
+<p><strong>Location:</strong> <code>isoster/model.py:34-102</code></p>
+<p><strong>Problem:</strong>
+The original function used a "layer-by-layer" approach:
+1. Sort isophotes by SMA (outer to inner)
+2. Paint each isophote's entire area with constant intensity
+3. Inner isophotes overwrite outer ones</p>
+<p>This created step-like intensity profiles instead of smooth radial gradients.</p>
+<p><strong>Impact:</strong>
+- Median fractional residual: 11.5% in critical 0.5-4 Re range
+- Max fractional residual: 25.5%
+- Systematic under-prediction of intensity between isophotes
+- Visible elliptical patterns in residual maps</p>
+<p><strong>Visual Evidence:</strong>
+The original residual map showed clear elliptical rings, indicating systematic modeling errors.</p>
+<h3 id="2-waste-unused-memory-allocation">2. <strong>WASTE: Unused Memory Allocation</strong></h3>
+<p><strong>Location:</strong> <code>isoster/model.py:29</code></p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="n">yy</span><span class="p">,</span> <span class="n">xx</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">mgrid</span><span class="p">[:</span><span class="n">h</span><span class="p">,</span> <span class="p">:</span><span class="n">w</span><span class="p">]</span>  <span class="c1"># Created but never used!</span>
+</code></pre></div>
+<p><strong>Impact:</strong>
+- Wastes ~32 MB for a 4096×4096 image
+- Unnecessary memory allocation and bandwidth</p>
+<h3 id="3-incomplete-harmonic-reconstruction">3. <strong>INCOMPLETE: Harmonic Reconstruction</strong></h3>
+<p><strong>Location:</strong> <code>isoster/model.py:83-101</code></p>
+<p><strong>Problem:</strong>
+The code attempted to include higher-order harmonics (a3, b3, a4, b4) but:
+- Didn't properly denormalize them (needs gradient)
+- Ended up just using mean intensity regardless
+- Lines 86-99 were effectively dead code</p>
+<h3 id="4-suboptimal-bounding-box-calculation">4. <strong>SUBOPTIMAL: Bounding Box Calculation</strong></h3>
+<p><strong>Location:</strong> <code>isoster/model.py:49-52</code></p>
+<p><strong>Problem:</strong>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="n">x_min</span> <span class="o">=</span> <span class="nb">max</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="nb">int</span><span class="p">(</span><span class="n">x0</span> <span class="o">-</span> <span class="n">sma</span> <span class="o">-</span> <span class="mi">1</span><span class="p">))</span>
+<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="n">x_max</span> <span class="o">=</span> <span class="nb">min</span><span class="p">(</span><span class="n">w</span><span class="p">,</span> <span class="nb">int</span><span class="p">(</span><span class="n">x0</span> <span class="o">+</span> <span class="n">sma</span> <span class="o">+</span> <span class="mi">1</span><span class="p">))</span>
+</code></pre></div></p>
+<p>For high ellipticity (eps &gt; 0.5), the ellipse can extend beyond <code>±sma</code> in certain directions, potentially missing pixels.</p>
+<hr />
+<h2 id="new-implementation-build_isoster_model">New Implementation: build_isoster_model()</h2>
+<h3 id="algorithm-overview">Algorithm Overview</h3>
+<p>The new implementation uses <strong>radial interpolation</strong> instead of layered filling:</p>
+<ol>
+<li>
+<p><strong>Extract isophote data</strong>: SMA values, intensities, and geometry (x0, y0, eps, pa)</p>
+</li>
+<li>
+<p><strong>Create interpolators</strong>:</p>
+</li>
+<li>Intensity vs SMA (linear or cubic spline)</li>
+<li>
+<p>Geometry parameters vs SMA (x0, y0, eps, pa)</p>
+</li>
+<li>
+<p><strong>Iterative elliptical radius computation</strong>:</p>
+</li>
+<li>For each pixel, estimate elliptical radius using outer geometry</li>
+<li>Refine using local interpolated geometry at that radius</li>
+<li>
+<p>Iterate 3 times for convergence</p>
+</li>
+<li>
+<p><strong>Interpolate intensity</strong>:</p>
+</li>
+<li>At computed elliptical radius, interpolate intensity from isophote profile</li>
+<li>
+<p>Handle boundaries: use innermost value inside, fill value outside</p>
+</li>
+<li>
+<p><strong>Optional harmonics</strong>: (TODO - requires gradient information)</p>
+</li>
+</ol>
+<h3 id="key-features">Key Features</h3>
+<p><strong>Accurate radial interpolation:</strong>
+- Smooth intensity profiles between isophotes
+- No step-like artifacts</p>
+<p><strong>Geometry handling:</strong>
+- Accounts for varying ellipticity and PA with radius
+- Iterative refinement ensures accurate elliptical radius calculation</p>
+<p><strong>Memory efficient:</strong>
+- No unused array allocations
+- Processes whole image at once using vectorized operations</p>
+<p><strong>Backward compatible:</strong>
+- Old <code>build_ellipse_model()</code> kept as deprecated alias
+- Returns same data structure</p>
+<hr />
+<h2 id="performance-comparison">Performance Comparison</h2>
+<h3 id="residual-statistics-noiseless-sersic-n4-re20-eps04">Residual Statistics (Noiseless Sersic n=4, Re=20, eps=0.4)</h3>
+<table>
+<thead>
+<tr>
+<th>Metric</th>
+<th>Old</th>
+<th>New</th>
+<th>Improvement</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>0.5-4 Re median</strong></td>
+<td>-11.533%</td>
+<td>0.741%</td>
+<td><strong>15.6x</strong></td>
+</tr>
+<tr>
+<td><strong>0.5-4 Re max</strong></td>
+<td>25.474%</td>
+<td>1.324%</td>
+<td><strong>19.2x</strong></td>
+</tr>
+<tr>
+<td><strong>0.5-4 Re median abs</strong></td>
+<td>11.533%</td>
+<td>0.741%</td>
+<td><strong>15.6x</strong></td>
+</tr>
+</tbody>
+</table>
+<p><strong>CLAUDE.md Criteria:</strong>
+- Old: ❌ POOR (11.5% median &gt;&gt; 1% threshold)
+- New: ⚠️ ACCEPTABLE (0.74% median, 1.32% max &lt; 2%)
+- Target: ✅ EXCELLENT (&lt;0.5% median, &lt;1% max)</p>
+<p>The new implementation is very close to "EXCELLENT" criteria. The remaining ~0.7% error likely comes from:
+1. Discretization effects in fitting
+2. Absence of harmonic deviations in reconstruction
+3. Numerical precision in iterative geometry refinement</p>
+<h3 id="computational-cost">Computational Cost</h3>
+<table>
+<thead>
+<tr>
+<th>Operation</th>
+<th>Old</th>
+<th>New</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Memory allocation</td>
+<td>~32 MB (wasted)</td>
+<td>0 MB (wasted)</td>
+<td>Removed unused mgrid</td>
+</tr>
+<tr>
+<td>Algorithm complexity</td>
+<td>O(N_iso × N_pix)</td>
+<td>O(N_iso × N_pix)</td>
+<td>Similar</td>
+</tr>
+<tr>
+<td>Actual runtime (600×600)</td>
+<td>~0.05s</td>
+<td>~0.15s</td>
+<td>3x slower but acceptable</td>
+</tr>
+</tbody>
+</table>
+<p>The new implementation is 3x slower because it does iterative refinement of elliptical radius. This is acceptable given the 20x improvement in accuracy.</p>
+<hr />
+<h2 id="testing">Testing</h2>
+<h3 id="unit-tests">Unit Tests</h3>
+<p>Updated <code>tests/test_model.py</code>:
+- <code>test_build_isoster_model_basic()</code>: Single isophote handling
+- <code>test_build_isoster_model_interpolation()</code>: Radial interpolation validation</p>
+<p>Both tests pass ✅</p>
+<h3 id="integration-tests">Integration Tests</h3>
+<p>Created <code>test_model_residuals.py</code>:
+- Noiseless Sersic n=4, Re=20, eps=0.4
+- Comprehensive residual analysis with statistics and plots
+- Per CLAUDE.md guidelines</p>
+<p>Results: 0.74% median error, 1.32% max error in 0.5-4 Re ✅</p>
+<h3 id="all-existing-tests">All Existing Tests</h3>
+<p>All 48 tests pass with new implementation ✅</p>
+<hr />
+<h2 id="further-speed-optimization-recommendations">Further Speed Optimization Recommendations</h2>
+<h3 id="1-reduce-iteration-count-low-hanging-fruit">1. <strong>Reduce Iteration Count (Low Hanging Fruit)</strong></h3>
+<p><strong>Current:</strong> 3 iterations for elliptical radius refinement
+<strong>Impact:</strong> ~20% speedup</p>
+<p><strong>Approach:</strong>
+- Add convergence check: stop if max change &lt; 0.1 pixels
+- Typical case: converges in 1-2 iterations
+- Worst case: still limited to 3 iterations</p>
+<p><strong>Implementation:</strong>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="k">for</span> <span class="n">iteration</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">max_iterations</span><span class="p">):</span>
+<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>    <span class="c1"># ... compute r_ell_new ...</span>
+<a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a>    <span class="k">if</span> <span class="n">np</span><span class="o">.</span><span class="n">max</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">abs</span><span class="p">(</span><span class="n">r_ell_new</span> <span class="o">-</span> <span class="n">r_ell</span><span class="p">))</span> <span class="o">&lt;</span> <span class="mf">0.1</span><span class="p">:</span>
+<a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a>        <span class="k">break</span>
+<a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a>    <span class="n">r_ell</span> <span class="o">=</span> <span class="n">r_ell_new</span>
+</code></pre></div></p>
+<h3 id="2-numba-jit-compilation-medium-effort-high-impact">2. <strong>Numba JIT Compilation (Medium Effort, High Impact)</strong></h3>
+<p><strong>Potential speedup:</strong> 5-10x
+<strong>Effort:</strong> Medium</p>
+<p><strong>Target functions:</strong>
+- Elliptical radius computation loop
+- Geometry interpolation</p>
+<p><strong>Approach:</strong>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">numba</span><span class="w"> </span><span class="kn">import</span> <span class="n">njit</span>
+<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>
+<a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a><span class="nd">@njit</span>
+<a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a><span class="k">def</span><span class="w"> </span><span class="nf">compute_elliptical_radius_jit</span><span class="p">(</span><span class="n">x_grid</span><span class="p">,</span> <span class="n">y_grid</span><span class="p">,</span> <span class="n">x0</span><span class="p">,</span> <span class="n">y0</span><span class="p">,</span> <span class="n">eps</span><span class="p">,</span> <span class="n">pa</span><span class="p">):</span>
+<a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a>    <span class="c1"># Vectorized computation of elliptical radius</span>
+<a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a>    <span class="o">...</span>
+</code></pre></div></p>
+<p><strong>Note:</strong> Requires Numba as optional dependency</p>
+<h3 id="3-caching-for-multiple-models-use-case-dependent">3. <strong>Caching for Multiple Models (Use Case Dependent)</strong></h3>
+<p><strong>Potential speedup:</strong> 10x+ for batch processing
+<strong>Effort:</strong> Low</p>
+<p><strong>Use case:</strong> Building models for multiple images with same geometry</p>
+<p><strong>Approach:</strong>
+- Cache interpolators for intensity and geometry
+- Reuse elliptical radius computation if geometry unchanged
+- Useful for Monte Carlo simulations or batch processing</p>
+<h3 id="4-parallel-processing-for-large-images-high-effort">4. <strong>Parallel Processing for Large Images (High Effort)</strong></h3>
+<p><strong>Potential speedup:</strong> 2-4x (number of cores)
+<strong>Effort:</strong> High</p>
+<p><strong>Approach:</strong>
+- Split image into tiles
+- Process tiles in parallel using multiprocessing
+- Requires careful handling of boundary regions</p>
+<p><strong>When to use:</strong> Only for very large images (&gt;4k × 4k)</p>
+<h3 id="5-gpu-acceleration-very-high-effort">5. <strong>GPU Acceleration (Very High Effort)</strong></h3>
+<p><strong>Potential speedup:</strong> 50-100x
+<strong>Effort:</strong> Very high</p>
+<p><strong>Approach:</strong>
+- Use CuPy or PyTorch for GPU arrays
+- Implement elliptical radius and interpolation on GPU
+- Requires CUDA-capable hardware</p>
+<p><strong>When to use:</strong> Only for production pipelines processing thousands of images</p>
+<hr />
+<h2 id="recommended-speedup-priority">Recommended Speedup Priority</h2>
+<p>For typical use cases (&lt; 100 images, &lt; 2k × 2k), prioritize:</p>
+<ol>
+<li><strong>✅ DONE</strong>: Algorithm correctness (20x accuracy improvement)</li>
+<li><strong>Next</strong>: Reduce iterations with convergence check (+20% speed)</li>
+<li><strong>Future</strong>: Numba JIT if performance critical (+5-10x speed)</li>
+<li><strong>Advanced</strong>: GPU acceleration only for production pipelines</li>
+</ol>
+<p><strong>Current performance (600×600 image, 42 isophotes):</strong>
+- Model building: ~0.15s
+- Fitting: ~1.5s
+- <strong>Total pipeline:</strong> ~1.65s</p>
+<p>Model building is only ~9% of total time. Further optimization should focus on fitting if speed is critical.</p>
+<hr />
+<h2 id="api-changes">API Changes</h2>
+<h3 id="public-api">Public API</h3>
+<p><strong>New function:</strong> <code>isoster.build_isoster_model(image_shape, isophote_results, fill=0.0, interp_kind='linear')</code></p>
+<p><strong>Parameters:</strong>
+- <code>image_shape</code>: (height, width) tuple
+- <code>isophote_results</code>: List of isophote dicts from <code>fit_image()</code>
+- <code>fill</code>: Value for pixels outside fitted range (default: 0.0)
+- <code>interp_kind</code>: 'linear' (default, faster) or 'cubic' (smoother)</p>
+<p><strong>Returns:</strong>
+- 2D numpy array of reconstructed model</p>
+<h3 id="backward-compatibility">Backward Compatibility</h3>
+<p>Old function kept as deprecated alias:
+<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="k">def</span><span class="w"> </span><span class="nf">build_ellipse_model</span><span class="p">(</span><span class="n">image_shape</span><span class="p">,</span> <span class="n">isophote_results</span><span class="p">,</span> <span class="n">fill</span><span class="o">=</span><span class="mf">0.0</span><span class="p">):</span>
+<a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>    <span class="n">warnings</span><span class="o">.</span><span class="n">warn</span><span class="p">(</span><span class="s2">&quot;build_ellipse_model() is deprecated, use build_isoster_model() instead&quot;</span><span class="p">)</span>
+<a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a>    <span class="k">return</span> <span class="n">build_isoster_model</span><span class="p">(</span><span class="n">image_shape</span><span class="p">,</span> <span class="n">isophote_results</span><span class="p">,</span> <span class="n">fill</span><span class="o">=</span><span class="n">fill</span><span class="p">)</span>
+</code></pre></div></p>
+<p>Users see deprecation warning but code continues to work.</p>
+<hr />
+<h2 id="documentation-updates">Documentation Updates</h2>
+<h3 id="updated-files">Updated Files</h3>
+<ol>
+<li><strong>README.md</strong>: Changed example to use <code>build_isoster_model()</code></li>
+<li><strong>CLAUDE.md</strong>: Updated Public API section and architecture description</li>
+<li><strong>isoster/<strong>init</strong>.py</strong>: Exports both functions with deprecation note</li>
+<li><strong>tests/test_model.py</strong>: Updated to test new function</li>
+<li><strong>tests/test_integration_qa.py</strong>: Updated to use new function</li>
+</ol>
+<h3 id="new-files">New Files</h3>
+<ol>
+<li><strong>MODEL_IMPROVEMENTS.md</strong> (this file): Comprehensive analysis</li>
+<li><strong>test_model_residuals.py</strong>: Residual analysis test script</li>
+<li><strong>model_residuals_current.png</strong>: QA figure showing improved residuals</li>
+</ol>
+<hr />
+<h2 id="future-work">Future Work</h2>
+<h3 id="short-term">Short Term</h3>
+<ol>
+<li>✅ <strong>DONE</strong>: Fix algorithm, rename function</li>
+<li><strong>TODO</strong>: Add convergence-based iteration stopping</li>
+<li><strong>TODO</strong>: Update all examples to use new function name</li>
+<li><strong>TODO</strong>: Add tutorial on model building in docs/</li>
+</ol>
+<h3 id="medium-term">Medium Term</h3>
+<ol>
+<li><strong>TODO</strong>: Implement harmonic deviation reconstruction (a3, b3, a4, b4)</li>
+<li>Requires storing gradient in isophote results</li>
+<li>Would push accuracy to &lt;0.5% for most cases</li>
+<li><strong>TODO</strong>: Add Numba JIT for 5-10x speedup</li>
+<li><strong>TODO</strong>: Create comprehensive model building tests with various Sersic indices</li>
+</ol>
+<h3 id="long-term">Long Term</h3>
+<ol>
+<li><strong>TODO</strong>: GPU acceleration for production use</li>
+<li><strong>TODO</strong>: Investigate cubic spline vs linear interpolation trade-offs</li>
+<li><strong>TODO</strong>: Add model building benchmarks to CI/CD</li>
+</ol>
+<hr />
+<h2 id="conclusion">Conclusion</h2>
+<p>The <code>build_isoster_model()</code> rewrite is a major improvement:</p>
+<p>✅ <strong>20x better accuracy</strong> (25% → 1.3% max error)
+✅ <strong>Correct algorithm</strong> (radial interpolation vs layer filling)
+✅ <strong>Memory efficient</strong> (removed 32 MB waste)
+✅ <strong>Backward compatible</strong> (deprecated alias)
+✅ <strong>Well tested</strong> (48/48 tests pass)</p>
+<p>The 3x slower runtime is acceptable given the dramatic accuracy improvement. Further optimization is possible but not critical for typical use cases.</p>
+<p><strong>Branch:</strong> <code>refactor/build-isoster-model</code> (ready for review)</p>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../../..", "features": ["navigation.sections", "navigation.expand", "content.code.copy"], "search": "../../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../../../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+    
+  </body>
+</html>
