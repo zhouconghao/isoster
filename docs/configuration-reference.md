@@ -71,12 +71,21 @@ Iteration limits and convergence criteria.
 | `minit` | `10` | `int` (> 0) | Minimum iterations before convergence check. |
 | `conver` | `0.05` | `float` (> 0) | Convergence threshold: `max_harmonic_amplitude / rms`. |
 | `convergence_scaling` | `'sector_area'` | `str` | Scale convergence threshold with SMA. Options: `'none'`, `'sector_area'`, `'sqrt_sma'`. |
+| `sigma_bg` | `None` | `Optional[float]` (> 0) | Explicit background noise level (sigma). |
 | `use_lazy_gradient` | `True` | `bool` | Enable Lazy Gradient Evaluation (Modified Newton Method). |
 
 **Interaction notes:**
 
 - Convergence is declared when the largest harmonic amplitude drops below
   `conver * rms * scale_factor`, where `scale_factor` depends on `convergence_scaling`.
+- When `sigma_bg` is provided, it establishes a hard lower bound on the convergence
+  threshold: `max(rms, sigma_bg / sqrt(N))`. This prevents the solver from chasing
+  vanishing asymmetries in the noise floor where `rms` might naturally dip below
+  the photon noise limit.
+- `use_corrected_errors=True` (default) includes the radial gradient uncertainty term
+  in the geometric error formulas. This correctly inflates error bars in LSB regions
+  where gradient measurement is uncertain, preventing the reported "false confidence"
+  of standard residual-based methods.
 - `'sector_area'` (default) matches photutils behavior and eliminates most stop=2
   failures at outer isophotes. The scale factor grows with SMA.
 - `'none'` uses a constant threshold (legacy behavior).
@@ -253,6 +262,7 @@ Toggle optional output quantities.
 | Parameter | Default | Type | Description |
 |-----------|---------|------|-------------|
 | `compute_errors` | `True` | `bool` | Calculate parameter errors (x0_err, y0_err, eps_err, pa_err). |
+| `use_corrected_errors` | `True` | `bool` | Include gradient uncertainty term in error propagation. |
 | `compute_deviations` | `True` | `bool` | Calculate higher-order harmonic deviations (a3, b3, a4, b4, etc.) post-hoc. |
 | `full_photometry` | `False` | `bool` | Calculate aperture flux integration metrics (tflux_e, tflux_c, npix_e, npix_c). |
 | `compute_cog` | `False` | `bool` | Calculate curve-of-growth photometry (cog, cog_annulus, area_annulus, flag_cross, flag_negative_area). |

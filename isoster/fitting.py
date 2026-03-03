@@ -243,7 +243,7 @@ def sigma_clip(phi, intens, sclip=3.0, nclip=0, sclip_low=None, sclip_high=None,
         return phi_c, intens_c, total_clipped, *extras_c
     return phi_c, intens_c, total_clipped
 
-def compute_parameter_errors(phi, intens, x0, y0, sma, eps, pa, gradient, cov_matrix=None, coeffs=None):
+def compute_parameter_errors(phi, intens, x0, y0, sma, eps, pa, gradient, gradient_error=None, cov_matrix=None, coeffs=None, var_residual_floor=None):
     """Compute parameter errors based on the covariance matrix of harmonic coefficients.
 
     Args:
@@ -251,8 +251,10 @@ def compute_parameter_errors(phi, intens, x0, y0, sma, eps, pa, gradient, cov_ma
         intens: Intensity array
         x0, y0, sma, eps, pa: Geometry parameters
         gradient: Intensity gradient
+        gradient_error: Uncertainty in the intensity gradient (optional)
         cov_matrix: Covariance matrix from harmonic fit (optional)
         coeffs: Harmonic coefficients [y0, A1, B1, A2, B2] (optional, avoids re-fitting)
+        var_residual_floor: Minimum variance for residuals (optional, e.g. sigma_bg^2)
 
     Returns:
         Tuple of (x0_err, y0_err, eps_err, pa_err)
@@ -263,62 +265,82 @@ def compute_parameter_errors(phi, intens, x0, y0, sma, eps, pa, gradient, cov_ma
     # Guard against too few data points for the harmonic model (5 params)
     if len(intens) <= 5:
         return 0.0, 0.0, 0.0, 0.0
+    
+    g_err_sq = gradient_error**2 if gradient_error is not None else 0.0
+    g_sq = gradient**2
+
     try:
-        if cov_matrix is None:
-            # Fallback to leastsq if covariance not provided
-            s1, c1 = np.sin(phi), np.cos(phi)
-            s2, c2 = np.sin(2*phi), np.cos(2*phi)
-            params_init = [np.mean(intens), 0.0, 0.0, 0.0, 0.0]
-
-            def residual(params):
-                model = (params[0] + params[1]*s1 + params[2]*c1 +
-                        params[3]*s2 + params[4]*c2)
-                return intens - model
-
-            solution = leastsq(residual, params_init, full_output=True)
-            coeffs = solution[0]
-            cov_matrix = solution[1]
-
-            if cov_matrix is None:
-                return 0.0, 0.0, 0.0, 0.0
-
-            model = (coeffs[0] + coeffs[1]*s1 + coeffs[2]*c1 +
-                    coeffs[3]*s2 + coeffs[4]*c2)
-            n_params = len(coeffs)
-            if len(intens) <= n_params:
-                return 0.0, 0.0, 0.0, 0.0
-            var_residual = np.std(intens - model, ddof=n_params)**2
-            covariance = cov_matrix * var_residual
-            errors = np.sqrt(np.diagonal(covariance))
-        else:
-            # Use provided coeffs if available (EFF-2: avoid redundant re-fitting)
-            if coeffs is None:
-                # Fallback: re-fit to get coeffs (backward compatibility)
+        # 1. Determine coefficients if not provided
+        if coeffs is None:
+            if cov_matrix is not None:
+                # We have covariance but no coeffs? This shouldn't happen in EFF-2 path
+                # but we'll re-fit just in case.
                 coeffs, _ = fit_first_and_second_harmonics(phi, intens)
+            else:
+                # No covariance, no coeffs: use fit_first_and_second_harmonics
+                coeffs, cov_matrix = fit_first_and_second_harmonics(phi, intens)
 
-            model = harmonic_function(phi, coeffs)
-            n_params = 5  # [y0, A1, B1, A2, B2]
-            if len(intens) <= n_params:
-                return 0.0, 0.0, 0.0, 0.0
-            var_residual = np.var(intens - model, ddof=n_params)
-            covariance = cov_matrix * var_residual
-            errors = np.sqrt(np.diagonal(covariance))
+        # 2. Determine residual variance
+        n_params = 5
+        model = harmonic_function(phi, coeffs)
+        var_residual = np.var(intens - model, ddof=n_params)
+        if var_residual_floor is not None:
+            var_residual = max(var_residual, var_residual_floor)
+
+        # 3. Scale covariance matrix by residual variance to get parameter covariance
+        if cov_matrix is None:
+            return 0.0, 0.0, 0.0, 0.0
+            
+        covariance = cov_matrix * var_residual
+        errors = np.sqrt(np.diagonal(covariance))
         
-        # Parameter error formulas
-        ea = abs(errors[2] / gradient)
-        eb = abs(errors[1] * (1.0 - eps) / gradient)
+        # Parameter error formulas (Corrected to include gradient uncertainty)
+        # 1. Harmonic coefficient variances
+        sig_a1_sq, sig_b1_sq = errors[1]**2, errors[2]**2
+        sig_a2_sq, sig_b2_sq = errors[3]**2, errors[4]**2
         
-        x0_err = np.sqrt((ea * np.cos(pa))**2 + (eb * np.sin(pa))**2)
-        y0_err = np.sqrt((ea * np.sin(pa))**2 + (eb * np.cos(pa))**2)
-        eps_err = abs(2.0 * errors[4] * (1.0 - eps) / sma / gradient)
+        # 2. Geometric harmonic amplitudes (A1, B1, A2, B2)
+        # indexing matches fit_first_and_second_harmonics: [y0, A1, B1, A2, B2]
+        a1, b1 = coeffs[1], coeffs[2]
+        a2, b2 = coeffs[3], coeffs[4]
+
+        # 3. Propagated variances for major/minor axis shifts
+        # Major axis: Var(B1/g) = (1/g^2) * [Var(B1) + (B1/g)^2 * Var(g)]
+        var_major = (sig_b1_sq + (b1**2 / g_sq) * g_err_sq) / g_sq
+        # Minor axis: Var(A1*(1-eps)/g) = ((1-eps)^2/g^2) * [Var(A1) + (A1/g)^2 * Var(g)]
+        var_minor = ((1.0 - eps)**2 / g_sq) * (sig_a1_sq + (a1**2 / g_sq) * g_err_sq)
         
+        x0_err = np.sqrt((var_minor * np.sin(pa)**2) + (var_major * np.cos(pa)**2))
+        y0_err = np.sqrt((var_minor * np.cos(pa)**2) + (var_major * np.sin(pa)**2))
+        
+        # 4. Ellipticity variance
+        # Var(eps) = Var(2*(1-eps)*B2 / (a*g))
+        #          = (2*(1-eps)/(a*g))^2 * [Var(B2) + (B2/g)^2 * Var(g)]
+        var_eps = (2.0 * (1.0 - eps) / (sma * gradient))**2 * (sig_b2_sq + (b2**2 / g_sq) * g_err_sq)
+        eps_err = np.sqrt(var_eps)
+        
+        # 5. Position angle variance
         if abs(eps) > np.finfo(float).resolution:
-            pa_err = abs(2.0 * errors[3] * (1.0 - eps) / sma / gradient / 
-                        (1.0 - (1.0 - eps)**2))
+            # denom = (1-eps)^2 - 1
+            denom = (1.0 - eps)**2 - 1.0
+            if abs(denom) < 1e-10: denom = -1e-10
+            
+            # Var(PA) = Var(2*(1-eps)*A2 / (a*g*denom))
+            #         = (2*(1-eps)/(a*g*denom))^2 * [Var(A2) + (A2/g)^2 * Var(g)]
+            var_pa = (2.0 * (1.0 - eps) / (sma * gradient * denom))**2 * (sig_a2_sq + (a2**2 / g_sq) * g_err_sq)
+            pa_err = np.sqrt(var_pa)
         else:
             pa_err = 0.0
             
         return x0_err, y0_err, eps_err, pa_err
+    except (np.linalg.LinAlgError, ValueError) as e:
+        # Singular matrix or numerical instability - return zero errors
+        warnings.warn(
+            f"compute_parameter_errors failed (singular matrix or numerical issue): {e}. "
+            f"Returning zero errors.",
+            RuntimeWarning
+        )
+        return 0.0, 0.0, 0.0, 0.0
     except (np.linalg.LinAlgError, ValueError) as e:
         # Singular matrix or numerical instability - return zero errors
         warnings.warn(
@@ -1037,7 +1059,10 @@ def fit_isophote(image, mask, sma, start_geometry, config, going_inwards=False, 
                 cov_5x5 = cov_matrix[:5, :5] if (use_isofit_in_loop and cov_matrix is not None) else cov_matrix
                 coeffs_5 = coeffs[:5]
                 x0_err, y0_err, eps_err, pa_err = compute_parameter_errors(
-                    phi, intens, x0, y0, sma, eps, pa, gradient, cov_5x5, coeffs_5
+                    phi, intens, x0, y0, sma, eps, pa, gradient,
+                    gradient_error=gradient_error if cfg.use_corrected_errors else None,
+                    cov_matrix=cov_5x5, coeffs=coeffs_5,
+                    var_residual_floor=cfg.sigma_bg**2 if cfg.sigma_bg is not None else None
                 )
             else:
                 x0_err, y0_err, eps_err, pa_err = 0.0, 0.0, 0.0, 0.0
@@ -1087,7 +1112,12 @@ def fit_isophote(image, mask, sma, start_geometry, config, going_inwards=False, 
         else:
             no_improvement_count += 1
             
-        if abs(max_amp) < conver * convergence_scale * rms and i >= minit:
+        effective_rms = rms
+        if cfg.sigma_bg is not None and len(intens) > 0:
+            noise_floor = cfg.sigma_bg / np.sqrt(len(intens))
+            effective_rms = max(rms, noise_floor)
+
+        if abs(max_amp) < conver * convergence_scale * effective_rms and i >= minit:
             stop_code = 0  # STOP_CODE 0: Converged successfully
             converged = True
             if compute_deviations_flag and not best_isofit_harmonics_stored:

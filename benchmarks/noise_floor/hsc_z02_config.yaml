@@ -1,0 +1,12 @@
+image_configs:
+  - name: "hsc_wide"
+    pixel_scale: 0.168
+    zeropoint: 27.0
+    engine: libprofit
+    psf_enabled: true
+    psf_type: gaussian
+    psf_fwhm: 0.7
+    noise_enabled: true
+    sky_sb_limit: 24.5
+    noise_seed: 42
+    size_factor: 15.0

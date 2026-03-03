@@ -7,32 +7,33 @@ tags:
   - documentation
   - roadmap
   - autoprof
+  - optimization
+  - phase-26
+  - lazy-gradient
 ---
 
 ## Progress
 
-- Aligned `algorithm.md`, `configuration-reference.md`, `spec.md`, and `user-guide.md` with the current codebase implementation.
-- Removed non-existent `forced=True` and `forced_sma` parameters from documentation.
-- Updated all "Forced Mode" references to use the `template` argument in `fit_image()`.
-- Corrected `stop_code=1` logic description to `actual_points < total_points * (1.0 - fflag)`.
-- Synchronized `compute_gradient` normalization description with the actual implementation ( `/ delta_r`).
-- Conducted a theoretical deep-dive into the `autoprof` algorithm, validating the Jedrzejewski step as a Newton-Raphson optimizer.
-- Identified a critical omission in geometric error propagation (missing gradient uncertainty term).
-- Created a synthesized roadmap in `docs/archive/review/autoprof-7-synthesis-and-paths.md` and `docs/archive/review/isoster-efficiency-first-principles.md`.
-- Rewrote `docs/future.md` with a high-impact strategy: Lazy Gradient Evaluation, Explicit Noise Floor, Vectorized Template Photometry, and WLS via Variance Maps.
-- Developed a concrete implementation plan for Phase 26 (Efficiency & Accuracy) in `docs/plan/phase-26-efficiency-accuracy.md`.
-- Deleted the obsolete `docs/stop-codes.md` file.
-- Merged all changes from `doc-alignment-2026-03-03` into `main`.
+- Aligned `algorithm.md`, `configuration-reference.md`, `spec.md`, and `user-guide.md` with current codebase behaviors.
+- Conducted theoretical analysis of `autoprof` and validated `isoster` as a Newton-Raphson optimizer.
+- Identified missing gradient uncertainty term in geometric error propagation.
+- Rewrote `docs/future.md` with a strategic roadmap (Lazy Gradient, Noise Floor, Vectorized Forced Photometry, WLS).
+- **Implemented Lazy Gradient Evaluation** (Modified Newton Method) in `isoster/fitting.py`.
+- Added `use_lazy_gradient` to `IsosterConfig`.
+- Optimized fitting loop to reuse radial gradient unless convergence stalls (3 non-improving iterations).
+- Created `benchmarks/lazy_gradient/run_benchmark.py` with high-quality QA (2D residuals + 5-panel profiles).
+- Verified **~45% reduction in sampling calls** and **1.4x–2.8x speedup** over normal mode.
+- Updated `docs/todo.md` (Phase 26) and consolidated document improvements.
 
 ## Lessons Learned
 
-- `isoster`'s speed comes from its analytic Newton-Raphson step, but its stability in LSB regions is limited by the dependency on the radial gradient's inverse.
-- Reusing the previously converged isophote for gradient estimation (Lazy Gradient) is a safer and faster optimization than profile-based estimation.
+- `isoster` stability in LSB regions is limited by the dependency on the radial gradient's inverse; freezing the Jacobian (Lazy Gradient) is a safe optimization when geometry shifts are minute.
 - Geometric error bars in the outer disk are currently underestimated due to the omission of the $\sigma^2_g / g^4$ term.
-- Forced photometry can be radicalized from $O(N_{sma})$ interpolations to $O(1)$ grid projection using `binned_statistic`.
+- Instrumenting core functions via `unittest.mock.patch` effectively verifies complexity reductions.
+- Forced photometry can be radicalized from $O(N_{sma})$ to $O(1)$ grid projection using `binned_statistic`.
 
 ## Key Issues
 
-- Implement Phase 26: Lazy Gradient Evaluation, `sigma_bg` noise floor, and corrected error propagation math.
-- Investigate performance impact of `binned_statistic` vs. `map_coordinates` for Idea A (Whole-Image Grid Projection).
-- Monitor for geometry drift or stalling when Jacobian freezing is active.
+- Implement remaining Phase 26 items: corrected error propagation math and `sigma_bg` noise floor.
+- Investigate performance impact of `binned_statistic` vs. `map_coordinates` for whole-image projection.
+- Monitor for geometry drift in highly asymmetric cases with Jacobian freezing.
