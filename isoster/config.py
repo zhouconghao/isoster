@@ -44,6 +44,18 @@ class IsosterConfig(BaseModel):
                     "'sqrt_sma': multiply by sqrt(sma). "
                     "'none': constant threshold (legacy behavior)."
     )
+    sigma_bg: Optional[float] = Field(
+        default=None,
+        gt=0.0,
+        description="Explicit background noise level (sigma). "
+                    "If provided, establish a hard lower bound on the convergence threshold: "
+                    "max(rms, sigma_bg / sqrt(N)). This prevents overfitting in LSB regions."
+    )
+    use_corrected_errors: bool = Field(
+        default=True,
+        description="If True, include the gradient uncertainty term in geometric error propagation. "
+                    "This provides more realistic (larger) error bars in LSB regions."
+    )
     use_lazy_gradient: bool = Field(
         default=True,
         description="If True, use 'Lazy Gradient Evaluation' (Modified Newton Method). "

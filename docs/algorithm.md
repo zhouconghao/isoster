@@ -53,7 +53,8 @@ The returned structure is `IsophoteData(angles, phi, intens, radii)` where `angl
    - uses `maxgerr`, sign checks, and a two-strike `lexceed` rule before stop code `-1`.
 7. Compute dominant harmonic amplitude and geometry correction target.
 8. Track the best geometry by minimal `effective_amp = abs(max_amp) + regularization_penalty`.
-9. Converge when `abs(max_amp) < conver * convergence_scale * rms` and `i >= minit`.
+9. Converge when `abs(max_amp) < conver * convergence_scale * effective_rms` and `i >= minit`.
+   - **Noise Floor**: If `sigma_bg` is provided, `effective_rms = max(rms, sigma_bg / sqrt(N))`. This prevents overfitting noise-induced asymmetries in LSB regions.
 10. If iterations reach `maxit` without convergence, return best-so-far geometry with stop code `2`.
 
 On convergence, optional blocks are attached:
