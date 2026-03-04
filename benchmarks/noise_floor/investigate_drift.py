@@ -44,7 +44,7 @@ from benchmarks.utils.autoprof_adapter import run_autoprof_fit
 
 # photutils imports
 try:
-    from photutils.isophote import Ellipse, EllipseGeometry
+    from photutils.isophote import Ellipse, EllipseGeometry, build_ellipse_model
     PHOTUTILS_AVAILABLE = True
 except ImportError:
     PHOTUTILS_AVAILABLE = False
@@ -69,7 +69,7 @@ def estimate_background(image: np.ndarray) -> float:
 def run_isoster_fit(image, sigma_bg=None, maxsma=None):
     ny, nx = image.shape
     config = IsosterConfig(
-        x0=nx/2.0, y0=ny/2.0, eps=0.2, pa=0.0,
+        x0=(nx - 1) / 2.0, y0=(ny - 1) / 2.0, eps=0.2, pa=0.0,
         sma0=10.0, minsma=1.0, maxsma=maxsma,
         sigma_bg=sigma_bg,
         clip_max_shift=5.0,  # relaxed safeguard
@@ -88,7 +88,7 @@ def run_photutils_fit(image, maxsma=None):
     if not PHOTUTILS_AVAILABLE:
         return None, 0
     ny, nx = image.shape
-    geometry = EllipseGeometry(x0=nx/2.0, y0=ny/2.0, sma=10.0, eps=0.2, pa=0.0)
+    geometry = EllipseGeometry(x0=(nx - 1) / 2.0, y0=(ny - 1) / 2.0, sma=10.0, eps=0.2, pa=0.0)
     ellipse = Ellipse(image, geometry)
     start_time = time.perf_counter()
     try:
@@ -101,18 +101,24 @@ def run_photutils_fit(image, maxsma=None):
             sclip=3.0
         )
         runtime = time.perf_counter() - start_time
+        
+        # Build native photutils model
+        model = build_ellipse_model(image.shape, isolist)
+        
         isophotes = []
         for iso in isolist:
             isophotes.append({
                 'sma': iso.sma, 'intens': iso.intens, 'eps': iso.eps, 'pa': iso.pa,
                 'x0': iso.x0, 'y0': iso.y0, 'eps_err': iso.ellip_err, 'pa_err': iso.pa_err,
                 'x0_err': iso.x0_err, 'y0_err': iso.y0_err,
-                'intens_err': iso.intens_err,
+                'intens_err': iso.int_err,
                 'stop_code': 0
             })
-        return {'isophotes': isophotes}, runtime
-    except Exception:
+        return {'isophotes': isophotes, 'model': model}, runtime
+    except Exception as e:
+        print(f"Photutils failed: {e}")
         return None, 0
+
 
 def plot_drift_qa(name, image, results_dict, sigma_bg, true_center, output_path):
     """
@@ -157,10 +163,41 @@ def plot_drift_qa(name, image, results_dict, sigma_bg, true_center, output_path)
         residuals.append(np.where(np.isfinite(image), image - m_fix, np.nan))
         res_titles.append("Noise Fix Residual")
         
-    if results_dict.get('Photutils') and results_dict['Photutils'] is not None:
-        m_photo = build_isoster_model(image.shape, results_dict['Photutils']['isophotes'], use_harmonics=False)
-        residuals.append(np.where(np.isfinite(image), image - m_photo, np.nan))
-        res_titles.append("Photutils Residual")
+    if results_dict.get('AutoProf') and results_dict['AutoProf'] is not None:
+        auto_res = results_dict['AutoProf']
+        if 'model_fits_path' in auto_res and Path(auto_res['model_fits_path']).exists():
+            with fits.open(auto_res['model_fits_path']) as hdul:
+                # AutoProf genmodel puts the data in the first extension
+                m_auto_raw = hdul[1].data.astype(np.float64)
+            
+            # Embed the potentially cropped AutoProf model back into the original image shape
+            m_auto = np.full(image.shape, np.nan)
+            ny, nx = image.shape
+            my, mx = m_auto_raw.shape
+            
+            # true_center is already in 0-based pixel coordinates
+            cy, cx = int(true_center[1]), int(true_center[0])
+            
+            y_start = max(0, cy - my // 2)
+            y_end = min(ny, y_start + my)
+            x_start = max(0, cx - mx // 2)
+            x_end = min(nx, x_start + mx)
+            
+            # Calculate source slices in case of boundary clipping
+            sy_start = 0 if y_start > 0 else (my // 2 - cy)
+            sy_end = my if y_end < ny else (sy_start + (y_end - y_start))
+            sx_start = 0 if x_start > 0 else (mx // 2 - cx)
+            sx_end = mx if x_end < nx else (sx_start + (x_end - x_start))
+            
+            m_auto[y_start:y_end, x_start:x_end] = m_auto_raw[sy_start:sy_end, sx_start:sx_end]
+            
+            residuals.append(np.where(np.isfinite(image), image - m_auto, np.nan))
+            res_titles.append("AutoProf Residual")
+    elif results_dict.get('Photutils') and results_dict['Photutils'] is not None:
+        if 'model' in results_dict['Photutils']:
+            m_photo = results_dict['Photutils']['model']
+            residuals.append(np.where(np.isfinite(image), image - m_photo, np.nan))
+            res_titles.append("Photutils Residual")
         
     # Scale residuals
     if residuals:
@@ -225,8 +262,10 @@ def plot_drift_qa(name, image, results_dict, sigma_bg, true_center, output_path)
             eps_err = res.get('eps_err', np.full_like(sma, np.nan))
             pa_err_rad = res.get('pa_err', np.full_like(sma, np.nan)) # Also radians
             intens_err = res.get('intens_err', np.full_like(sma, np.nan))
-            if x0 is None: x0 = np.full_like(sma, np.nan)
-            if y0 is None: y0 = np.full_like(sma, np.nan)
+            
+            # AutoProf does not output X_c/Y_c if it's fixed. Use true_center.
+            if x0 is None: x0 = np.full_like(sma, true_center[0])
+            if y0 is None: y0 = np.full_like(sma, true_center[1])
 
 
         xax = sma ** 0.25
@@ -358,7 +397,7 @@ def main():
                 zeropoint = header.get('MAGZERO', 27.0)
                 
             ny, nx = image.shape
-            true_center = (nx/2.0, ny/2.0)
+            true_center = ((nx - 1) / 2.0, (ny - 1) / 2.0)
             sigma_bg = estimate_background(image)
             
             # Fits
@@ -401,7 +440,10 @@ def main():
                     x0 = np.array([iso['x0'] for iso in isos])
                     y0 = np.array([iso['y0'] for iso in isos])
                 else:
-                    sma, intens, x0, y0 = res['sma'], res['intens'], res.get('x0'), res.get('y0')
+                    sma, intens = res['sma'], res['intens']
+                    x0, y0 = res.get('x0'), res.get('y0')
+                    if x0 is None: x0 = np.full_like(sma, true_center[0])
+                    if y0 is None: y0 = np.full_like(sma, true_center[1])
                 
                 if x0 is None or not np.any(np.isfinite(x0)):
                     gal_stats[label] = None
