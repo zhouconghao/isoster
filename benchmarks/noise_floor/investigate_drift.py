@@ -68,6 +68,7 @@ def estimate_background(image: np.ndarray) -> float:
 
 def run_isoster_fit(image, sigma_bg=None, maxsma=None):
     ny, nx = image.shape
+    # Truth center for mockgal is (nx-1)/2
     config = IsosterConfig(
         x0=(nx - 1) / 2.0, y0=(ny - 1) / 2.0, eps=0.2, pa=0.0,
         sma0=10.0, minsma=1.0, maxsma=maxsma,
@@ -119,37 +120,28 @@ def run_photutils_fit(image, maxsma=None):
         print(f"Photutils failed: {e}")
         return None, 0
 
+def get_huang2013_truth(header):
+    """Extract multi-component truth from mock fits header."""
+    ncomp = header.get('NCOMP', 0)
+    truth = []
+    for i in range(1, ncomp + 1):
+        truth.append({
+            'sma': header.get(f'RE_PX{i}', np.nan),
+            'eps': header.get(f'ELLIP{i}', np.nan),
+            'pa': np.radians(header.get(f'PA{i}', np.nan)),
+            'label': f'Comp {i} Re'
+        })
+    return truth
 
-def plot_drift_qa(name, image, results_dict, sigma_bg, true_center, output_path):
+def plot_drift_qa(name, image, results_dict, sigma_bg, true_center, output_path, truth_header=None):
     """
     Generate high-quality investigation figure focusing on Centroid Drift.
-    Left: Mock Image + Residual maps.
-    Right: 1-D profiles with scatter and error bars.
+    Left: Mock Image + Residual maps for ALL methods.
+    Right: 1-D profiles with scatter, error bars, and Huang2013 truth highlights.
     """
     configure_qa_plot_style()
     
-    fig = plt.figure(figsize=(16.0, 18.0))
-    # Left: 4 image panels (Data, Base Res, Fix Res, Photutils Res)
-    # Right: 6 profile panels (SB, SB Diff, dx, dy, b/a, PA)
-    outer = gridspec.GridSpec(1, 2, figure=fig, width_ratios=[1.0, 1.8], wspace=0.2)
-    
-    left = gridspec.GridSpecFromSubplotSpec(4, 1, subplot_spec=outer[0], hspace=0.15)
-    right = gridspec.GridSpecFromSubplotSpec(6, 1, subplot_spec=outer[1], 
-                                             height_ratios=[2.0, 1.0, 1.0, 1.0, 1.0, 1.0], hspace=0.0)
-    
-    fig.suptitle(f"Centroid Drift Investigation: {name}", fontsize=20, y=0.98)
-    
-    # 1. Image panels
-    ref_low, ref_high, ref_scale, ref_vmax = derive_arcsinh_parameters(image)
-    img_disp, vmin, vmax = make_arcsinh_display_from_parameters(image, ref_low, ref_high, ref_scale, ref_vmax)
-    
-    ax_img = fig.add_subplot(left[0])
-    ax_img.imshow(img_disp, origin='lower', cmap='viridis', vmin=vmin, vmax=vmax)
-    ax_img.set_title("Data + Fitted Isophotes (Noise Fix)", fontsize=12)
-    if results_dict.get('Noise Fix'):
-        draw_isophote_overlays(ax_img, results_dict['Noise Fix']['isophotes'], step=max(1, len(results_dict['Noise Fix']['isophotes'])//15), edge_color='orangered')
-    
-    # Models and Residuals
+    # 1. Models and Residuals collection
     residuals = []
     res_titles = []
     
@@ -167,30 +159,20 @@ def plot_drift_qa(name, image, results_dict, sigma_bg, true_center, output_path)
         auto_res = results_dict['AutoProf']
         if 'model_fits_path' in auto_res and Path(auto_res['model_fits_path']).exists():
             with fits.open(auto_res['model_fits_path']) as hdul:
-                # AutoProf genmodel puts the data in the first extension
                 m_auto_raw = hdul[1].data.astype(np.float64)
-            
-            # Embed the potentially cropped AutoProf model back into the original image shape
             m_auto = np.full(image.shape, np.nan)
             ny, nx = image.shape
             my, mx = m_auto_raw.shape
-            
-            # true_center is already in 0-based pixel coordinates
             cy, cx = int(true_center[1]), int(true_center[0])
-            
             y_start = max(0, cy - my // 2)
             y_end = min(ny, y_start + my)
             x_start = max(0, cx - mx // 2)
             x_end = min(nx, x_start + mx)
-            
-            # Calculate source slices in case of boundary clipping
             sy_start = 0 if y_start > 0 else (my // 2 - cy)
             sy_end = my if y_end < ny else (sy_start + (y_end - y_start))
             sx_start = 0 if x_start > 0 else (mx // 2 - cx)
             sx_end = mx if x_end < nx else (sx_start + (x_end - x_start))
-            
             m_auto[y_start:y_end, x_start:x_end] = m_auto_raw[sy_start:sy_end, sx_start:sx_end]
-            
             residuals.append(np.where(np.isfinite(image), image - m_auto, np.nan))
             res_titles.append("AutoProf Residual")
     elif results_dict.get('Photutils') and results_dict['Photutils'] is not None:
@@ -198,171 +180,169 @@ def plot_drift_qa(name, image, results_dict, sigma_bg, true_center, output_path)
             m_photo = results_dict['Photutils']['model']
             residuals.append(np.where(np.isfinite(image), image - m_photo, np.nan))
             res_titles.append("Photutils Residual")
-        
-    # Scale residuals
+
+    n_left_panels = 1 + len(residuals)
+    fig = plt.figure(figsize=(16.0, 4.0 * max(n_left_panels, 5)))
+    outer = gridspec.GridSpec(1, 2, figure=fig, width_ratios=[1.0, 1.8], wspace=0.2)
+    
+    left = gridspec.GridSpecFromSubplotSpec(n_left_panels, 1, subplot_spec=outer[0], hspace=0.15)
+    right = gridspec.GridSpecFromSubplotSpec(6, 1, subplot_spec=outer[1], 
+                                             height_ratios=[2.0, 1.0, 1.0, 1.0, 1.0, 1.0], hspace=0.0)
+    
+    fig.suptitle(f"Centroid Drift Investigation: {name}", fontsize=20, y=0.99)
+    
+    # Left Panels (Images)
+    ref_low, ref_high, ref_scale, ref_vmax = derive_arcsinh_parameters(image)
+    img_disp, vmin, vmax = make_arcsinh_display_from_parameters(image, ref_low, ref_high, ref_scale, ref_vmax)
+    
+    ax_img = fig.add_subplot(left[0])
+    ax_img.imshow(img_disp, origin='lower', cmap='viridis', vmin=vmin, vmax=vmax)
+    ax_img.set_title("Data + Fitted Isophotes", fontsize=12)
+    
+    # Overplot truth components if available
+    truth_comps = get_huang2013_truth(truth_header) if truth_header else []
+    for comp in truth_comps:
+        draw_isophote_overlays(ax_img, [{
+            'sma': comp['sma'], 'eps': comp['eps'], 'pa': comp['pa'], 
+            'x0': true_center[0], 'y0': true_center[1]
+        }], edge_color='white', line_width=2.0, alpha=0.8)
+    
+    if results_dict.get('Noise Fix'):
+        draw_isophote_overlays(ax_img, results_dict['Noise Fix']['isophotes'], 
+                               step=max(1, len(results_dict['Noise Fix']['isophotes'])//15), 
+                               edge_color='orangered', line_width=0.8, alpha=0.5)
+    
     if residuals:
-        all_res = np.concatenate([r[np.isfinite(r)] for r in residuals])
-        res_limit = float(np.clip(np.nanpercentile(np.abs(all_res), 99.0) if all_res.size else 1.0, 0.05, None))
-    else:
-        res_limit = 1.0
-        
-    for i, (res_map, title) in enumerate(zip(residuals, res_titles)):
-        if i + 1 < 4:
-            ax = fig.add_subplot(left[i + 1])
+        all_abs = np.abs(np.concatenate([r[np.isfinite(r)] for r in residuals]))
+        res_limit = float(np.clip(np.nanpercentile(all_abs, 99.0) if all_abs.size else 1.0, 0.05, None))
+        for i, (res_map, title) in enumerate(zip(residuals, res_titles), 1):
+            ax = fig.add_subplot(left[i])
             ax.imshow(res_map, origin="lower", cmap="coolwarm", vmin=-res_limit, vmax=res_limit, interpolation="nearest")
             ax.set_title(title, fontsize=12)
             ax.set_xticks([]); ax.set_yticks([])
 
-    # 2. Profiles
+    # Right Panels (Profiles)
     ax_sb = fig.add_subplot(right[0])
     ax_sb_diff = fig.add_subplot(right[1], sharex=ax_sb)
     ax_dx = fig.add_subplot(right[2], sharex=ax_sb)
     ax_dy = fig.add_subplot(right[3], sharex=ax_sb)
     ax_ba = fig.add_subplot(right[4], sharex=ax_sb)
-    ax_pa = fig.add_subplot(right[5], sharex=ax_sb)
+    ax_pa_panel = fig.add_subplot(right[5], sharex=ax_sb)
     
     colors = {'Baseline': '#1f77b4', 'Noise Fix': '#d62728', 'Photutils': '#2ca02c', 'AutoProf': '#9467bd'}
     markers = {'Baseline': 'o', 'Noise Fix': 's', 'Photutils': '^', 'AutoProf': 'D'}
     
-    all_xax = []
-    
     def _arr(isos, key): return np.array([r.get(key, np.nan) for r in isos])
     
-    # Pre-extract Fix for difference calculations
-    if results_dict.get('Noise Fix'):
-        sma_fix = _arr(results_dict['Noise Fix']['isophotes'], 'sma')
-        intens_fix = _arr(results_dict['Noise Fix']['isophotes'], 'intens')
-        xax_fix = sma_fix ** 0.25
-    else:
-        sma_fix = intens_fix = xax_fix = None
+    # Reference condition for differences
+    ref_cond = 'Noise Fix' if results_dict.get('Noise Fix') else 'Baseline'
+    sma_ref = _arr(results_dict[ref_cond]['isophotes'], 'sma')
+    intens_ref = _arr(results_dict[ref_cond]['isophotes'], 'intens')
+    xax_ref = sma_ref ** 0.25
     
+    # Anchoring PA to the first truth component if possible
+    pa_anchor = np.degrees(truth_comps[0]['pa']) if truth_comps else None
+
+    # Storage for axis scaling
+    all_sb, all_ba, all_pa, all_drift, all_diff, all_xax = [], [], [], [], [], []
+
     for label, res in results_dict.items():
         if res is None: continue
-        
-        # Handle different output formats
         if isinstance(res, dict) and 'isophotes' in res:
             isos = res['isophotes']
-            sma = _arr(isos, 'sma')
-            intens = _arr(isos, 'intens')
-            x0 = _arr(isos, 'x0')
-            y0 = _arr(isos, 'y0')
-            eps = _arr(isos, 'eps')
-            pa_rad = _arr(isos, 'pa')
-            x0_err = _arr(isos, 'x0_err')
-            y0_err = _arr(isos, 'y0_err')
-            eps_err = _arr(isos, 'eps_err')
-            pa_err_rad = _arr(isos, 'pa_err')
+            sma, intens = _arr(isos, 'sma'), _arr(isos, 'intens')
+            x0, y0 = _arr(isos, 'x0'), _arr(isos, 'y0')
+            eps, pa_rad = _arr(isos, 'eps'), _arr(isos, 'pa')
+            x0_err, y0_err = _arr(isos, 'x0_err'), _arr(isos, 'y0_err')
+            eps_err, pa_err_rad = _arr(isos, 'eps_err'), _arr(isos, 'pa_err')
             intens_err = _arr(isos, 'intens_err')
-        else: # AutoProf format
+        else: # AutoProf
             sma, intens = res['sma'], res['intens']
-            x0, y0 = res.get('x0'), res.get('y0')
-            eps, pa_rad = res['eps'], res['pa'] # Note: AutoProf adapter converts to radians
+            x0 = res.get('x0', np.full_like(sma, true_center[0]))
+            y0 = res.get('y0', np.full_like(sma, true_center[1]))
+            eps, pa_rad = res['eps'], res['pa']
             x0_err = res.get('x0_err', np.full_like(sma, np.nan))
             y0_err = res.get('y0_err', np.full_like(sma, np.nan))
-            eps_err = res.get('eps_err', np.full_like(sma, np.nan))
-            pa_err_rad = res.get('pa_err', np.full_like(sma, np.nan)) # Also radians
+            eps_err, pa_err_rad = res['eps_err'], res['pa_err']
             intens_err = res.get('intens_err', np.full_like(sma, np.nan))
-            
-            # AutoProf does not output X_c/Y_c if it's fixed. Use true_center.
-            if x0 is None: x0 = np.full_like(sma, true_center[0])
-            if y0 is None: y0 = np.full_like(sma, true_center[1])
-
 
         xax = sma ** 0.25
         all_xax.append(xax)
-        ok = (sma > 0) & np.isfinite(intens) & (intens > 0)
+        ok = (sma > 1.0) & np.isfinite(intens) & (intens > 0)
+        c, m = colors.get(label, 'gray'), markers.get(label, 'o')
         
-        c = colors.get(label, 'gray')
-        m = markers.get(label, 'o')
+        # SB
+        ax_sb.errorbar(xax[ok], np.log10(intens[ok]), yerr=0.434*intens_err[ok]/intens[ok] if np.any(np.isfinite(intens_err)) else None, 
+                       fmt=m, color=c, markersize=4, alpha=0.6, capsize=0, label=label)
+        all_sb.append(np.log10(intens[ok]))
         
-        # SB (convert intens_err to log10 err approx)
-        sb_err = 0.434 * intens_err[ok] / intens[ok] if np.any(np.isfinite(intens_err[ok])) else None
-        ax_sb.errorbar(xax[ok], np.log10(intens[ok]), yerr=sb_err, fmt=m, color=c, 
-                       markersize=4, alpha=0.7, capsize=0, label=label)
-        
-        # SB Difference
-        if label != 'Noise Fix' and sma_fix is not None:
-            # Interpolate method intens to fix SMA
+        # SB Difference (scatter + errorbar)
+        if label != ref_cond:
             valid_intens = np.isfinite(intens) & (intens > 0)
             if np.sum(valid_intens) > 1:
-                intens_interp = np.interp(sma_fix, sma[valid_intens], intens[valid_intens], left=np.nan, right=np.nan)
-                diff = (intens_interp - intens_fix) / intens_fix
-                
-                # Approximate difference error: sigma_diff = diff * sqrt((sigma_I/I)^2 + (sigma_Ifix/Ifix)^2)
-                # For simplicity, we just use the relative error of the current method
+                intens_interp = np.interp(sma_ref, sma[valid_intens], intens[valid_intens], left=np.nan, right=np.nan)
+                diff = (intens_interp - intens_ref) / intens_ref
                 diff_err = np.nan
                 if np.any(np.isfinite(intens_err[valid_intens])):
-                    err_interp = np.interp(sma_fix, sma[valid_intens], intens_err[valid_intens], left=np.nan, right=np.nan)
+                    err_interp = np.interp(sma_ref, sma[valid_intens], intens_err[valid_intens], left=np.nan, right=np.nan)
                     diff_err = np.abs(diff) * (err_interp / intens_interp)
-                
-                # Use scatter to match other panels
-                ax_sb_diff.errorbar(xax_fix, diff * 100, yerr=diff_err * 100, fmt=m, color=c, markersize=4, alpha=0.7, capsize=0)
-        
-        # Drift
-        dx = x0 - true_center[0]
-        dy = y0 - true_center[1]
-        
-        if np.any(np.isfinite(dx[ok])):
-            ax_dx.errorbar(xax[ok], dx[ok], yerr=x0_err[ok], fmt=m, color=c, markersize=4, alpha=0.7, capsize=0)
-            ax_dy.errorbar(xax[ok], dy[ok], yerr=y0_err[ok], fmt=m, color=c, markersize=4, alpha=0.7, capsize=0)
+                ax_sb_diff.errorbar(xax_ref, diff * 100, yerr=diff_err * 100, fmt=m, color=c, markersize=4, alpha=0.6, capsize=0)
+                all_diff.append(diff[np.isfinite(diff)] * 100)
             
-        # Axis Ratio / PA
-        ax_ba.errorbar(xax[ok], 1.0 - eps[ok], yerr=eps_err[ok], fmt=m, color=c, markersize=4, alpha=0.7, capsize=0)
+        # Drift
+        dx, dy = x0 - true_center[0], y0 - true_center[1]
+        ax_dx.errorbar(xax[ok], dx[ok], yerr=x0_err[ok], fmt=m, color=c, markersize=4, alpha=0.6, capsize=0)
+        ax_dy.errorbar(xax[ok], dy[ok], yerr=y0_err[ok], fmt=m, color=c, markersize=4, alpha=0.6, capsize=0)
+        all_drift.extend([dx[ok], dy[ok]])
         
-        # Normalize PA globally for this label to avoid jumps
-        pa_deg = np.degrees(pa_rad[ok])
-        pa_err_deg = np.degrees(pa_err_rad[ok])
-        norm_pa_deg = normalize_pa_degrees(pa_deg)
-        ax_pa.errorbar(xax[ok], norm_pa_deg, yerr=pa_err_deg, fmt=m, color=c, markersize=4, alpha=0.7, capsize=0)
+        # Axis Ratio
+        ax_ba.errorbar(xax[ok], 1.0 - eps[ok], yerr=eps_err[ok], fmt=m, color=c, markersize=4, alpha=0.6, capsize=0)
+        all_ba.append(1.0 - eps[ok])
+        
+        # PA
+        pa_deg = normalize_pa_degrees(np.degrees(pa_rad[ok]), anchor=pa_anchor)
+        ax_pa_panel.errorbar(xax[ok], pa_deg, yerr=np.degrees(pa_err_rad[ok]), fmt=m, color=c, markersize=4, alpha=0.6, capsize=0)
+        all_pa.append(pa_deg)
+
+    # Truth highlights on profiles
+    for comp in truth_comps:
+        xcomp = comp['sma'] ** 0.25
+        ax_ba.scatter(xcomp, 1.0 - comp['eps'], s=150, marker='*', facecolor='gold', edgecolor='black', zorder=10, label='Truth' if comp==truth_comps[0] else None)
+        ax_pa_panel.scatter(xcomp, normalize_pa_degrees(np.array([np.degrees(comp['pa'])]), anchor=pa_anchor), s=150, marker='*', facecolor='gold', edgecolor='black', zorder=10)
 
     # Reference lines
     ax_sb.axhline(np.log10(sigma_bg), color='gray', ls=':', label=r'$\sigma_{bg}$')
-    for ax in [ax_sb_diff, ax_dx, ax_dy]:
-        ax.axhline(0, color='gray', ls='--', lw=0.8)
+    for ax in [ax_sb_diff, ax_dx, ax_dy]: ax.axhline(0, color='gray', ls='--', lw=0.8)
 
-    # Limits
-    if results_dict.get('Noise Fix'):
-        f_isos = results_dict['Noise Fix']['isophotes']
-        set_axis_limits_from_finite_values(ax_sb, np.log10(_arr(f_isos, 'intens')), margin_fraction=0.1)
-        set_axis_limits_from_finite_values(ax_ba, 1.0 - _arr(f_isos, 'eps'), margin_fraction=0.1, lower_clip=0.0, upper_clip=1.0)
-        
-        pa_vals = normalize_pa_degrees(np.degrees(_arr(f_isos, 'pa')))
-        pa_low, pa_high = robust_limits(pa_vals[np.isfinite(pa_vals)], 5, 95)
-        ax_pa.set_ylim(pa_low - 10, pa_high + 10)
-        
-        dx_f = _arr(f_isos, 'x0') - true_center[0]
-        dy_f = _arr(f_isos, 'y0') - true_center[1]
-        c_low, c_high = robust_limits(np.concatenate([dx_f[np.isfinite(dx_f)], dy_f[np.isfinite(dy_f)]]), 5, 95)
-        ax_dx.set_ylim(c_low - 5, c_high + 5)
-        ax_dy.set_ylim(c_low - 5, c_high + 5)
-        
-        # SB Diff limits: clip to reasonable range for visual clarity
-        ax_sb_diff.set_ylim(-50, 50)
+    # Axis Limits (Global)
+    if all_xax: set_x_limits_with_right_margin(ax_pa_panel, np.concatenate(all_xax))
+    set_axis_limits_from_finite_values(ax_sb, np.concatenate(all_sb), margin_fraction=0.1)
+    set_axis_limits_from_finite_values(ax_ba, np.concatenate(all_ba), margin_fraction=0.1, lower_clip=0.0, upper_clip=1.0)
+    set_axis_limits_from_finite_values(ax_dx, np.concatenate(all_drift), margin_fraction=0.3)
+    set_axis_limits_from_finite_values(ax_dy, np.concatenate(all_drift), margin_fraction=0.3)
+    if all_diff: set_axis_limits_from_finite_values(ax_sb_diff, np.concatenate(all_diff), margin_fraction=0.2)
+    
+    if all_pa:
+        p_vals = np.concatenate(all_pa)
+        p_low, p_high = robust_limits(p_vals[np.isfinite(p_vals)], 2, 98)
+        ax_pa_panel.set_ylim(p_low - 20, p_high + 20)
 
     # Formatting
     ax_sb.set_ylabel(r"$\log_{10}(I)$")
     ax_sb.legend(loc='upper right', fontsize=10)
-    ax_sb_diff.set_ylabel(r"$\Delta I/I$ [%]")
+    ax_sb_diff.set_ylabel(r"$\Delta I/I_{fix}$ [%]")
     ax_dx.set_ylabel(r"$\Delta$X [pix]")
     ax_dy.set_ylabel(r"$\Delta$Y [pix]")
     ax_ba.set_ylabel("b/a")
-    ax_pa.set_ylabel("PA [deg]")
-    ax_pa.set_xlabel(r"SMA$^{0.25}$")
+    ax_pa_panel.set_ylabel("PA [deg]")
+    ax_pa_panel.set_xlabel(r"SMA$^{0.25}$ (pixel$^{0.25}$)")
     
     for ax in [ax_sb, ax_sb_diff, ax_dx, ax_dy, ax_ba]:
-        ax.tick_params(labelbottom=False)
-        ax.grid(alpha=0.2)
-    ax_pa.grid(alpha=0.2)
-    
-    if all_xax:
-        xcat = np.concatenate(all_xax)
-        set_x_limits_with_right_margin(ax_pa, xcat)
+        ax.tick_params(labelbottom=False); ax.grid(alpha=0.2)
+    ax_pa_panel.grid(alpha=0.2)
 
     plt.subplots_adjust(left=0.05, right=0.98, bottom=0.06, top=0.94)
-    plt.savefig(output_path, dpi=150)
-    plt.close()
-
-def _arr(isos, key): return np.array([r.get(key, np.nan) for r in isos])
+    plt.savefig(output_path, dpi=150); plt.close()
 
 # ---------------------------------------------------------------------------
 # Main
@@ -426,8 +406,8 @@ def main():
                 'AutoProf': res_auto
             }
             
-            plot_drift_qa(f"{name}_{noise_label}", image, results_dict, sigma_bg, true_center, 
-                          output_dir / f"drift_{name}_{noise_label}.png")
+            plot_drift_qa(f"{name}", image, results_dict, sigma_bg, true_center, 
+                          output_dir / f"drift_{name}.png", truth_header=header)
 
             # Collect stats
             gal_stats = {'name': name, 'noise_regime': noise_label, 'sigma_bg': sigma_bg}
@@ -435,39 +415,24 @@ def main():
                 if res is None: continue
                 if isinstance(res, dict) and 'isophotes' in res:
                     isos = res['isophotes']
-                    sma = np.array([iso['sma'] for iso in isos])
-                    intens = np.array([iso['intens'] for iso in isos])
-                    x0 = np.array([iso['x0'] for iso in isos])
-                    y0 = np.array([iso['y0'] for iso in isos])
+                    sma, intens = np.array([iso['sma'] for iso in isos]), np.array([iso['intens'] for iso in isos])
+                    x0, y0 = np.array([iso['x0'] for iso in isos]), np.array([iso['y0'] for iso in isos])
                 else:
                     sma, intens = res['sma'], res['intens']
-                    x0, y0 = res.get('x0'), res.get('y0')
-                    if x0 is None: x0 = np.full_like(sma, true_center[0])
-                    if y0 is None: y0 = np.full_like(sma, true_center[1])
+                    x0 = res.get('x0', np.full_like(sma, true_center[0]))
+                    y0 = res.get('y0', np.full_like(sma, true_center[1]))
                 
-                if x0 is None or not np.any(np.isfinite(x0)):
-                    gal_stats[label] = None
-                    continue
-                    
                 dx, dy = x0 - true_center[0], y0 - true_center[1]
                 dr = np.sqrt(dx**2 + dy**2)
-                
-                # Outskirt stats: I < 2 * sigma_bg
                 out_mask = (intens < 2.0 * sigma_bg) & np.isfinite(dr)
                 if np.any(out_mask):
-                    gal_stats[label] = {
-                        'max_drift_out': float(np.max(dr[out_mask])),
-                        'mean_drift_out': float(np.mean(dr[out_mask])),
-                        'max_dr': float(np.max(dr[np.isfinite(dr)]))
-                    }
+                    gal_stats[label] = {'max_drift_out': float(np.max(dr[out_mask])), 'mean_drift_out': float(np.mean(dr[out_mask])), 'max_dr': float(np.max(dr[np.isfinite(dr)]))}
                 else:
                     gal_stats[label] = {'max_dr': float(np.max(dr[np.isfinite(dr)])) if np.any(np.isfinite(dr)) else None}
-            
             summary.append(gal_stats)
 
     with open(output_dir / "drift_summary.json", "w") as f:
         json.dump(summary, f, indent=2)
-
     print(f"\nInvestigation complete. Plots and summary saved to {output_dir}")
 
 if __name__ == "__main__":
