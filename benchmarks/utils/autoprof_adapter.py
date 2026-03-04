@@ -27,7 +27,7 @@ import numpy as np
 # System Python where AutoProf is installed (numpy 1.x environment).
 # Configurable via AUTOPROF_PYTHON environment variable.
 AUTOPROF_PYTHON = os.environ.get(
-    "AUTOPROF_PYTHON", "/Users/mac/miniforge3/bin/python3"
+    "AUTOPROF_PYTHON", "/Users/shuang/miniconda3/bin/python3"
 )
 
 

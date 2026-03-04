@@ -332,7 +332,7 @@ def compute_parameter_errors(phi, intens, x0, y0, sma, eps, pa, gradient, gradie
         else:
             pa_err = 0.0
             
-        return x0_err, y0_err, eps_err, pa_err
+        return float(x0_err), float(y0_err), float(eps_err), float(pa_err)
     except (np.linalg.LinAlgError, ValueError) as e:
         # Singular matrix or numerical instability - return zero errors
         warnings.warn(
@@ -1134,12 +1134,31 @@ def fit_isophote(image, mask, sma, start_geometry, config, going_inwards=False, 
             
         # Update geometry (apply damping to reduce oscillations at large SMA)
         damping = cfg.geometry_damping
+        
+        # New: Gradient SNR-based damping to stabilize outskirts (LSB)
+        # If the gradient is noisy, we reduce the update step size.
+        if gradient_error is not None and abs(gradient) > 0:
+            grad_snr = abs(gradient / gradient_error)
+            # Damping scales linearly with SNR below SNR=3, with a floor of 0.1
+            snr_damping = np.clip(grad_snr / 3.0, 0.1, 1.0)
+            damping *= snr_damping
+
         if geometry_update_mode == 'simultaneous':
             # Simultaneous: update ALL geometry parameters each iteration
             # Center corrections (minor/major axis)
             if not fix_center:
                 aux_minor = -harmonics[0] * (1.0 - eps) / gradient * damping
                 aux_major = -harmonics[1] / gradient * damping
+                
+                # Safety: Clip large jumps in a single iteration
+                if cfg.clip_max_shift is not None:
+                    max_iter_shift = max(cfg.clip_max_shift, 0.05 * sma)
+                    shift_len = np.sqrt(aux_minor**2 + aux_major**2)
+                    if shift_len > max_iter_shift:
+                        scale = max_iter_shift / shift_len
+                        aux_minor *= scale
+                        aux_major *= scale
+
                 x0 += -aux_minor * np.sin(pa) + aux_major * np.cos(pa)
                 y0 += aux_minor * np.cos(pa) + aux_major * np.sin(pa)
             # PA correction
@@ -1147,33 +1166,44 @@ def fit_isophote(image, mask, sma, start_geometry, config, going_inwards=False, 
                 denom = (1.0 - eps)**2 - 1.0
                 if abs(denom) < 1e-10: denom = -1e-10
                 pa_corr = harmonics[2] * 2.0 * (1.0 - eps) / sma / gradient / denom * damping
+                if cfg.clip_max_pa is not None:
+                    pa_corr = np.clip(pa_corr, -cfg.clip_max_pa, cfg.clip_max_pa)
                 pa = (pa + pa_corr) % np.pi
             # Ellipticity correction
             if not fix_eps:
                 eps_corr = harmonics[3] * 2.0 * (1.0 - eps) / sma / gradient * damping
+                if cfg.clip_max_eps is not None:
+                    eps_corr = np.clip(eps_corr, -cfg.clip_max_eps, cfg.clip_max_eps)
                 eps = min(eps - eps_corr, 0.95)
                 if eps < 0.0:
                     eps = min(-eps, 0.95)
                     pa = (pa + np.pi/2) % np.pi
                 if eps == 0.0: eps = 0.05
         else:
-            # Largest: update only the parameter with the largest harmonic amplitude
-            if max_idx == 0:
+            # Largest: update only the geometry parameter with the largest harmonic amplitude
+            if max_idx == 0:  # A1: center shift (minor-axis direction)
                 aux = -max_amp * (1.0 - eps) / gradient * damping
+                if cfg.clip_max_shift is not None:
+                    aux = np.clip(aux, -cfg.clip_max_shift, cfg.clip_max_shift)
                 x0 -= aux * np.sin(pa)
                 y0 += aux * np.cos(pa)
-            elif max_idx == 1:
+            elif max_idx == 1:  # B1: center shift (major-axis direction)
                 aux = -max_amp / gradient * damping
+                if cfg.clip_max_shift is not None:
+                    aux = np.clip(aux, -cfg.clip_max_shift, cfg.clip_max_shift)
                 x0 += aux * np.cos(pa)
                 y0 += aux * np.sin(pa)
-            elif max_idx == 2:
-                # denom = (1-eps)^2 - 1 = -eps*(2-eps), always <= 0 (matches photutils)
+            elif max_idx == 2:  # A2: position angle
                 denom = (1.0 - eps)**2 - 1.0
-                if abs(denom) < 1e-10: denom = -1e-10  # Avoid division by zero for eps~0
+                if abs(denom) < 1e-10: denom = -1e-10
                 pa_corr = max_amp * 2.0 * (1.0 - eps) / sma / gradient / denom * damping
+                if cfg.clip_max_pa is not None:
+                    pa_corr = np.clip(pa_corr, -cfg.clip_max_pa, cfg.clip_max_pa)
                 pa = (pa + pa_corr) % np.pi
-            elif max_idx == 3:
+            elif max_idx == 3:  # B2: ellipticity
                 eps_corr = max_amp * 2.0 * (1.0 - eps) / sma / gradient * damping
+                if cfg.clip_max_eps is not None:
+                    eps_corr = np.clip(eps_corr, -cfg.clip_max_eps, cfg.clip_max_eps)
                 eps = min(eps - eps_corr, 0.95)
                 if eps < 0.0:
                     eps = min(-eps, 0.95)

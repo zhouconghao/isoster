@@ -74,6 +74,10 @@ The dominant first/second harmonic term selects the parameter update:
 
 Constraint flags (`fix_center`, `fix_pa`, `fix_eps`) zero the corresponding harmonic terms in the dominance selection step.
 
+## Safety and Damping
+- **Gradient SNR Damping**: If the local radial gradient is noisy ($SNR < 3$), the iteration step size (`geometry_damping`) is dynamically reduced to prevent overfitting the noise floor.
+- **Step Clipping**: Hard limits (`clip_max_shift`, `clip_max_pa`, `clip_max_eps`) restrict the maximum geometry update per iteration. This prevents runaway divergence when the model temporarily evaluates across an image defect or extreme noise.
+
 ## Integrators
 
 Supported config values:

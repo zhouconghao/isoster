@@ -1,0 +1,73 @@
+galaxies:
+- name: NGC 1453
+  redshift: 0.2
+  components:
+  - id: NGC 1453_comp0
+    r_eff_kpc: 0.84
+    abs_mag: -20.2
+    n: 1.46
+    ellipticity: 0.19
+    pa_deg: 21.62
+  - id: NGC 1453_comp1
+    r_eff_kpc: 14.15
+    abs_mag: -22.76
+    n: 4.31
+    ellipticity: 0.16
+    pa_deg: 34.15
+- name: NGC 3585
+  redshift: 0.2
+  components:
+  - id: NGC 3585_comp0
+    r_eff_kpc: 0.11
+    abs_mag: -17.61
+    n: 2.08
+    ellipticity: 0.26
+    pa_deg: 105.9
+  - id: NGC 3585_comp1
+    r_eff_kpc: 0.86
+    abs_mag: -18.96
+    n: 0.98
+    ellipticity: 0.65
+    pa_deg: 104.5
+  - id: NGC 3585_comp2
+    r_eff_kpc: 8.37
+    abs_mag: -21.55
+    n: 3.87
+    ellipticity: 0.41
+    pa_deg: 105.0
+- name: NGC 5061
+  redshift: 0.2
+  components:
+  - id: NGC 5061_comp0
+    r_eff_kpc: 1.25
+    abs_mag: -20.94
+    n: 4.84
+    ellipticity: 0.07
+    pa_deg: 16.11
+  - id: NGC 5061_comp1
+    r_eff_kpc: 3.74
+    abs_mag: -18.92
+    n: 0.29
+    ellipticity: 0.16
+    pa_deg: 75.7
+  - id: NGC 5061_comp2
+    r_eff_kpc: 10.52
+    abs_mag: -21.33
+    n: 3.23
+    ellipticity: 0.3
+    pa_deg: 113.0
+- name: NGC 1404
+  redshift: 0.2
+  components:
+  - id: NGC 1404_comp0
+    r_eff_kpc: 0.57
+    abs_mag: -18.64
+    n: 0.89
+    ellipticity: 0.0
+    pa_deg: 87.2
+  - id: NGC 1404_comp1
+    r_eff_kpc: 2.71
+    abs_mag: -21.45
+    n: 3.54
+    ellipticity: 0.15
+    pa_deg: 166.0
