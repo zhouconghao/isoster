@@ -169,10 +169,10 @@ def test_compute_parameter_errors_singular_matrix():
 
         # Should return zeros (may or may not emit warning depending on code path)
         # The important thing is it doesn't crash
-        assert x0_err == 0.0, f"Expected x0_err=0.0, got {x0_err}"
-        assert y0_err == 0.0, f"Expected y0_err=0.0, got {y0_err}"
-        assert eps_err == 0.0, f"Expected eps_err=0.0, got {eps_err}"
-        assert pa_err == 0.0, f"Expected pa_err=0.0, got {pa_err}"
+        assert np.isclose(x0_err, 0.0), f"Expected x0_err=0.0, got {x0_err}"
+        assert np.isclose(y0_err, 0.0), f"Expected y0_err=0.0, got {y0_err}"
+        assert np.isclose(eps_err, 0.0), f"Expected eps_err=0.0, got {eps_err}"
+        assert np.isclose(pa_err, 0.0), f"Expected pa_err=0.0, got {pa_err}"
 
         # Note: This case may hit early return (line 216-217) without exception,
         # so warning emission is optional. The key is it returns zeros gracefully.
@@ -376,12 +376,14 @@ def test_compute_parameter_errors_with_coeffs():
     
     # Compute errors WITH coefficients (optimized path)
     err_with_coeffs = compute_parameter_errors(
-        phi, intens, x0, y0_geom, sma, eps, pa, gradient, cov_matrix, coeffs
+        phi, intens, x0, y0_geom, sma, eps, pa, gradient,
+        cov_matrix=cov_matrix, coeffs=coeffs
     )
     
     # Compute errors WITHOUT coefficients (legacy path, re-fits)
     err_without_coeffs = compute_parameter_errors(
-        phi, intens, x0, y0_geom, sma, eps, pa, gradient, cov_matrix, coeffs=None
+        phi, intens, x0, y0_geom, sma, eps, pa, gradient,
+        cov_matrix=cov_matrix, coeffs=None
     )
     
     # Results should be identical

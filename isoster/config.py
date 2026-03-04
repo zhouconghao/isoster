@@ -74,6 +74,24 @@ class IsosterConfig(BaseModel):
                     "Default 0.7 stabilizes oscillations at outer isophotes. "
                     "Use 1.0 for no damping (legacy behavior)."
     )
+    clip_max_shift: Optional[float] = Field(
+        default=5.0,
+        gt=0.0,
+        description="Maximum allowed center shift (in pixels) per iteration. "
+                    "Set to None to disable this safeguard."
+    )
+    clip_max_pa: Optional[float] = Field(
+        default=0.5,
+        gt=0.0,
+        description="Maximum allowed PA change (in radians) per iteration. "
+                    "Set to None to disable this safeguard."
+    )
+    clip_max_eps: Optional[float] = Field(
+        default=0.1,
+        gt=0.0,
+        description="Maximum allowed ellipticity change per iteration. "
+                    "Set to None to disable this safeguard."
+    )
     geometry_convergence: bool = Field(
         default=False,
         description="Enable secondary convergence based on geometry stability. "

@@ -106,6 +106,9 @@ Controls how geometry corrections are applied during iteration.
 |-----------|---------|------|-------------|
 | `geometry_damping` | `0.7` | `float` (0 < d <= 1) | Damping factor for geometry corrections. Each correction is multiplied by this value. |
 | `geometry_update_mode` | `'largest'` | `str` | `'largest'`: update only the parameter with the largest harmonic amplitude (coordinate descent). `'simultaneous'`: update all four parameters each iteration. |
+| `clip_max_shift` | `5.0` | `Optional[float]` (> 0) | Maximum allowed center shift (pixels) per iteration. `None` to disable. |
+| `clip_max_pa` | `0.5` | `Optional[float]` (> 0) | Maximum allowed PA change (radians) per iteration. `None` to disable. |
+| `clip_max_eps` | `0.1` | `Optional[float]` (> 0) | Maximum allowed ellipticity change per iteration. `None` to disable. |
 | `geometry_convergence` | `False` | `bool` | Enable secondary convergence based on geometry stability. |
 | `geometry_tolerance` | `0.01` | `float` (> 0) | Threshold for geometry convergence metric. |
 | `geometry_stable_iters` | `3` | `int` (>= 2) | Consecutive stable iterations required for geometry convergence. |
@@ -116,6 +119,8 @@ Controls how geometry corrections are applied during iteration.
 - `geometry_damping=0.7` is validated across 20 Huang2013 galaxies. Use `0.5` with
   `geometry_update_mode='simultaneous'` for stability. Use `1.0` for undamped legacy
   behavior.
+- **Gradient SNR Damping**: `isoster` dynamically reduces `geometry_damping` in low surface brightness regions when the radial gradient is noisy (SNR < 3). This stabilizes the solver in the outer disk without affecting performance in high-S/N regions.
+- **Step Clipping**: `clip_max_shift`, `clip_max_pa`, and `clip_max_eps` provide hard limits on per-iteration geometry changes. This prevents noise-induced "catastrophic jumps" that poison the geometry for all subsequent SMAs. These are safeguards and default values are relaxed enough to not interfere with real structural variations.
 - `'largest'` mode (default) matches isofit/photutils coordinate-descent behavior.
   `'simultaneous'` updates x0, y0, PA, and eps every iteration, typically converging
   in fewer iterations but requiring lower damping.

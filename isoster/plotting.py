@@ -94,10 +94,16 @@ def latex_safe_text(label_text: str) -> str:
 # PA normalization (unwrap-aware)
 # ---------------------------------------------------------------------------
 
-def normalize_pa_degrees(pa_degrees: np.ndarray) -> np.ndarray:
+def normalize_pa_degrees(pa_degrees: np.ndarray, anchor: float | None = None) -> np.ndarray:
     """Normalize PA values while preserving continuity across 180-degree periodicity.
 
     Uses double-angle unwrap to avoid spurious jumps larger than 90 degrees.
+    
+    Args:
+        pa_degrees: Input PA array in degrees.
+        anchor: If provided, shift the entire unwrapped profile by multiples of 
+                180 to be as close as possible to this anchor value at the first 
+                valid point.
     """
     pa = np.asarray(pa_degrees, dtype=float)
     output = np.full(pa.shape, np.nan, dtype=float)
@@ -105,11 +111,21 @@ def normalize_pa_degrees(pa_degrees: np.ndarray) -> np.ndarray:
     if not np.any(finite_mask):
         return output
 
+    # 1. Force into [0, 180) before unwrapping to ensure a clean start
     wrapped = np.mod(pa[finite_mask], 180.0)
+    
+    # 2. Double-angle unwrap (since PA has 180-deg period, 2*PA has 360-deg period)
     doubled_rad = np.deg2rad(2.0 * wrapped)
-    unwrapped = np.unwrap(doubled_rad)
-    normalized = np.rad2deg(0.5 * unwrapped)
-    output[finite_mask] = np.mod(normalized, 180.0)
+    unwrapped_rad = np.unwrap(doubled_rad)
+    normalized = np.rad2deg(0.5 * unwrapped_rad)
+    
+    # 3. Optional anchoring to a global reference (to avoid large offsets from 0-180)
+    if anchor is not None:
+        first_val = normalized[0]
+        offset = 180.0 * np.round((anchor - first_val) / 180.0)
+        normalized += offset
+    
+    output[finite_mask] = normalized
     return output
 
 
