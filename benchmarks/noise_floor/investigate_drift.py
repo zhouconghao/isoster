@@ -210,23 +210,24 @@ def plot_drift_qa(name, image, results_dict, sigma_bg, true_center, output_path)
             x0 = _arr(isos, 'x0')
             y0 = _arr(isos, 'y0')
             eps = _arr(isos, 'eps')
-            pa = _arr(isos, 'pa')
+            pa_rad = _arr(isos, 'pa')
             x0_err = _arr(isos, 'x0_err')
             y0_err = _arr(isos, 'y0_err')
             eps_err = _arr(isos, 'eps_err')
-            pa_err = _arr(isos, 'pa_err')
+            pa_err_rad = _arr(isos, 'pa_err')
             intens_err = _arr(isos, 'intens_err')
         else: # AutoProf format
             sma, intens = res['sma'], res['intens']
             x0, y0 = res.get('x0'), res.get('y0')
-            eps, pa = res['eps'], res['pa']
+            eps, pa_rad = res['eps'], res['pa'] # Note: AutoProf adapter converts to radians
             x0_err = res.get('x0_err', np.full_like(sma, np.nan))
             y0_err = res.get('y0_err', np.full_like(sma, np.nan))
             eps_err = res.get('eps_err', np.full_like(sma, np.nan))
-            pa_err = res.get('pa_err', np.full_like(sma, np.nan))
+            pa_err_rad = res.get('pa_err', np.full_like(sma, np.nan)) # Also radians
             intens_err = res.get('intens_err', np.full_like(sma, np.nan))
             if x0 is None: x0 = np.full_like(sma, np.nan)
             if y0 is None: y0 = np.full_like(sma, np.nan)
+
 
         xax = sma ** 0.25
         all_xax.append(xax)
@@ -238,26 +239,42 @@ def plot_drift_qa(name, image, results_dict, sigma_bg, true_center, output_path)
         # SB (convert intens_err to log10 err approx)
         sb_err = 0.434 * intens_err[ok] / intens[ok] if np.any(np.isfinite(intens_err[ok])) else None
         ax_sb.errorbar(xax[ok], np.log10(intens[ok]), yerr=sb_err, fmt=m, color=c, 
-                       markersize=4, alpha=0.6, capsize=0, label=label)
+                       markersize=4, alpha=0.7, capsize=0, label=label)
         
         # SB Difference
         if label != 'Noise Fix' and sma_fix is not None:
-            intens_interp = np.interp(sma_fix, sma, intens)
-            diff = (intens_interp - intens_fix) / intens_fix
-            ax_sb_diff.plot(xax_fix, diff * 100, color=c, lw=1.2, alpha=0.8)
+            # Interpolate method intens to fix SMA
+            valid_intens = np.isfinite(intens) & (intens > 0)
+            if np.sum(valid_intens) > 1:
+                intens_interp = np.interp(sma_fix, sma[valid_intens], intens[valid_intens], left=np.nan, right=np.nan)
+                diff = (intens_interp - intens_fix) / intens_fix
+                
+                # Approximate difference error: sigma_diff = diff * sqrt((sigma_I/I)^2 + (sigma_Ifix/Ifix)^2)
+                # For simplicity, we just use the relative error of the current method
+                diff_err = np.nan
+                if np.any(np.isfinite(intens_err[valid_intens])):
+                    err_interp = np.interp(sma_fix, sma[valid_intens], intens_err[valid_intens], left=np.nan, right=np.nan)
+                    diff_err = np.abs(diff) * (err_interp / intens_interp)
+                
+                # Use scatter to match other panels
+                ax_sb_diff.errorbar(xax_fix, diff * 100, yerr=diff_err * 100, fmt=m, color=c, markersize=4, alpha=0.7, capsize=0)
         
         # Drift
         dx = x0 - true_center[0]
         dy = y0 - true_center[1]
         
         if np.any(np.isfinite(dx[ok])):
-            ax_dx.errorbar(xax[ok], dx[ok], yerr=x0_err[ok], fmt=m, color=c, markersize=4, alpha=0.6, capsize=0)
-            ax_dy.errorbar(xax[ok], dy[ok], yerr=y0_err[ok], fmt=m, color=c, markersize=4, alpha=0.6, capsize=0)
+            ax_dx.errorbar(xax[ok], dx[ok], yerr=x0_err[ok], fmt=m, color=c, markersize=4, alpha=0.7, capsize=0)
+            ax_dy.errorbar(xax[ok], dy[ok], yerr=y0_err[ok], fmt=m, color=c, markersize=4, alpha=0.7, capsize=0)
             
         # Axis Ratio / PA
-        ax_ba.errorbar(xax[ok], 1.0 - eps[ok], yerr=eps_err[ok], fmt=m, color=c, markersize=4, alpha=0.6, capsize=0)
-        ax_pa.errorbar(xax[ok], normalize_pa_degrees(np.degrees(pa[ok])), yerr=np.degrees(pa_err[ok]), 
-                       fmt=m, color=c, markersize=4, alpha=0.6, capsize=0)
+        ax_ba.errorbar(xax[ok], 1.0 - eps[ok], yerr=eps_err[ok], fmt=m, color=c, markersize=4, alpha=0.7, capsize=0)
+        
+        # Normalize PA globally for this label to avoid jumps
+        pa_deg = np.degrees(pa_rad[ok])
+        pa_err_deg = np.degrees(pa_err_rad[ok])
+        norm_pa_deg = normalize_pa_degrees(pa_deg)
+        ax_pa.errorbar(xax[ok], norm_pa_deg, yerr=pa_err_deg, fmt=m, color=c, markersize=4, alpha=0.7, capsize=0)
 
     # Reference lines
     ax_sb.axhline(np.log10(sigma_bg), color='gray', ls=':', label=r'$\sigma_{bg}$')
@@ -277,12 +294,11 @@ def plot_drift_qa(name, image, results_dict, sigma_bg, true_center, output_path)
         dx_f = _arr(f_isos, 'x0') - true_center[0]
         dy_f = _arr(f_isos, 'y0') - true_center[1]
         c_low, c_high = robust_limits(np.concatenate([dx_f[np.isfinite(dx_f)], dy_f[np.isfinite(dy_f)]]), 5, 95)
-        ax_dx.set_ylim(c_low - 2, c_high + 2)
-        ax_dy.set_ylim(c_low - 2, c_high + 2)
+        ax_dx.set_ylim(c_low - 5, c_high + 5)
+        ax_dy.set_ylim(c_low - 5, c_high + 5)
         
-        if results_dict.get('Baseline'):
-            diff = (np.interp(sma_fix, _arr(results_dict['Baseline']['isophotes'], 'sma'), _arr(results_dict['Baseline']['isophotes'], 'intens')) - intens_fix) / intens_fix * 100
-            set_axis_limits_from_finite_values(ax_sb_diff, diff, margin_fraction=0.2)
+        # SB Diff limits: clip to reasonable range for visual clarity
+        ax_sb_diff.set_ylim(-50, 50)
 
     # Formatting
     ax_sb.set_ylabel(r"$\log_{10}(I)$")
