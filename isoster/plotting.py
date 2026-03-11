@@ -48,6 +48,41 @@ MONOCHROME_STOP_COLORS = {
 
 
 # ---------------------------------------------------------------------------
+# Multi-method comparison constants
+# ---------------------------------------------------------------------------
+
+# Default visual styles for multi-method comparison figures.
+# Each method entry provides: color, marker, marker_face ("filled" or "none"),
+# overlay_color, overlay_width, label.
+METHOD_STYLES: dict[str, dict[str, str | float]] = {
+    "isoster": {
+        "color": "#1f77b4",
+        "marker": "o",
+        "marker_face": "filled",
+        "overlay_color": "white",
+        "overlay_width": 1.0,
+        "label": "isoster",
+    },
+    "photutils": {
+        "color": "#d62728",
+        "marker": "s",
+        "marker_face": "none",
+        "overlay_color": "orangered",
+        "overlay_width": 1.1,
+        "label": "photutils",
+    },
+    "autoprof": {
+        "color": "#2ca02c",
+        "marker": "^",
+        "marker_face": "filled",
+        "overlay_color": "lime",
+        "overlay_width": 0.9,
+        "label": "AutoProf",
+    },
+}
+
+
+# ---------------------------------------------------------------------------
 # Style and text helpers
 # ---------------------------------------------------------------------------
 
@@ -133,6 +168,74 @@ def normalize_angle(angle_rad):
     """Normalize angle in radians to [0, 180) degrees (legacy compatibility)."""
     deg = np.degrees(angle_rad)
     return np.mod(deg, 180.0)
+
+
+# ---------------------------------------------------------------------------
+# Multi-method profile building
+# ---------------------------------------------------------------------------
+
+
+def build_method_profile(
+    data: list[dict] | dict[str, np.ndarray],
+) -> dict[str, np.ndarray] | None:
+    """Convert isophote list or array dict into standardized profile arrays.
+
+    Accepts either a list of isophote dicts (isoster/photutils format, each
+    dict has scalar values per isophote) or a dict of arrays (autoprof format,
+    each key maps to an ndarray).
+
+    Parameters
+    ----------
+    data : list[dict] or dict[str, ndarray]
+        Isophote data in either format.
+
+    Returns
+    -------
+    dict[str, ndarray] or None
+        Standardized profile dict with keys: sma, x_axis, intens, eps, pa.
+        Optional keys included when present in input: stop_codes, x0, y0,
+        intens_err, rms.  Returns None if input is empty.
+    """
+    if isinstance(data, list):
+        if len(data) == 0:
+            return None
+        sma = np.array([iso["sma"] for iso in data])
+        profile = {
+            "sma": sma,
+            "x_axis": sma ** 0.25,
+            "intens": np.array([iso["intens"] for iso in data]),
+            "eps": np.array([iso["eps"] for iso in data]),
+            "pa": np.array([iso["pa"] for iso in data]),
+        }
+        if "stop_code" in data[0]:
+            profile["stop_codes"] = np.array(
+                [iso.get("stop_code", 0) for iso in data]
+            )
+        for key in ("x0", "y0", "intens_err", "rms"):
+            if key in data[0]:
+                profile[key] = np.array(
+                    [iso.get(key, np.nan) for iso in data]
+                )
+        return profile
+
+    elif isinstance(data, dict):
+        sma = np.asarray(data.get("sma", []))
+        if sma.size == 0:
+            return None
+        profile = {
+            "sma": sma,
+            "x_axis": sma ** 0.25,
+            "intens": np.asarray(data["intens"]),
+            "eps": np.asarray(data["eps"]),
+            "pa": np.asarray(data["pa"]),
+        }
+        for key in ("stop_codes", "stop_code", "x0", "y0", "intens_err", "rms"):
+            if key in data and isinstance(data[key], np.ndarray):
+                out_key = "stop_codes" if key == "stop_code" else key
+                profile[out_key] = data[key]
+        return profile
+
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -1150,6 +1253,594 @@ def plot_qa_summary_extended(
     fig.savefig(filename, dpi=150)
     plt.close(fig)
     print(f"Saved extended QA figure to {filename}")
+
+
+# ---------------------------------------------------------------------------
+# Multi-method comparison QA figure
+# ---------------------------------------------------------------------------
+
+
+def _scatter_by_stop_code_in_method_color(
+    axis,
+    x: np.ndarray,
+    y: np.ndarray,
+    stop_codes: np.ndarray,
+    base_color: str,
+    y_errors: np.ndarray | None = None,
+    label: str = "",
+    marker_size: float = 22.0,
+) -> None:
+    """Scatter points using stop-code markers in a single method color.
+
+    Stop=0 points are filled; non-zero stop codes use open markers with
+    the same base color.  This distinguishes convergence quality while
+    keeping method identity clear via color.
+    """
+    unique_codes = sorted(
+        {int(c) for c in stop_codes[np.isfinite(stop_codes)]},
+        key=lambda c: (0, 0) if c == 0 else (1, c) if c > 0 else (2, abs(c)),
+    )
+    for code in unique_codes:
+        mask = stop_codes == code
+        if not np.any(mask):
+            continue
+        marker = MONOCHROME_STOP_MARKERS.get(code, "o")
+        face = base_color if code == 0 else "none"
+        code_label = f"{label} (stop={code})" if code != 0 else label
+
+        if y_errors is not None:
+            errs = np.asarray(y_errors[mask], dtype=float)
+            errs[errs < 0] = np.nan
+            axis.errorbar(
+                x[mask], y[mask], yerr=errs,
+                fmt=marker, color=base_color, mfc=face, mec=base_color,
+                markersize=4.2, capsize=1.5, linewidth=0.6,
+                alpha=0.8, label=code_label, zorder=3,
+            )
+        else:
+            axis.scatter(
+                x[mask], y[mask], s=marker_size,
+                marker=marker, facecolors=face, edgecolors=base_color,
+                linewidths=0.9, alpha=0.8, label=code_label, zorder=3,
+            )
+
+
+def _build_isos_for_overlay(prof: dict[str, np.ndarray]) -> list[dict]:
+    """Reconstruct minimal isophote dicts from profile arrays for overlay."""
+    if "x0" not in prof or "y0" not in prof:
+        return []
+    n = len(prof["sma"])
+    return [
+        {
+            "sma": float(prof["sma"][i]),
+            "x0": float(prof["x0"][i]),
+            "y0": float(prof["y0"][i]),
+            "eps": float(prof["eps"][i]),
+            "pa": float(prof["pa"][i]),
+            "stop_code": int(prof["stop_codes"][i])
+            if "stop_codes" in prof else 0,
+        }
+        for i in range(n)
+    ]
+
+
+def _compute_residual_map(
+    image: np.ndarray,
+    model: np.ndarray,
+    relative: bool = False,
+) -> tuple[np.ndarray, str]:
+    """Compute residual map and its colorbar label.
+
+    Parameters
+    ----------
+    relative : bool
+        If True, return ``100 * (model - data) / data`` (fractional %).
+        If False (default), return ``data - model`` (absolute).
+    """
+    if relative:
+        residual = compute_fractional_residual_percent(image, model)
+        label = "(model-data)/data [%]"
+    else:
+        residual = np.where(np.isfinite(image), image - model, np.nan)
+        label = "data - model"
+    return residual, label
+
+
+def _plot_residual_panel(
+    fig,
+    gs_slot,
+    gs_cbar_slot,
+    image: np.ndarray,
+    model: np.ndarray,
+    panel_title: str,
+    relative_residual: bool = False,
+    overlay_isos: list[dict] | None = None,
+    overlay_step: int = 5,
+    overlay_color: str = "white",
+    overlay_width: float = 1.0,
+) -> None:
+    """Draw a single residual image panel with optional isophote overlays."""
+    residual, cbar_label = _compute_residual_map(
+        image, model, relative=relative_residual,
+    )
+    abs_vals = np.abs(residual[np.isfinite(residual)])
+    res_limit = float(np.clip(
+        np.nanpercentile(abs_vals, 99.0) if abs_vals.size else 1.0,
+        0.05, 8.0 if relative_residual else None,
+    ))
+
+    ax = fig.add_subplot(gs_slot)
+    handle = ax.imshow(
+        residual, origin="lower", cmap="coolwarm",
+        vmin=-res_limit, vmax=res_limit, interpolation="nearest",
+    )
+    if overlay_isos:
+        draw_isophote_overlays(
+            ax, overlay_isos, step=overlay_step,
+            line_width=overlay_width, alpha=0.7,
+            edge_color=overlay_color,
+        )
+    ax.set_title(panel_title, fontsize=11)
+    ax.set_xlabel("x (pixels)")
+    ax.set_ylabel("y (pixels)")
+
+    ax_cbar = fig.add_subplot(gs_cbar_slot)
+    fig.colorbar(handle, cax=ax_cbar).set_label(cbar_label, fontsize=8)
+
+
+def plot_comparison_qa_figure(
+    image: np.ndarray,
+    profiles: dict[str, dict[str, np.ndarray]],
+    title: str = "",
+    output_path: str | Path = "qa_comparison.png",
+    *,
+    models: dict[str, np.ndarray] | None = None,
+    mask: np.ndarray | None = None,
+    method_styles: dict[str, dict] | None = None,
+    relative_residual: bool = False,
+    dpi: int = 150,
+) -> None:
+    """Multi-method comparison QA figure with 2D images and 1D profiles.
+
+    Automatically selects one of three layout modes based on the number
+    of methods that provide profiles:
+
+    **Mode 1 — Solo (isoster only):**
+    Left column: original image with isophote overlays (+ mask overlay),
+    reconstructed 2D model, residual.
+
+    **Mode 2 — One-on-one (isoster + one other):**
+    Left column: original image (+ mask), isoster residual with isophote
+    overlays, other method's residual with its isophote overlays.
+
+    **Mode 3 — Three-way (isoster + both):**
+    Left column: original image (+ mask), isoster residual + overlays,
+    photutils residual + overlays, autoprof residual + overlays.
+
+    Right column (all modes): SB (with errorbars), relative SB diff,
+    ellipticity, PA, centroid offset — sharing SMA^0.25 x-axis.
+
+    Parameters
+    ----------
+    image : 2D ndarray
+        Original galaxy image.
+    profiles : dict[str, dict[str, ndarray]]
+        Method name -> profile arrays dict (from ``build_method_profile``).
+        Required keys per profile: sma, x_axis, intens, eps, pa.
+        Optional: stop_codes, x0, y0, intens_err, rms, runtime_seconds.
+    title : str
+        Figure title.
+    output_path : str or Path
+        Output file path for the saved figure.
+    models : dict[str, 2D ndarray] or None
+        Method name -> 2D reconstructed model.
+    mask : 2D bool ndarray or None
+        Bad-pixel mask (True = masked).  Overlaid on the data image panel.
+    method_styles : dict or None
+        Override default ``METHOD_STYLES``.
+    relative_residual : bool
+        If True, residual panels show ``(model - data) / data`` [%].
+        If False (default), show ``data - model`` (absolute).
+    dpi : int
+        Figure resolution.
+    """
+    from pathlib import Path as _Path
+
+    import matplotlib.gridspec as gridspec
+
+    configure_qa_plot_style()
+    plt.rcParams["text.usetex"] = False
+
+    styles = dict(METHOD_STYLES)
+    if method_styles is not None:
+        styles.update(method_styles)
+
+    if models is None:
+        models = {}
+
+    available = [m for m in profiles if profiles[m] is not None]
+    n_methods = len(available)
+
+    # --- Determine layout mode ---
+    # Mode 1 (solo): 3 left rows (image, model, residual)
+    # Mode 2 (one-on-one): 3 left rows (image, isoster residual, other residual)
+    # Mode 3 (three-way): 4 left rows (image, isoster res, phot res, autoprof res)
+    if n_methods <= 1:
+        n_left_rows = 3  # image, model, residual
+    elif n_methods == 2:
+        n_left_rows = 3  # image, 2x residual
+    else:
+        n_left_rows = 1 + n_methods  # image + one residual per method
+
+    n_right_rows = 5
+    fig_height = max(12, n_left_rows * 3.2)
+
+    fig = plt.figure(figsize=(15, fig_height), dpi=dpi)
+    outer = gridspec.GridSpec(
+        1, 2, figure=fig, width_ratios=[1.0, 1.8], wspace=0.25,
+    )
+    left = gridspec.GridSpecFromSubplotSpec(
+        n_left_rows, 2, subplot_spec=outer[0],
+        width_ratios=[1.0, 0.04], hspace=0.12, wspace=0.05,
+    )
+    right = gridspec.GridSpecFromSubplotSpec(
+        n_right_rows, 1, subplot_spec=outer[1],
+        height_ratios=[2.5, 1.0, 1.0, 1.0, 1.0],
+        hspace=0.0,
+    )
+
+    # --- Title with runtime info ---
+    runtime_parts = []
+    for method_name in available:
+        prof = profiles[method_name]
+        style = styles.get(method_name, {"label": method_name})
+        label = style.get("label", method_name)
+        rt = prof.get("runtime_seconds")
+        if rt is not None:
+            runtime_parts.append(f"{label}={float(rt):.2f}s")
+        else:
+            runtime_parts.append(str(label))
+    full_title = title
+    if runtime_parts:
+        full_title += f" | {', '.join(runtime_parts)}"
+    fig.suptitle(full_title, fontsize=16, y=0.995)
+
+    # --- Left column row 0: Original image ---
+    ax_img = fig.add_subplot(left[0, 0])
+    low, high, scale, vmax_val = derive_arcsinh_parameters(image)
+    display, _, disp_vmax = make_arcsinh_display_from_parameters(
+        image, low, high, scale, vmax_val,
+    )
+    handle_img = ax_img.imshow(
+        display, cmap="viridis", origin="lower", vmin=0, vmax=disp_vmax,
+        interpolation="none",
+    )
+
+    # Mask overlay (semi-transparent red)
+    if mask is not None:
+        mask_overlay = np.zeros((*image.shape, 4))
+        mask_overlay[mask] = [1, 0, 0, 0.4]
+        ax_img.imshow(mask_overlay, origin="lower")
+
+    ax_cbar = fig.add_subplot(left[0, 1])
+    fig.colorbar(handle_img, cax=ax_cbar)
+
+    if n_methods <= 1:
+        # Solo mode: overlays from isoster on the data image
+        for method_name in available:
+            prof = profiles[method_name]
+            style = styles.get(method_name, {})
+            isos = _build_isos_for_overlay(prof)
+            if isos:
+                overlay_step = max(1, len(isos) // 15)
+                draw_isophote_overlays(
+                    ax_img, isos, step=overlay_step,
+                    line_width=style.get("overlay_width", 1.0),
+                    alpha=0.8,
+                    edge_color=style.get("overlay_color", "white"),
+                )
+
+    ax_img.set_title("Data", fontsize=12)
+    ax_img.set_xlabel("x (pixels)")
+    ax_img.set_ylabel("y (pixels)")
+
+    # --- Left column: mode-dependent panels ---
+    if n_methods <= 1 and available:
+        # Mode 1 (solo): row 1 = model, row 2 = residual
+        method_name = available[0]
+        model = models.get(method_name)
+
+        if model is not None:
+            # Model panel
+            ax_mod = fig.add_subplot(left[1, 0])
+            mod_display, _, mod_vmax = make_arcsinh_display_from_parameters(
+                model, low, high, scale, vmax_val,
+            )
+            h_mod = ax_mod.imshow(
+                mod_display, origin="lower", cmap="viridis",
+                vmin=0, vmax=mod_vmax, interpolation="none",
+            )
+            ax_mod.set_title("Model", fontsize=12)
+            ax_mod.set_xlabel("x (pixels)")
+            ax_mod.set_ylabel("y (pixels)")
+            ax_mod_cb = fig.add_subplot(left[1, 1])
+            fig.colorbar(h_mod, cax=ax_mod_cb)
+
+            # Residual panel
+            _plot_residual_panel(
+                fig, left[2, 0], left[2, 1],
+                image, model,
+                panel_title="Residual",
+                relative_residual=relative_residual,
+            )
+        else:
+            # No model available — leave panels blank
+            for row_idx in (1, 2):
+                ax_blank = fig.add_subplot(left[row_idx, 0])
+                ax_blank.text(
+                    0.5, 0.5, "no model", color="gray", fontsize=12,
+                    transform=ax_blank.transAxes, ha="center", va="center",
+                )
+                ax_blank.set_axis_off()
+
+    elif n_methods >= 2:
+        # Mode 2/3: one residual panel per method with isophote overlays
+        for row_idx, method_name in enumerate(available, start=1):
+            model = models.get(method_name)
+            style = styles.get(method_name, {})
+            label = style.get("label", method_name)
+            isos = _build_isos_for_overlay(profiles[method_name])
+            overlay_step = max(1, len(isos) // 15) if isos else 5
+
+            if model is not None:
+                _plot_residual_panel(
+                    fig, left[row_idx, 0], left[row_idx, 1],
+                    image, model,
+                    panel_title=f"{label} residual",
+                    relative_residual=relative_residual,
+                    overlay_isos=isos,
+                    overlay_step=overlay_step,
+                    overlay_color=style.get("overlay_color", "white"),
+                    overlay_width=style.get("overlay_width", 1.0),
+                )
+            else:
+                ax_blank = fig.add_subplot(left[row_idx, 0])
+                ax_blank.text(
+                    0.5, 0.5, f"{label}: no model", color="gray",
+                    fontsize=12, transform=ax_blank.transAxes,
+                    ha="center", va="center",
+                )
+                ax_blank.set_axis_off()
+
+    elif not available:
+        # No profiles at all — save bare figure
+        output_path = _Path(output_path)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        fig.savefig(output_path, dpi=dpi, bbox_inches="tight")
+        plt.close(fig)
+        return
+
+    # --- Right column: 1D profiles ---
+    if not available:
+        output_path = _Path(output_path)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        fig.savefig(output_path, dpi=dpi, bbox_inches="tight")
+        plt.close(fig)
+        return
+
+    all_x = np.concatenate([profiles[m]["x_axis"] for m in available])
+
+    # Panel 0: Surface brightness (with errorbars and stop-code markers)
+    ax_sb = fig.add_subplot(right[0])
+    for method_name in available:
+        prof = profiles[method_name]
+        style = styles.get(method_name, {})
+        x = prof["x_axis"]
+        intens = prof["intens"]
+        valid = np.isfinite(intens) & (intens > 0)
+        y = np.full_like(intens, np.nan)
+        y[valid] = np.log10(intens[valid])
+
+        # Error propagation: sigma_log10_I = intens_err / (I * ln(10))
+        y_err = None
+        if "intens_err" in prof:
+            y_err = np.full_like(intens, np.nan)
+            y_err[valid] = (
+                prof["intens_err"][valid] / (intens[valid] * np.log(10))
+            )
+
+        if "stop_codes" in prof:
+            _scatter_by_stop_code_in_method_color(
+                ax_sb, x[valid], y[valid], prof["stop_codes"][valid],
+                base_color=style["color"],
+                y_errors=y_err[valid] if y_err is not None else None,
+                label=style.get("label", method_name),
+                marker_size=22,
+            )
+        else:
+            mfc = (
+                style["color"]
+                if style.get("marker_face") == "filled"
+                else "none"
+            )
+            if y_err is not None:
+                ax_sb.errorbar(
+                    x[valid], y[valid], yerr=y_err[valid],
+                    fmt=style.get("marker", "o"), color=style["color"],
+                    mfc=mfc, mec=style["color"],
+                    markersize=4.2, capsize=1.5, linewidth=0.6,
+                    alpha=0.7, label=style.get("label", method_name),
+                    zorder=3,
+                )
+            else:
+                ax_sb.scatter(
+                    x[valid], y[valid], color=style["color"],
+                    marker=style.get("marker", "o"),
+                    facecolors=mfc, edgecolors=style["color"],
+                    s=22, alpha=0.7,
+                    label=style.get("label", method_name), zorder=3,
+                )
+
+    ax_sb.set_ylabel(r"$\log_{10}$(Intensity)")
+    ax_sb.set_title("Surface Brightness", fontsize=12)
+    ax_sb.grid(alpha=0.25)
+    ax_sb.legend(loc="upper right", fontsize=10)
+    ax_sb.tick_params(labelbottom=False)
+    set_x_limits_with_right_margin(ax_sb, all_x)
+
+    # Panel 1: Relative SB difference (first method as reference)
+    ax_diff = fig.add_subplot(right[1], sharex=ax_sb)
+    if n_methods >= 2:
+        ref_method = available[0]
+        ref_prof = profiles[ref_method]
+        ref_sma = ref_prof["sma"]
+        ref_intens = ref_prof["intens"]
+        for method_name in available:
+            if method_name == ref_method:
+                continue
+            prof = profiles[method_name]
+            style = styles.get(method_name, {})
+            from scipy.interpolate import interp1d
+
+            valid_ref = np.isfinite(ref_intens) & (ref_intens > 0)
+            if valid_ref.sum() < 2:
+                continue
+            interp_func = interp1d(
+                ref_sma[valid_ref], ref_intens[valid_ref],
+                kind="linear", bounds_error=False, fill_value=np.nan,
+            )
+            ref_at_method = interp_func(prof["sma"])
+            with np.errstate(divide="ignore", invalid="ignore"):
+                rel_diff = 100.0 * (
+                    prof["intens"] - ref_at_method
+                ) / ref_at_method
+            valid = np.isfinite(rel_diff)
+            mfc = (
+                style["color"]
+                if style.get("marker_face") == "filled"
+                else "none"
+            )
+            ax_diff.scatter(
+                prof["x_axis"][valid], rel_diff[valid],
+                color=style["color"], marker=style.get("marker", "o"),
+                facecolors=mfc, edgecolors=style["color"],
+                s=18, alpha=0.7, label=style.get("label", method_name),
+                zorder=3,
+            )
+        ax_diff.axhline(0, color="black", linestyle="--", linewidth=0.8)
+        ref_label = styles.get(ref_method, {}).get("label", ref_method)
+        ax_diff.set_ylabel(f"dI/I_{ref_label} [%]")
+        ax_diff.legend(loc="best", fontsize=9)
+    else:
+        ax_diff.set_ylabel("dI/I [%]")
+        ax_diff.text(
+            0.5, 0.5, "single method", color="gray", fontsize=10,
+            transform=ax_diff.transAxes, ha="center", va="center",
+        )
+    ax_diff.grid(alpha=0.25)
+    ax_diff.tick_params(labelbottom=False)
+
+    # Panel 2: Ellipticity
+    ax_eps = fig.add_subplot(right[2], sharex=ax_sb)
+    for method_name in available:
+        prof = profiles[method_name]
+        style = styles.get(method_name, {})
+        mfc = (
+            style["color"]
+            if style.get("marker_face") == "filled"
+            else "none"
+        )
+        ax_eps.scatter(
+            prof["x_axis"], prof["eps"],
+            color=style["color"], marker=style.get("marker", "o"),
+            facecolors=mfc, edgecolors=style["color"],
+            s=18, alpha=0.7, zorder=3,
+        )
+    ax_eps.set_ylabel("Ellipticity")
+    ax_eps.grid(alpha=0.25)
+    ax_eps.tick_params(labelbottom=False)
+    all_eps = np.concatenate([profiles[m]["eps"] for m in available])
+    set_axis_limits_from_finite_values(
+        ax_eps, all_eps, margin_fraction=0.08, min_margin=0.03,
+        lower_clip=0.0, upper_clip=1.0,
+    )
+
+    # Panel 3: PA (normalized with cross-method anchoring)
+    ax_pa = fig.add_subplot(right[3], sharex=ax_sb)
+    all_pa_norm = []
+    ref_pa_median = None
+    for method_name in available:
+        prof = profiles[method_name]
+        style = styles.get(method_name, {})
+        pa_deg = np.degrees(prof["pa"])
+
+        # First method: normalize freely; subsequent methods: anchor to
+        # the first method's median PA to avoid ~180 deg offsets
+        pa_norm = normalize_pa_degrees(pa_deg, anchor=ref_pa_median)
+        if ref_pa_median is None:
+            finite_pa = pa_norm[np.isfinite(pa_norm)]
+            if finite_pa.size > 0:
+                ref_pa_median = float(np.nanmedian(finite_pa))
+
+        all_pa_norm.append(pa_norm)
+        mfc = (
+            style["color"]
+            if style.get("marker_face") == "filled"
+            else "none"
+        )
+        ax_pa.scatter(
+            prof["x_axis"], pa_norm,
+            color=style["color"], marker=style.get("marker", "o"),
+            facecolors=mfc, edgecolors=style["color"],
+            s=18, alpha=0.7, zorder=3,
+        )
+    ax_pa.set_ylabel("PA (deg)")
+    ax_pa.grid(alpha=0.25)
+    ax_pa.tick_params(labelbottom=False)
+    # Robust PA limits from stop=0 data of first method, or all data
+    if available and all_pa_norm:
+        if "stop_codes" in profiles[available[0]]:
+            sc = profiles[available[0]]["stop_codes"]
+            pa_for_limits = all_pa_norm[0][sc == 0]
+        else:
+            pa_for_limits = all_pa_norm[0]
+        pa_finite = pa_for_limits[np.isfinite(pa_for_limits)]
+        if pa_finite.size > 1:
+            pa_low, pa_high = robust_limits(pa_finite, 3, 97)
+            pa_margin = max(3.0, 0.08 * (pa_high - pa_low + 1e-6))
+            ax_pa.set_ylim(pa_low - pa_margin, pa_high + pa_margin)
+
+    # Panel 4: Center offset
+    ax_cen = fig.add_subplot(right[4], sharex=ax_sb)
+    for method_name in available:
+        prof = profiles[method_name]
+        if "x0" not in prof:
+            continue
+        style = styles.get(method_name, {})
+        x0_med = np.nanmedian(prof["x0"])
+        y0_med = np.nanmedian(prof["y0"])
+        offset = np.sqrt(
+            (prof["x0"] - x0_med) ** 2 + (prof["y0"] - y0_med) ** 2
+        )
+        mfc = (
+            style["color"]
+            if style.get("marker_face") == "filled"
+            else "none"
+        )
+        ax_cen.scatter(
+            prof["x_axis"], offset,
+            color=style["color"], marker=style.get("marker", "o"),
+            facecolors=mfc, edgecolors=style["color"],
+            s=18, alpha=0.7, zorder=3,
+        )
+    ax_cen.set_ylabel("Center Offset (pix)")
+    ax_cen.set_xlabel(r"SMA$^{0.25}$ (pix$^{0.25}$)")
+    ax_cen.grid(alpha=0.25)
+
+    output_path = _Path(output_path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(output_path, dpi=dpi, bbox_inches="tight")
+    plt.close(fig)
 
 
 def _overlay_photutils_sb(ax, photutils_res):
