@@ -8,6 +8,7 @@ This folder contains performance and comparison benchmarks for isoster.
 - `profiling/`: hotspot and profiler-oriented diagnostics.
 - `baselines/`: threshold configs and CI regression gate scripts.
 - `exhausted/`: 39-configuration exhaustive sweep on any galaxy image.
+- `benchmark_baseline/`: baseline fits on real galaxies with isoster/photutils/autoprof comparison.
 - `utils/`: shared benchmark helpers and adapters.
 
 ## Goals
@@ -36,6 +37,7 @@ This folder contains performance and comparison benchmarks for isoster.
 | `profiling/profile_numba_flagged_cases.py` | Profiling | Numba flagged-case timing | Synthetic Sérsic | JSON timing | Active |
 | `utils/mockgal_adapter.py` | Utility | External mockgal adapter (libprofit) | Presets / config | Mock FITS images | Active |
 | `utils/scaffold_models_config_batch_templates.py` | Utility | Scaffold batch template files | None | Template YAML/JSON | Active |
+| `benchmark_baseline/run_baseline.py` | Baseline | Multi-method baseline (isoster/photutils/autoprof) on real galaxies | `data/` FITS | profiles, models, fit_configs.json, comparison QA | Active |
 
 See `FRAMEWORK.md` for guidance on adding new benchmarks.
 
@@ -130,6 +132,15 @@ uv run python benchmarks/utils/mockgal_adapter.py --list-presets
 uv run python benchmarks/utils/mockgal_adapter.py --preset single_psf_noise_sblimit --dry-run
 uv run python benchmarks/utils/mockgal_adapter.py --preset models_config_batch --dry-run
 uv run python benchmarks/utils/mockgal_adapter.py --preset models_config_batch --preset-value models_file=my_models.yaml --preset-value config_file=my_config.yaml --preset-value workers=2 --dry-run
+
+# Baseline benchmark (all galaxies)
+uv run python benchmarks/benchmark_baseline/run_baseline.py
+
+# Baseline benchmark (quick smoke test — IC3370 only)
+uv run python benchmarks/benchmark_baseline/run_baseline.py --quick
+
+# Baseline benchmark (single galaxy)
+uv run python benchmarks/benchmark_baseline/run_baseline.py --galaxy eso243-49
 
 # Scaffold reusable models_config_batch template files into a new outputs/ run directory
 uv run python benchmarks/utils/scaffold_models_config_batch_templates.py

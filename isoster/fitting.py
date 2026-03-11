@@ -984,7 +984,7 @@ def fit_isophote(image, mask, sma, start_geometry, config, going_inwards=False, 
         
         # GRADIENT computed using φ and current geometry
         # Lazy Evaluation: reuse gradient unless convergence stalls
-        if i == 0 or not cfg.use_lazy_gradient or no_improvement_count >= 3:
+        if i == 0 or not cfg.use_lazy_gradient or no_improvement_count >= 3 or cached_gradient_error is None or lexceed:
             geometry = {'x0': x0, 'y0': y0, 'sma': sma, 'eps': eps, 'pa': pa}
             gradient_config = {
                 'astep': astep,
