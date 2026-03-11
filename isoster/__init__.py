@@ -6,5 +6,11 @@ from .utils import (
     isophote_results_to_fits,
     isophote_results_from_fits
 )
-from .plotting import plot_qa_summary, plot_qa_summary_extended
+from .plotting import (
+    plot_qa_summary,
+    plot_qa_summary_extended,
+    plot_comparison_qa_figure,
+    build_method_profile,
+    METHOD_STYLES,
+)
 from .model import build_isoster_model, build_ellipse_model  # deprecated, removal planned for v0.3
