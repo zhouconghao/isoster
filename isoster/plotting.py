@@ -16,7 +16,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.gridspec as gridspec
 from matplotlib.lines import Line2D
-from matplotlib.patches import Ellipse as MPLEllipse
+from matplotlib.patches import Ellipse as MPLEllipse, Polygon as MPLPolygon
 
 # ---------------------------------------------------------------------------
 # Stop-code styling constants
@@ -216,6 +216,14 @@ def build_method_profile(
                 profile[key] = np.array(
                     [iso.get(key, np.nan) for iso in data]
                 )
+        # Preserve harmonic coefficients (a3, b3, a4, b4, ...)
+        for key in data[0]:
+            if len(key) >= 2 and key[0] in ("a", "b") and key[1:].isdigit():
+                n = int(key[1:])
+                if n >= 3:
+                    profile[key] = np.array(
+                        [iso.get(key, 0.0) for iso in data]
+                    )
         return profile
 
     elif isinstance(data, dict):
@@ -233,6 +241,12 @@ def build_method_profile(
             if key in data and isinstance(data[key], np.ndarray):
                 out_key = "stop_codes" if key == "stop_code" else key
                 profile[out_key] = data[key]
+        # Preserve harmonic coefficients (a3, b3, a4, b4, ...)
+        for key in data:
+            if len(key) >= 2 and key[0] in ("a", "b") and key[1:].isdigit():
+                n = int(key[1:])
+                if n >= 3 and isinstance(data[key], np.ndarray):
+                    profile[key] = data[key]
         return profile
 
     return None
@@ -416,6 +430,75 @@ def set_x_limits_with_right_margin(
 # Isophote overlay drawing
 # ---------------------------------------------------------------------------
 
+def _detect_harmonic_orders(iso: dict) -> list[int]:
+    """Return sorted list of harmonic orders present in an isophote dict."""
+    orders = set()
+    for key in iso:
+        if len(key) >= 2 and key[0] in ("a", "b") and key[1:].isdigit():
+            n = int(key[1:])
+            if n >= 3:
+                orders.add(n)
+    return sorted(orders)
+
+
+def _compute_harmonic_contour(
+    iso: dict,
+    n_points: int = 360,
+) -> np.ndarray:
+    """Compute the (x, y) contour of an isophote with harmonic deviations.
+
+    Returns an (n_points, 2) array of pixel coordinates tracing the
+    perturbed isophote shape.  The harmonic perturbation follows the
+    convention used in ``model.py``:
+
+        r_draw(E) = sma * (1 + sum_n [a_n sin(nE) + b_n cos(nE)])
+
+    where E is the eccentric anomaly (or position angle, depending on
+    the ``use_eccentric_anomaly`` flag stored in the isophote dict).
+
+    Parameters
+    ----------
+    iso : dict
+        Single isophote result dict with geometry keys and harmonic
+        coefficients (a3, b3, a4, b4, ...).
+    n_points : int
+        Number of sample points around the contour.
+    """
+    sma = float(iso["sma"])
+    eps = float(iso.get("eps", 0.0))
+    pa_rad = float(iso.get("pa", 0.0))
+    x0 = float(iso.get("x0", 0.0))
+    y0 = float(iso.get("y0", 0.0))
+
+    orders = _detect_harmonic_orders(iso)
+
+    # Parametric angle: eccentric anomaly E in [0, 2pi)
+    angles = np.linspace(0.0, 2.0 * np.pi, n_points, endpoint=False)
+
+    # Harmonic perturbation: dr/r = sum_n [a_n sin(nE) + b_n cos(nE)]
+    dr_over_r = np.zeros(n_points)
+    for n in orders:
+        an = float(iso.get(f"a{n}", 0.0))
+        bn = float(iso.get(f"b{n}", 0.0))
+        if not (np.isfinite(an) and np.isfinite(bn)):
+            continue
+        dr_over_r += an * np.sin(n * angles) + bn * np.cos(n * angles)
+
+    scale = 1.0 + dr_over_r
+
+    # Parametric ellipse in rotated frame, scaled by harmonic perturbation
+    x_rot = sma * scale * np.cos(angles)
+    y_rot = sma * (1.0 - eps) * scale * np.sin(angles)
+
+    # Rotate by PA and translate to center
+    cos_pa = np.cos(pa_rad)
+    sin_pa = np.sin(pa_rad)
+    x_pix = x0 + x_rot * cos_pa - y_rot * sin_pa
+    y_pix = y0 + x_rot * sin_pa + y_rot * cos_pa
+
+    return np.column_stack([x_pix, y_pix])
+
+
 def draw_isophote_overlays(
     axis,
     isophotes,
@@ -423,8 +506,14 @@ def draw_isophote_overlays(
     line_width: float = 1.0,
     alpha: float = 0.7,
     edge_color: str | None = None,
+    draw_harmonics: bool = True,
 ) -> None:
     """Overlay selective isophotes on an image axis.
+
+    When ``draw_harmonics`` is True and harmonic coefficients (a3/b3,
+    a4/b4, ...) are present in the isophote dicts, the overlays show
+    the actual non-elliptical isophote shape.  Otherwise pure ellipses
+    are drawn.
 
     Parameters
     ----------
@@ -434,6 +523,9 @@ def draw_isophote_overlays(
         Draw every *step*-th isophote.
     edge_color : str or None
         Fixed color override; if None, color by stop code.
+    draw_harmonics : bool
+        If True (default), incorporate harmonic deviations when
+        available.  Set to False to force pure-ellipse overlays.
     """
     if len(isophotes) == 0:
         return
@@ -454,17 +546,30 @@ def draw_isophote_overlays(
         style = style_for_stop_code(stop_code)
         color = edge_color if edge_color is not None else style["color"]
 
-        ellipse = MPLEllipse(
-            (x0, y0),
-            2.0 * sma,
-            2.0 * sma * (1.0 - eps),
-            angle=np.rad2deg(pa_rad),
-            fill=False,
-            linewidth=line_width,
-            alpha=alpha,
-            edgecolor=color,
-        )
-        axis.add_patch(ellipse)
+        has_harmonics = draw_harmonics and len(_detect_harmonic_orders(iso)) > 0
+
+        if has_harmonics:
+            contour = _compute_harmonic_contour(iso)
+            patch = MPLPolygon(
+                contour,
+                closed=True,
+                fill=False,
+                linewidth=line_width,
+                alpha=alpha,
+                edgecolor=color,
+            )
+        else:
+            patch = MPLEllipse(
+                (x0, y0),
+                2.0 * sma,
+                2.0 * sma * (1.0 - eps),
+                angle=np.rad2deg(pa_rad),
+                fill=False,
+                linewidth=line_width,
+                alpha=alpha,
+                edgecolor=color,
+            )
+        axis.add_patch(patch)
 
 
 # ---------------------------------------------------------------------------
@@ -1319,12 +1424,23 @@ def _scatter_by_stop_code_in_method_color(
 
 
 def _build_isos_for_overlay(prof: dict[str, np.ndarray]) -> list[dict]:
-    """Reconstruct minimal isophote dicts from profile arrays for overlay."""
+    """Reconstruct minimal isophote dicts from profile arrays for overlay.
+
+    Includes harmonic coefficients (a3, b3, a4, b4, ...) when present
+    so that ``draw_isophote_overlays`` can render the perturbed shape.
+    """
     if "x0" not in prof or "y0" not in prof:
         return []
     n = len(prof["sma"])
-    return [
-        {
+    # Detect harmonic keys in the profile dict
+    harm_keys = [
+        k for k in prof
+        if len(k) >= 2 and k[0] in ("a", "b") and k[1:].isdigit()
+        and int(k[1:]) >= 3
+    ]
+    isos = []
+    for i in range(n):
+        iso = {
             "sma": float(prof["sma"][i]),
             "x0": float(prof["x0"][i]),
             "y0": float(prof["y0"][i]),
@@ -1333,8 +1449,10 @@ def _build_isos_for_overlay(prof: dict[str, np.ndarray]) -> list[dict]:
             "stop_code": int(prof["stop_codes"][i])
             if "stop_codes" in prof else 0,
         }
-        for i in range(n)
-    ]
+        for k in harm_keys:
+            iso[k] = float(prof[k][i])
+        isos.append(iso)
+    return isos
 
 
 def _compute_residual_map(

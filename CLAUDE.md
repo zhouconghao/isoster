@@ -85,6 +85,7 @@ Follow these rules for all Python environment and dependency work in this reposi
 | `docs/algorithm.md` | Fitting and sampling implementation notes |
 | `docs/configuration-reference.md` | All configuration parameters and guidelines |
 | `docs/testing.md` | Testing and benchmark directives |
+| `docs/qa.md` | QA plotting functions: usage, options, and examples |
 | `docs/qa-figures.md` | QA figure layout and style conventions |
 | `docs/future.md` | Long-term upgrades and research roadmap |
 | `docs/todo.md` | Active execution checklist and review notes |

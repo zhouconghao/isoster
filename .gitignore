@@ -15,7 +15,7 @@ docs/todo.md
 docs/todo-archive-*.md
 docs/lessons.md
 
-# QA reference figures (binary)
+# QA reference figures (binary, legacy location)
 qa/reference_figures/
 
 # Root example config
