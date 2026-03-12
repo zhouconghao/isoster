@@ -155,6 +155,9 @@ def run_autoprof_fit(
         "ap_fluxunits": "intensity",
         "ap_doplot": False,
         "ap_isoclip": True,
+        # Measure higher-order Fourier harmonics (a3/b3, a4/b4) to match
+        # isoster and photutils defaults for fair comparison.
+        "ap_iso_measurecoefs": (3, 4),
         # Bypass automatic steps with fixed values
         "ap_set_center": {"x": cx, "y": cy},
         "ap_set_background": background,
@@ -266,6 +269,15 @@ def run_autoprof_fit(
 
     if run_ellipse_model and expected_model_fits.exists():
         profile["model_fits_path"] = str(expected_model_fits)
+
+    # Extract fixed center from .aux file and inject as constant arrays
+    aux_candidates = list(output_dir.glob(f"{galaxy_name}*.aux"))
+    if aux_candidates:
+        center_xy = parse_autoprof_center(aux_candidates[0])
+        if center_xy is not None:
+            n = profile["n_isophotes"]
+            profile["x0"] = np.full(n, center_xy[0])
+            profile["y0"] = np.full(n, center_xy[1])
 
     return profile
 
@@ -406,6 +418,15 @@ def parse_autoprof_profile(
         if pa_e_col else np.full_like(sma, np.nan)
     )
 
+    # Higher-order Fourier harmonics (optional, present when
+    # ap_iso_measurecoefs is set).  AutoProf names them a3, b3, a4, b4, etc.
+    harmonic_arrays = {}
+    for mode in (3, 4):
+        for coef in ("a", "b"):
+            col_name = f"{coef}{mode}"
+            if col_name in col_names:
+                harmonic_arrays[col_name] = np.array(table[col_name], dtype=float)
+
     # Filter out non-positive SMA, non-finite intensity, or sentinel bad values.
     # AutoProf marks bad isophotes with SB = 99.999 (mag mode) or I ≤ 0 (intensity mode).
     if i_col in ("I", "intens"):
@@ -420,10 +441,12 @@ def parse_autoprof_profile(
     intens_err = intens_err[valid]
     eps_err = eps_err[valid]
     pa_err = pa_err[valid]
+    for key in harmonic_arrays:
+        harmonic_arrays[key] = harmonic_arrays[key][valid]
 
     # Sort by SMA
     order = np.argsort(sma)
-    return {
+    result = {
         "sma": sma[order],
         "intens": intens[order],
         "eps": eps[order],
@@ -433,6 +456,38 @@ def parse_autoprof_profile(
         "pa_err": pa_err[order],
         "n_isophotes": len(sma),
     }
+    for key, arr in harmonic_arrays.items():
+        result[key] = arr[order]
+    return result
+
+
+def parse_autoprof_center(aux_path: str | Path) -> tuple[float, float] | None:
+    """Extract the fixed center from an AutoProf .aux file.
+
+    Parameters
+    ----------
+    aux_path : str or Path
+        Path to the AutoProf ``.aux`` file.
+
+    Returns
+    -------
+    tuple of (x0, y0) or None
+        Center coordinates in pixels, or None if not found.
+    """
+    aux_path = Path(aux_path)
+    if not aux_path.exists():
+        return None
+    try:
+        for line in aux_path.read_text().splitlines():
+            if line.startswith("option ap_set_center:"):
+                # Format: option ap_set_center: {'x': 128.79, 'y': 129.54}
+                import ast
+                dict_str = line.split(":", 1)[1].strip()
+                center = ast.literal_eval(dict_str)
+                return float(center["x"]), float(center["y"])
+    except Exception:
+        pass
+    return None
 
 
 def _find_column(col_names: list[str], candidates: list[str]) -> str | None:

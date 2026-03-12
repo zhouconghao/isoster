@@ -20,52 +20,10 @@ from astropy.table import Table
 import isoster
 from isoster.config import IsosterConfig
 from isoster.model import build_isoster_model
-from isoster.plotting import (
-    compute_fractional_residual_percent,
-    configure_qa_plot_style,
-    derive_arcsinh_parameters,
-    draw_isophote_overlays,
-    make_arcsinh_display_from_parameters,
-    normalize_pa_degrees,
-    robust_limits,
-    set_axis_limits_from_finite_values,
-    set_x_limits_with_right_margin,
-    style_for_stop_code,
-)
+from isoster.plotting import build_method_profile, plot_comparison_qa_figure
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 DATA_DIR = PROJECT_ROOT / "data"
-
-# ---------------------------------------------------------------------------
-# Method style constants for QA figures
-# ---------------------------------------------------------------------------
-
-METHOD_STYLES = {
-    "isoster": {
-        "color": "#1f77b4",
-        "marker": "o",
-        "marker_face": "filled",
-        "overlay_color": "white",
-        "overlay_width": 1.0,
-        "label": "isoster",
-    },
-    "photutils": {
-        "color": "#d62728",
-        "marker": "s",
-        "marker_face": "none",
-        "overlay_color": "orangered",
-        "overlay_width": 1.1,
-        "label": "photutils",
-    },
-    "autoprof": {
-        "color": "#2ca02c",
-        "marker": "^",
-        "marker_face": "filled",
-        "overlay_color": "lime",
-        "overlay_width": 0.9,
-        "label": "AutoProf",
-    },
-}
 
 # ---------------------------------------------------------------------------
 # Galaxy registry
@@ -83,7 +41,6 @@ GALAXY_REGISTRY: list[dict[str, Any]] = [
         "config_overrides": {
             "sma0": 10.0,
             "minsma": 1.0,
-            "maxsma": 118.0,
             "astep": 0.1,
             "minit": 10,
             "maxit": 50,
@@ -100,7 +57,6 @@ GALAXY_REGISTRY: list[dict[str, Any]] = [
         "config_overrides": {
             "sma0": 6.0,
             "minsma": 1.0,
-            "maxsma": 283.0,
             "astep": 0.1,
             "minit": 10,
             "maxit": 50,
@@ -117,7 +73,6 @@ GALAXY_REGISTRY: list[dict[str, Any]] = [
         "config_overrides": {
             "sma0": 5.0,
             "minsma": 1.0,
-            "maxsma": 118.0,
             "astep": 0.1,
             "minit": 10,
             "maxit": 50,
@@ -208,6 +163,54 @@ def resolve_geometry(galaxy_entry: dict[str, Any], image: np.ndarray) -> dict:
 
 
 # ---------------------------------------------------------------------------
+# Retry helpers
+# ---------------------------------------------------------------------------
+
+MAX_RETRIES = 3
+
+
+def _should_retry(result: dict | None, method: str) -> bool:
+    """Return True if the fit result warrants a retry."""
+    if result is None:
+        return True
+    iso_count = result.get("isophote_count", 0)
+    if iso_count < 10:
+        return True
+    if method == "autoprof":
+        return False  # no stop codes for autoprof
+    # Check stop-code quality (isoster/photutils)
+    codes = result.get("stop_code_counts", {})
+    good = int(codes.get("0", 0))
+    return good < iso_count * 0.5
+
+
+def _escalate_params(
+    geometry: dict,
+    config_overrides: dict,
+    attempt: int,
+) -> tuple[dict, dict]:
+    """Return perturbed geometry and relaxed config for retry attempt.
+
+    Returns copies; originals are not mutated.
+    """
+    geo = dict(geometry)
+    cfg = dict(config_overrides)
+
+    if attempt == 1:
+        geo["eps"] = float(np.clip(geo["eps"] + 0.02, 0.05, 0.95))
+        geo["pa"] = geo["pa"] + 0.05
+        cfg["maxit"] = max(cfg.get("maxit", 50), 100)
+        cfg["maxgerr"] = max(cfg.get("maxgerr", 0.5), 0.8)
+    elif attempt >= 2:
+        geo["eps"] = float(np.clip(geo["eps"] - 0.02, 0.05, 0.95))
+        geo["pa"] = geo["pa"] - 0.05
+        cfg["maxit"] = max(cfg.get("maxit", 50), 200)
+        cfg["maxgerr"] = max(cfg.get("maxgerr", 0.5), 1.2)
+
+    return geo, cfg
+
+
+# ---------------------------------------------------------------------------
 # Availability checks
 # ---------------------------------------------------------------------------
 
@@ -243,6 +246,13 @@ def run_isoster_fit(
     """Run isoster fit.  Times only the core fit_image() call."""
     config_kwargs = dict(geometry)
     config_kwargs.update(config_overrides)
+    # Match AutoProf's eccentric anomaly sampling for fair comparison
+    config_kwargs.setdefault("use_eccentric_anomaly", True)
+    # LSB tuning: adaptive integrator switches to median in outskirts,
+    # permissive geometry continues through weak diagnostics
+    config_kwargs.setdefault("integrator", "adaptive")
+    config_kwargs.setdefault("lsb_sma_threshold", 80.0)
+    config_kwargs.setdefault("permissive_geometry", True)
     config = IsosterConfig(**config_kwargs)
 
     # Time only the core fitting
@@ -284,7 +294,7 @@ def build_photutils_config(geometry: dict, config_overrides: dict) -> dict[str, 
         "minsma": config_overrides.get("minsma", 1.0),
         "maxsma": config_overrides.get("maxsma", None),
         "step": config_overrides.get("astep", 0.1),
-        "maxgerr": 0.5,
+        "maxgerr": config_overrides.get("maxgerr", 0.5),
         "nclip": 0,
         "sclip": 3.0,
         "integrmode": "bilinear",
@@ -616,7 +626,8 @@ def save_profile_ecsv(isophotes: list[dict], output_path: Path) -> None:
 def save_autoprof_profile_ecsv(profile: dict, output_path: Path) -> None:
     """Save autoprof profile arrays as an ECSV table."""
     table = Table()
-    for key in ["sma", "intens", "eps", "pa", "intens_err", "eps_err", "pa_err"]:
+    for key in ["sma", "intens", "eps", "pa", "intens_err", "eps_err", "pa_err",
+                 "x0", "y0", "a3", "b3", "a4", "b4"]:
         if key in profile and isinstance(profile[key], np.ndarray):
             table[key] = profile[key]
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -654,35 +665,6 @@ def save_fit_configs(configs: dict[str, Any], output_path: Path) -> None:
 # ---------------------------------------------------------------------------
 
 
-def _extract_profile_arrays(isophotes: list[dict]) -> dict[str, np.ndarray]:
-    """Extract standard profile arrays from isophote list."""
-    sma = np.array([iso["sma"] for iso in isophotes])
-    return {
-        "sma": sma,
-        "x_axis": sma**0.25,
-        "intens": np.array([iso["intens"] for iso in isophotes]),
-        "eps": np.array([iso["eps"] for iso in isophotes]),
-        "pa": np.array([iso["pa"] for iso in isophotes]),
-        "x0": np.array([iso["x0"] for iso in isophotes]),
-        "y0": np.array([iso["y0"] for iso in isophotes]),
-        "stop_codes": np.array([iso["stop_code"] for iso in isophotes]),
-        "rms": np.array([iso.get("rms", np.nan) for iso in isophotes]),
-    }
-
-
-def _extract_autoprof_profile_arrays(profile: dict) -> dict[str, np.ndarray]:
-    """Extract profile arrays from autoprof result dict."""
-    sma = profile["sma"]
-    return {
-        "sma": sma,
-        "x_axis": sma**0.25,
-        "intens": profile["intens"],
-        "eps": profile["eps"],
-        "pa": profile["pa"],
-        "intens_err": profile.get("intens_err", np.full_like(sma, np.nan)),
-    }
-
-
 def make_comparison_qa_figure(
     image: np.ndarray,
     methods_data: dict[str, dict[str, Any]],
@@ -691,6 +673,10 @@ def make_comparison_qa_figure(
     dpi: int = 150,
 ) -> None:
     """Build multi-method comparison QA figure.
+
+    Thin wrapper around ``isoster.plotting.plot_comparison_qa_figure``.
+    Converts benchmark-specific ``methods_data`` format into the library's
+    ``profiles`` + ``models`` interface.
 
     Parameters
     ----------
@@ -709,242 +695,35 @@ def make_comparison_qa_figure(
     dpi : int
         Figure resolution.
     """
-    import matplotlib
-    matplotlib.rcParams["text.usetex"] = False
-    import matplotlib.pyplot as plt
-    import matplotlib.gridspec as gridspec
-
-    configure_qa_plot_style()
-
-    available_methods = list(methods_data.keys())
-    n_models = sum(
-        1 for m in available_methods
-        if methods_data[m].get("model") is not None
-    )
-    # Left column: original image + residual images (one per method with model)
-    n_left_rows = 1 + max(n_models, 1)
-    # Right column: SB, relative diff, eps, PA, centroid
-    n_right_rows = 5
-
-    fig = plt.figure(figsize=(15, max(12, n_left_rows * 3)), dpi=dpi)
-    outer = gridspec.GridSpec(
-        1, 2, figure=fig, width_ratios=[1.0, 1.8], wspace=0.25,
-    )
-    left = gridspec.GridSpecFromSubplotSpec(
-        n_left_rows, 2, subplot_spec=outer[0],
-        width_ratios=[1.0, 0.04], hspace=0.12, wspace=0.05,
-    )
-    right = gridspec.GridSpecFromSubplotSpec(
-        n_right_rows, 1, subplot_spec=outer[1],
-        height_ratios=[2.0, 1.0, 1.0, 1.0, 1.0],
-        hspace=0.0,
-    )
-
-    # Build title with runtime info
-    runtime_parts = []
-    for method_name in available_methods:
-        rt = methods_data[method_name].get("runtime", {})
-        wall = rt.get("wall_time_seconds", 0.0)
-        style = METHOD_STYLES.get(method_name, {})
-        label = style.get("label", method_name)
-        runtime_parts.append(f"{label}={wall:.2f}s")
-    title = f"{galaxy_name} | {', '.join(runtime_parts)}"
-    fig.suptitle(title, fontsize=16, y=0.995)
-
-    # --- Left column: Image + Residual images ---
-    # Row 0: Original image with overlays from all methods
-    ax_img = fig.add_subplot(left[0, 0])
-    low, high, scale, vmax = derive_arcsinh_parameters(image)
-    display, _, disp_vmax = make_arcsinh_display_from_parameters(
-        image, low, high, scale, vmax,
-    )
-    handle_img = ax_img.imshow(
-        display, cmap="viridis", origin="lower", vmin=0, vmax=disp_vmax,
-        interpolation="none",
-    )
-    ax_cbar = fig.add_subplot(left[0, 1])
-    fig.colorbar(handle_img, cax=ax_cbar)
-
-    # Draw isophote overlays for each method
-    for method_name in available_methods:
-        mdata = methods_data[method_name]
-        style = METHOD_STYLES.get(method_name, {})
-        isos = mdata.get("isophotes", [])
-        if isos:
-            draw_isophote_overlays(
-                ax_img, isos, step=5,
-                line_width=style.get("overlay_width", 1.0),
-                alpha=0.8,
-                edge_color=style.get("overlay_color", "white"),
-            )
-    ax_img.set_title("Data", fontsize=12)
-    ax_img.set_xlabel("x (pixels)")
-    ax_img.set_ylabel("y (pixels)")
-
-    # Residual images for each method with a model
-    residual_row = 1
-    for method_name in available_methods:
-        mdata = methods_data[method_name]
-        model = mdata.get("model")
-        if model is None:
-            continue
-
-        style = METHOD_STYLES.get(method_name, {})
-        label = style.get("label", method_name)
-        residual_pct = compute_fractional_residual_percent(image, model)
-
-        abs_vals = np.abs(residual_pct[np.isfinite(residual_pct)])
-        res_limit = float(np.clip(
-            np.nanpercentile(abs_vals, 99.0) if abs_vals.size else 1.0,
-            0.05, 8.0,
-        ))
-
-        ax_res = fig.add_subplot(left[residual_row, 0])
-        handle_res = ax_res.imshow(
-            residual_pct, origin="lower", cmap="coolwarm",
-            vmin=-res_limit, vmax=res_limit, interpolation="nearest",
-        )
-        ax_res.set_title(f"{label} residual", fontsize=11)
-        ax_res.set_xlabel("x (pixels)")
-        ax_res.set_ylabel("y (pixels)")
-
-        ax_res_cbar = fig.add_subplot(left[residual_row, 1])
-        cbar = fig.colorbar(handle_res, cax=ax_res_cbar)
-        cbar.set_label("(model-data)/data [%]", fontsize=8)
-
-        residual_row += 1
-
-    # --- Right column: 1D profiles ---
-    # Collect profile arrays per method
     profiles: dict[str, dict[str, np.ndarray]] = {}
-    for method_name in available_methods:
-        mdata = methods_data[method_name]
+    models: dict[str, np.ndarray] = {}
+
+    for method_name, mdata in methods_data.items():
+        # Build standardized profile via library helper
         if method_name == "autoprof":
-            profile = mdata.get("profile")
-            if profile is not None:
-                profiles[method_name] = _extract_autoprof_profile_arrays(profile)
+            raw = mdata.get("profile")
         else:
-            isos = mdata.get("isophotes", [])
-            if isos:
-                profiles[method_name] = _extract_profile_arrays(isos)
+            raw = mdata.get("isophotes", [])
+        profile = build_method_profile(raw) if raw else None
 
-    if not profiles:
-        output_path.parent.mkdir(parents=True, exist_ok=True)
-        fig.savefig(output_path, dpi=dpi, bbox_inches="tight")
-        plt.close(fig)
-        return
+        if profile is not None:
+            # Inject runtime so the title can display it
+            rt = mdata.get("runtime", {})
+            profile["runtime_seconds"] = rt.get("wall_time_seconds", 0.0)
+            retries = mdata.get("retries", 0)
+            if retries > 0:
+                profile["retries"] = retries
+            profiles[method_name] = profile
 
-    # Determine shared x-axis range
-    all_x = np.concatenate([p["x_axis"] for p in profiles.values()])
+        model = mdata.get("model")
+        if model is not None:
+            models[method_name] = model
 
-    # Panel 0: Surface brightness (larger)
-    ax_sb = fig.add_subplot(right[0])
-    for method_name, prof in profiles.items():
-        style = METHOD_STYLES.get(method_name, {})
-        x = prof["x_axis"]
-        y = np.log10(np.clip(prof["intens"], 1e-30, None))
-        mfc = style["color"] if style.get("marker_face") == "filled" else "none"
-        ax_sb.scatter(
-            x, y, color=style["color"], marker=style["marker"],
-            facecolors=mfc, edgecolors=style["color"],
-            s=22, alpha=0.7, label=style.get("label", method_name), zorder=3,
-        )
-    ax_sb.set_ylabel(r"$\log_{10}$(Intensity)")
-    ax_sb.set_title("Surface Brightness", fontsize=12)
-    ax_sb.grid(alpha=0.25)
-    ax_sb.legend(loc="upper right", fontsize=10)
-    ax_sb.tick_params(labelbottom=False)
-    set_x_limits_with_right_margin(ax_sb, all_x)
-
-    # Panel 1: Relative SB difference (isoster as reference)
-    ax_diff = fig.add_subplot(right[1], sharex=ax_sb)
-    if "isoster" in profiles:
-        ref_sma = profiles["isoster"]["sma"]
-        ref_intens = profiles["isoster"]["intens"]
-        for method_name, prof in profiles.items():
-            if method_name == "isoster":
-                continue
-            style = METHOD_STYLES.get(method_name, {})
-            # Interpolate reference to this method's SMA grid
-            from scipy.interpolate import interp1d
-            valid_ref = np.isfinite(ref_intens) & (ref_intens > 0)
-            if valid_ref.sum() < 2:
-                continue
-            interp_func = interp1d(
-                ref_sma[valid_ref], ref_intens[valid_ref],
-                kind="linear", bounds_error=False, fill_value=np.nan,
-            )
-            ref_at_method = interp_func(prof["sma"])
-            with np.errstate(divide="ignore", invalid="ignore"):
-                rel_diff = 100.0 * (prof["intens"] - ref_at_method) / ref_at_method
-            valid = np.isfinite(rel_diff)
-            mfc = style["color"] if style.get("marker_face") == "filled" else "none"
-            ax_diff.scatter(
-                prof["x_axis"][valid], rel_diff[valid],
-                color=style["color"], marker=style["marker"],
-                facecolors=mfc, edgecolors=style["color"],
-                s=18, alpha=0.7, label=style.get("label", method_name), zorder=3,
-            )
-        ax_diff.axhline(0, color="black", linestyle="--", linewidth=0.8)
-    ax_diff.set_ylabel("dI/I_isoster [%]")
-    ax_diff.grid(alpha=0.25)
-    ax_diff.tick_params(labelbottom=False)
-    if len(profiles) > 1:
-        ax_diff.legend(loc="best", fontsize=9)
-
-    # Panel 2: Ellipticity
-    ax_eps = fig.add_subplot(right[2], sharex=ax_sb)
-    for method_name, prof in profiles.items():
-        style = METHOD_STYLES.get(method_name, {})
-        x = prof["x_axis"]
-        y = prof["eps"]
-        mfc = style["color"] if style.get("marker_face") == "filled" else "none"
-        ax_eps.scatter(
-            x, y, color=style["color"], marker=style["marker"],
-            facecolors=mfc, edgecolors=style["color"],
-            s=18, alpha=0.7, zorder=3,
-        )
-    ax_eps.set_ylabel("Ellipticity")
-    ax_eps.grid(alpha=0.25)
-    ax_eps.tick_params(labelbottom=False)
-
-    # Panel 3: PA (normalized)
-    ax_pa = fig.add_subplot(right[3], sharex=ax_sb)
-    for method_name, prof in profiles.items():
-        style = METHOD_STYLES.get(method_name, {})
-        x = prof["x_axis"]
-        pa_deg = np.degrees(prof["pa"])
-        pa_norm = normalize_pa_degrees(pa_deg)
-        mfc = style["color"] if style.get("marker_face") == "filled" else "none"
-        ax_pa.scatter(
-            x, pa_norm, color=style["color"], marker=style["marker"],
-            facecolors=mfc, edgecolors=style["color"],
-            s=18, alpha=0.7, zorder=3,
-        )
-    ax_pa.set_ylabel("PA (deg)")
-    ax_pa.grid(alpha=0.25)
-    ax_pa.tick_params(labelbottom=False)
-
-    # Panel 4: Center offset (only for methods with x0/y0)
-    ax_cen = fig.add_subplot(right[4], sharex=ax_sb)
-    for method_name, prof in profiles.items():
-        if "x0" not in prof:
-            continue
-        style = METHOD_STYLES.get(method_name, {})
-        x = prof["x_axis"]
-        x0_med = np.nanmedian(prof["x0"])
-        y0_med = np.nanmedian(prof["y0"])
-        offset = np.sqrt((prof["x0"] - x0_med)**2 + (prof["y0"] - y0_med)**2)
-        mfc = style["color"] if style.get("marker_face") == "filled" else "none"
-        ax_cen.scatter(
-            x, offset, color=style["color"], marker=style["marker"],
-            facecolors=mfc, edgecolors=style["color"],
-            s=18, alpha=0.7, zorder=3,
-        )
-    ax_cen.set_ylabel("Center Offset (pix)")
-    ax_cen.set_xlabel(r"SMA$^{0.25}$ (pix$^{0.25}$)")
-    ax_cen.grid(alpha=0.25)
-
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    fig.savefig(output_path, dpi=dpi, bbox_inches="tight")
-    plt.close(fig)
+    plot_comparison_qa_figure(
+        image,
+        profiles,
+        title=galaxy_name,
+        output_path=output_path,
+        models=models,
+        dpi=dpi,
+    )
