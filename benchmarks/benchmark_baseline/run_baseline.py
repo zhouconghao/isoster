@@ -24,6 +24,8 @@ import argparse
 import os
 import sys
 import time
+
+import numpy as np
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -49,6 +51,9 @@ from isoster.output_paths import resolve_output_directory
 from benchmarks.utils.run_metadata import collect_environment_metadata, write_json
 from benchmarks.benchmark_baseline.baseline_shared import (
     GALAXY_REGISTRY,
+    MAX_RETRIES,
+    _escalate_params,
+    _should_retry,
     build_autoprof_config,
     build_isoster_model_image,
     build_photutils_config,
@@ -124,7 +129,14 @@ def run_galaxy(
 
     # Resolve shared geometry (excluded from timing for all methods)
     geometry = resolve_geometry(galaxy_entry, image)
-    config_overrides = galaxy_entry["config_overrides"]
+    config_overrides = dict(galaxy_entry["config_overrides"])  # copy to avoid mutating registry
+
+    # Auto-compute maxsma from image size (half-diagonal minus 5% margin)
+    if "maxsma" not in config_overrides:
+        h, w = image.shape
+        half_diag = 0.5 * np.sqrt(h**2 + w**2)
+        config_overrides["maxsma"] = float(int(half_diag * 0.95))
+        print(f"  Auto maxsma: {config_overrides['maxsma']:.0f} px (image {w}x{h})")
     pixel_scale = galaxy_entry.get("pixel_scale", 1.0)
     zeropoint = galaxy_entry.get("zeropoint", 22.5)
 
@@ -133,15 +145,32 @@ def run_galaxy(
     fit_configs: dict[str, dict] = {}
     method_results: dict[str, dict] = {}
 
-    # --- ISOSTER ---
-    print(f"  [isoster] Fitting ...")
-    iso_result = run_isoster_fit(image, geometry, config_overrides)
+    # --- ISOSTER (with retry) ---
+    iso_retries = 0
+    iso_result = None
+    for attempt in range(MAX_RETRIES):
+        if attempt == 0:
+            geo_try, cfg_try = geometry, config_overrides
+        else:
+            geo_try, cfg_try = _escalate_params(geometry, config_overrides, attempt)
+        print(f"  [isoster] Fitting (attempt {attempt + 1}/{MAX_RETRIES}) ...")
+        iso_result = run_isoster_fit(image, geo_try, cfg_try)
+        if not _should_retry(iso_result, "isoster"):
+            iso_retries = attempt
+            break
+        count = iso_result["isophote_count"] if iso_result else 0
+        print(f"    Poor result ({count} isophotes), retrying ...")
+        iso_retries = attempt + 1
+    else:
+        print(f"    Exhausted {MAX_RETRIES} retries, using last result")
+
     iso_isophotes = iso_result["isophotes"]
     iso_config = iso_result["config"]
     print(
         f"    {iso_result['isophote_count']} isophotes, "
         f"stop codes: {iso_result['stop_code_counts']}, "
         f"wall={iso_result['runtime']['wall_time_seconds']:.2f}s"
+        f"{f', retries={iso_retries}' if iso_retries > 0 else ''}"
     )
 
     # Save isoster artifacts
@@ -159,19 +188,36 @@ def run_galaxy(
         "isophotes": iso_isophotes,
         "model": iso_model,
         "runtime": iso_result["runtime"],
+        "retries": iso_retries,
     }
     method_results["isoster"] = {
         "isophote_count": iso_result["isophote_count"],
         "stop_code_counts": iso_result["stop_code_counts"],
         "runtime": iso_result["runtime"],
+        "retries": iso_retries,
     }
 
-    # --- PHOTUTILS ---
+    # --- PHOTUTILS (with retry) ---
     if run_photutils:
-        print(f"  [photutils] Fitting ...")
-        phot_config = build_photutils_config(geometry, config_overrides)
-        fit_configs["photutils"] = phot_config
-        phot_result = run_photutils_fit(image, phot_config)
+        phot_retries = 0
+        phot_result = None
+        for attempt in range(MAX_RETRIES):
+            if attempt == 0:
+                geo_try, cfg_try = geometry, config_overrides
+            else:
+                geo_try, cfg_try = _escalate_params(geometry, config_overrides, attempt)
+            print(f"  [photutils] Fitting (attempt {attempt + 1}/{MAX_RETRIES}) ...")
+            phot_config = build_photutils_config(geo_try, cfg_try)
+            fit_configs["photutils"] = phot_config
+            phot_result = run_photutils_fit(image, phot_config)
+            if not _should_retry(phot_result, "photutils"):
+                phot_retries = attempt
+                break
+            count = phot_result["isophote_count"] if phot_result else 0
+            print(f"    Poor result ({count} isophotes), retrying ...")
+            phot_retries = attempt + 1
+        else:
+            print(f"    Exhausted {MAX_RETRIES} retries, using last result")
 
         if phot_result is not None:
             phot_isophotes = phot_result["isophotes"]
@@ -179,6 +225,7 @@ def run_galaxy(
                 f"    {phot_result['isophote_count']} isophotes, "
                 f"stop codes: {phot_result['stop_code_counts']}, "
                 f"wall={phot_result['runtime']['wall_time_seconds']:.2f}s"
+                f"{f', retries={phot_retries}' if phot_retries > 0 else ''}"
             )
 
             phot_dir = galaxy_dir / "photutils"
@@ -194,34 +241,59 @@ def run_galaxy(
                 "isophotes": phot_isophotes,
                 "model": phot_model,
                 "runtime": phot_result["runtime"],
+                "retries": phot_retries,
             }
             method_results["photutils"] = {
                 "isophote_count": phot_result["isophote_count"],
                 "stop_code_counts": phot_result["stop_code_counts"],
                 "runtime": phot_result["runtime"],
+                "retries": phot_retries,
             }
         else:
             print(f"    photutils not available or failed")
 
-    # --- AUTOPROF ---
+    # --- AUTOPROF (with retry) ---
     if run_autoprof_flag:
-        print(f"  [autoprof] Fitting ...")
         background, background_noise = estimate_background(image)
-        ap_config = build_autoprof_config(
-            geometry, config_overrides,
-            pixel_scale, zeropoint,
-            background, background_noise,
-        )
-        fit_configs["autoprof"] = ap_config
-        ap_result = run_autoprof_fit(
-            image, galaxy_dir, name, ap_config,
-        )
+        ap_retries = 0
+        ap_result = None
+        for attempt in range(MAX_RETRIES):
+            if attempt == 0:
+                geo_try, cfg_try = geometry, config_overrides
+            else:
+                geo_try, cfg_try = _escalate_params(geometry, config_overrides, attempt)
+            print(f"  [autoprof] Fitting (attempt {attempt + 1}/{MAX_RETRIES}) ...")
+            ap_config = build_autoprof_config(
+                geo_try, cfg_try,
+                pixel_scale, zeropoint,
+                background, background_noise,
+            )
+            fit_configs["autoprof"] = ap_config
+
+            # Clean stale .prof files from previous attempts
+            autoprof_workdir = galaxy_dir / "autoprof_workdir"
+            if attempt > 0 and autoprof_workdir.exists():
+                for stale in autoprof_workdir.glob(f"{name}*.prof"):
+                    stale.unlink()
+
+            ap_result = run_autoprof_fit(
+                image, galaxy_dir, name, ap_config,
+            )
+            if not _should_retry(ap_result, "autoprof"):
+                ap_retries = attempt
+                break
+            count = ap_result["isophote_count"] if ap_result else 0
+            print(f"    Poor result ({count} isophotes), retrying ...")
+            ap_retries = attempt + 1
+        else:
+            print(f"    Exhausted {MAX_RETRIES} retries, using last result")
 
         if ap_result is not None:
             ap_profile = ap_result["profile"]
             print(
                 f"    {ap_result['isophote_count']} isophotes, "
                 f"wall={ap_result['runtime']['wall_time_seconds']:.2f}s"
+                f"{f', retries={ap_retries}' if ap_retries > 0 else ''}"
             )
 
             ap_dir = galaxy_dir / "autoprof"
@@ -236,10 +308,12 @@ def run_galaxy(
                 "profile": ap_profile,
                 "model": ap_model,
                 "runtime": ap_result["runtime"],
+                "retries": ap_retries,
             }
             method_results["autoprof"] = {
                 "isophote_count": ap_result["isophote_count"],
                 "runtime": ap_result["runtime"],
+                "retries": ap_retries,
             }
         else:
             print(f"    AutoProf not available or failed")
@@ -247,11 +321,25 @@ def run_galaxy(
     # Save fit configurations JSON
     save_fit_configs(fit_configs, galaxy_dir / "fit_configs.json")
 
-    # Generate comparison QA figure
-    print(f"  Generating comparison QA figure ...")
+    # Generate comparison QA figures (all 3 modes)
+    print(f"  Generating comparison QA figures (modes 1, 2, 3) ...")
+    # Mode 3: all methods (default auto-detection)
     make_comparison_qa_figure(
         image, methods_data, name,
-        figures_dir / "qa_comparison.png",
+        figures_dir / "qa_mode3_comparison.png",
+    )
+    # Mode 2: isoster vs photutils (1v1)
+    if "photutils" in methods_data:
+        mode2_data = {k: v for k, v in methods_data.items() if k != "autoprof"}
+        make_comparison_qa_figure(
+            image, mode2_data, name,
+            figures_dir / "qa_mode2_iso_vs_phot.png",
+        )
+    # Mode 1: isoster solo
+    mode1_data = {"isoster": methods_data["isoster"]}
+    make_comparison_qa_figure(
+        image, mode1_data, name,
+        figures_dir / "qa_mode1_isoster.png",
     )
 
     # Build per-galaxy record
@@ -285,15 +373,17 @@ def write_galaxy_report(run_record: dict, galaxy_dir: Path) -> None:
         "",
         "## Results",
         "",
-        "| Method | Isophotes | Wall Time (s) | Stop Codes |",
-        "|--------|-----------|---------------|------------|",
+        "| Method | Isophotes | Wall Time (s) | Retries | Stop Codes |",
+        "|--------|-----------|---------------|---------|------------|",
     ]
     for method_name, mresult in run_record["methods"].items():
         codes = mresult.get("stop_code_counts", {})
         codes_str = ", ".join(f"{k}:{v}" for k, v in sorted(codes.items()))
+        retries = mresult.get("retries", 0)
         lines.append(
             f"| {method_name} | {mresult['isophote_count']} "
             f"| {mresult['runtime']['wall_time_seconds']:.2f} "
+            f"| {retries} "
             f"| {codes_str} |"
         )
     lines.extend([
@@ -345,19 +435,21 @@ def write_aggregate_report(
         lines.extend([
             f"## {label}",
             "",
-            "| Galaxy | Isophotes | Wall Time (s) | Stop Codes |",
-            "|--------|-----------|---------------|------------|",
+            "| Galaxy | Isophotes | Wall Time (s) | Retries | Stop Codes |",
+            "|--------|-----------|---------------|---------|------------|",
         ])
         for result in galaxy_results:
             mresult = result.get("methods", {}).get(method_name)
             if mresult is None:
-                lines.append(f"| {result['galaxy']} | - | - | - |")
+                lines.append(f"| {result['galaxy']} | - | - | - | - |")
                 continue
             codes = mresult.get("stop_code_counts", {})
             codes_str = ", ".join(f"{k}:{v}" for k, v in sorted(codes.items()))
+            retries = mresult.get("retries", 0)
             lines.append(
                 f"| {result['galaxy']} | {mresult['isophote_count']} "
                 f"| {mresult['runtime']['wall_time_seconds']:.2f} "
+                f"| {retries} "
                 f"| {codes_str} |"
             )
         lines.append("")

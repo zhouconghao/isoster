@@ -41,7 +41,6 @@ GALAXY_REGISTRY: list[dict[str, Any]] = [
         "config_overrides": {
             "sma0": 10.0,
             "minsma": 1.0,
-            "maxsma": 118.0,
             "astep": 0.1,
             "minit": 10,
             "maxit": 50,
@@ -58,7 +57,6 @@ GALAXY_REGISTRY: list[dict[str, Any]] = [
         "config_overrides": {
             "sma0": 6.0,
             "minsma": 1.0,
-            "maxsma": 283.0,
             "astep": 0.1,
             "minit": 10,
             "maxit": 50,
@@ -75,7 +73,6 @@ GALAXY_REGISTRY: list[dict[str, Any]] = [
         "config_overrides": {
             "sma0": 5.0,
             "minsma": 1.0,
-            "maxsma": 118.0,
             "astep": 0.1,
             "minit": 10,
             "maxit": 50,
@@ -166,6 +163,54 @@ def resolve_geometry(galaxy_entry: dict[str, Any], image: np.ndarray) -> dict:
 
 
 # ---------------------------------------------------------------------------
+# Retry helpers
+# ---------------------------------------------------------------------------
+
+MAX_RETRIES = 3
+
+
+def _should_retry(result: dict | None, method: str) -> bool:
+    """Return True if the fit result warrants a retry."""
+    if result is None:
+        return True
+    iso_count = result.get("isophote_count", 0)
+    if iso_count < 10:
+        return True
+    if method == "autoprof":
+        return False  # no stop codes for autoprof
+    # Check stop-code quality (isoster/photutils)
+    codes = result.get("stop_code_counts", {})
+    good = int(codes.get("0", 0))
+    return good < iso_count * 0.5
+
+
+def _escalate_params(
+    geometry: dict,
+    config_overrides: dict,
+    attempt: int,
+) -> tuple[dict, dict]:
+    """Return perturbed geometry and relaxed config for retry attempt.
+
+    Returns copies; originals are not mutated.
+    """
+    geo = dict(geometry)
+    cfg = dict(config_overrides)
+
+    if attempt == 1:
+        geo["eps"] = float(np.clip(geo["eps"] + 0.02, 0.05, 0.95))
+        geo["pa"] = geo["pa"] + 0.05
+        cfg["maxit"] = max(cfg.get("maxit", 50), 100)
+        cfg["maxgerr"] = max(cfg.get("maxgerr", 0.5), 0.8)
+    elif attempt >= 2:
+        geo["eps"] = float(np.clip(geo["eps"] - 0.02, 0.05, 0.95))
+        geo["pa"] = geo["pa"] - 0.05
+        cfg["maxit"] = max(cfg.get("maxit", 50), 200)
+        cfg["maxgerr"] = max(cfg.get("maxgerr", 0.5), 1.2)
+
+    return geo, cfg
+
+
+# ---------------------------------------------------------------------------
 # Availability checks
 # ---------------------------------------------------------------------------
 
@@ -201,6 +246,13 @@ def run_isoster_fit(
     """Run isoster fit.  Times only the core fit_image() call."""
     config_kwargs = dict(geometry)
     config_kwargs.update(config_overrides)
+    # Match AutoProf's eccentric anomaly sampling for fair comparison
+    config_kwargs.setdefault("use_eccentric_anomaly", True)
+    # LSB tuning: adaptive integrator switches to median in outskirts,
+    # permissive geometry continues through weak diagnostics
+    config_kwargs.setdefault("integrator", "adaptive")
+    config_kwargs.setdefault("lsb_sma_threshold", 80.0)
+    config_kwargs.setdefault("permissive_geometry", True)
     config = IsosterConfig(**config_kwargs)
 
     # Time only the core fitting
@@ -242,7 +294,7 @@ def build_photutils_config(geometry: dict, config_overrides: dict) -> dict[str, 
         "minsma": config_overrides.get("minsma", 1.0),
         "maxsma": config_overrides.get("maxsma", None),
         "step": config_overrides.get("astep", 0.1),
-        "maxgerr": 0.5,
+        "maxgerr": config_overrides.get("maxgerr", 0.5),
         "nclip": 0,
         "sclip": 3.0,
         "integrmode": "bilinear",
@@ -574,7 +626,8 @@ def save_profile_ecsv(isophotes: list[dict], output_path: Path) -> None:
 def save_autoprof_profile_ecsv(profile: dict, output_path: Path) -> None:
     """Save autoprof profile arrays as an ECSV table."""
     table = Table()
-    for key in ["sma", "intens", "eps", "pa", "intens_err", "eps_err", "pa_err"]:
+    for key in ["sma", "intens", "eps", "pa", "intens_err", "eps_err", "pa_err",
+                 "x0", "y0", "a3", "b3", "a4", "b4"]:
         if key in profile and isinstance(profile[key], np.ndarray):
             table[key] = profile[key]
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -657,6 +710,9 @@ def make_comparison_qa_figure(
             # Inject runtime so the title can display it
             rt = mdata.get("runtime", {})
             profile["runtime_seconds"] = rt.get("wall_time_seconds", 0.0)
+            retries = mdata.get("retries", 0)
+            if retries > 0:
+                profile["retries"] = retries
             profiles[method_name] = profile
 
         model = mdata.get("model")

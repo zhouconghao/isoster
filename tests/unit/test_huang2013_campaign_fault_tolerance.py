@@ -14,7 +14,7 @@ import pytest
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-HUANG2013_DIR = REPO_ROOT / "examples" / "huang2013"
+HUANG2013_DIR = REPO_ROOT / "examples" / "example_huang2013"
 if str(HUANG2013_DIR) not in sys.path:
     sys.path.insert(0, str(HUANG2013_DIR))
 

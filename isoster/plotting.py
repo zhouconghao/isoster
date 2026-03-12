@@ -1269,12 +1269,21 @@ def _scatter_by_stop_code_in_method_color(
     y_errors: np.ndarray | None = None,
     label: str = "",
     marker_size: float = 22.0,
+    label_stop_codes: bool = True,
 ) -> None:
     """Scatter points using stop-code markers in a single method color.
 
     Stop=0 points are filled; non-zero stop codes use open markers with
     the same base color.  This distinguishes convergence quality while
     keeping method identity clear via color.
+
+    Parameters
+    ----------
+    label_stop_codes : bool
+        If True, each stop code gets its own legend entry (e.g.
+        "isoster", "isoster (stop=2)").  If False, only the first
+        group (stop=0) gets the method label; non-zero groups are
+        plotted but unlabeled in the legend.
     """
     unique_codes = sorted(
         {int(c) for c in stop_codes[np.isfinite(stop_codes)]},
@@ -1286,7 +1295,11 @@ def _scatter_by_stop_code_in_method_color(
             continue
         marker = MONOCHROME_STOP_MARKERS.get(code, "o")
         face = base_color if code == 0 else "none"
-        code_label = f"{label} (stop={code})" if code != 0 else label
+        if label_stop_codes:
+            code_label = f"{label} (stop={code})" if code != 0 else label
+        else:
+            # Only label the first group (stop=0) with the method name
+            code_label = label if code == 0 else None
 
         if y_errors is not None:
             errs = np.asarray(y_errors[mask], dtype=float)
@@ -1380,9 +1393,12 @@ def _plot_residual_panel(
             line_width=overlay_width, alpha=0.7,
             edge_color=overlay_color,
         )
-    ax.set_title(panel_title, fontsize=11)
-    ax.set_xlabel("x (pixels)")
-    ax.set_ylabel("y (pixels)")
+    ax.set_xticks([])
+    ax.set_yticks([])
+    ax.text(
+        0.03, 0.95, panel_title, color="black", fontsize=11,
+        fontweight="bold", transform=ax.transAxes, va="top", ha="left",
+    )
 
     ax_cbar = fig.add_subplot(gs_cbar_slot)
     fig.colorbar(handle, cax=ax_cbar).set_label(cbar_label, fontsize=8)
@@ -1477,11 +1493,12 @@ def plot_comparison_qa_figure(
 
     fig = plt.figure(figsize=(15, fig_height), dpi=dpi)
     outer = gridspec.GridSpec(
-        1, 2, figure=fig, width_ratios=[1.0, 1.8], wspace=0.25,
+        1, 2, figure=fig, width_ratios=[1.0, 1.8], wspace=0.30,
+        top=0.95,
     )
     left = gridspec.GridSpecFromSubplotSpec(
         n_left_rows, 2, subplot_spec=outer[0],
-        width_ratios=[1.0, 0.04], hspace=0.12, wspace=0.05,
+        width_ratios=[1.0, 0.04], hspace=0.12, wspace=0.02,
     )
     right = gridspec.GridSpecFromSubplotSpec(
         n_right_rows, 1, subplot_spec=outer[1],
@@ -1489,21 +1506,23 @@ def plot_comparison_qa_figure(
         hspace=0.0,
     )
 
-    # --- Title with runtime info ---
-    runtime_parts = []
+    # --- Title (runtime shown in SB panel instead) ---
+    fig.suptitle(title, fontsize=16, y=0.975)
+
+    # Collect runtime lines for later display in SB panel
+    _runtime_lines = []
     for method_name in available:
         prof = profiles[method_name]
         style = styles.get(method_name, {"label": method_name})
         label = style.get("label", method_name)
+        color = style.get("color", "black")
         rt = prof.get("runtime_seconds")
         if rt is not None:
-            runtime_parts.append(f"{label}={float(rt):.2f}s")
-        else:
-            runtime_parts.append(str(label))
-    full_title = title
-    if runtime_parts:
-        full_title += f" | {', '.join(runtime_parts)}"
-    fig.suptitle(full_title, fontsize=16, y=0.995)
+            line = f"{label}: {float(rt):.2f}s"
+            retries = prof.get("retries", 0)
+            if retries > 0:
+                line += f"; retry: {retries}"
+            _runtime_lines.append((line, color))
 
     # --- Left column row 0: Original image ---
     ax_img = fig.add_subplot(left[0, 0])
@@ -1540,9 +1559,27 @@ def plot_comparison_qa_figure(
                     edge_color=style.get("overlay_color", "white"),
                 )
 
-    ax_img.set_title("Data", fontsize=12)
-    ax_img.set_xlabel("x (pixels)")
-    ax_img.set_ylabel("y (pixels)")
+    ax_img.set_xticks([])
+    ax_img.set_yticks([])
+    ax_img.text(
+        0.03, 0.95, "Data", color="white", fontsize=11, fontweight="bold",
+        transform=ax_img.transAxes, va="top", ha="left",
+    )
+
+    # Scale bar: ~1/10 of image size, rounded up to nearest 10
+    img_size = max(image.shape)
+    bar_length = int(np.ceil(img_size / 100.0)) * 10  # round up to 10s
+    bar_x0 = image.shape[1] * 0.05
+    bar_y0 = image.shape[0] * 0.05
+    ax_img.plot(
+        [bar_x0, bar_x0 + bar_length], [bar_y0, bar_y0],
+        color="white", linewidth=2.5, solid_capstyle="butt",
+    )
+    ax_img.text(
+        bar_x0 + bar_length / 2, bar_y0 + image.shape[0] * 0.03,
+        f"{bar_length} pix", color="white", fontsize=9,
+        ha="center", va="bottom",
+    )
 
     # --- Left column: mode-dependent panels ---
     if n_methods <= 1 and available:
@@ -1560,9 +1597,13 @@ def plot_comparison_qa_figure(
                 mod_display, origin="lower", cmap="viridis",
                 vmin=0, vmax=mod_vmax, interpolation="none",
             )
-            ax_mod.set_title("Model", fontsize=12)
-            ax_mod.set_xlabel("x (pixels)")
-            ax_mod.set_ylabel("y (pixels)")
+            ax_mod.set_xticks([])
+            ax_mod.set_yticks([])
+            ax_mod.text(
+                0.03, 0.95, "Model", color="white", fontsize=11,
+                fontweight="bold", transform=ax_mod.transAxes,
+                va="top", ha="left",
+            )
             ax_mod_cb = fig.add_subplot(left[1, 1])
             fig.colorbar(h_mod, cax=ax_mod_cb)
 
@@ -1656,6 +1697,7 @@ def plot_comparison_qa_figure(
                 y_errors=y_err[valid] if y_err is not None else None,
                 label=style.get("label", method_name),
                 marker_size=22,
+                label_stop_codes=(n_methods <= 1),
             )
         else:
             mfc = (
@@ -1682,11 +1724,21 @@ def plot_comparison_qa_figure(
                 )
 
     ax_sb.set_ylabel(r"$\log_{10}$(Intensity)")
-    ax_sb.set_title("Surface Brightness", fontsize=12)
     ax_sb.grid(alpha=0.25)
     ax_sb.legend(loc="upper right", fontsize=10)
     ax_sb.tick_params(labelbottom=False)
     set_x_limits_with_right_margin(ax_sb, all_x)
+
+    # Runtime annotation in bottom-left of SB panel
+    if _runtime_lines:
+        y_pos = 0.04
+        for line_text, line_color in _runtime_lines:
+            ax_sb.text(
+                0.03, y_pos, line_text, color=line_color, fontsize=9,
+                fontweight="bold", transform=ax_sb.transAxes,
+                va="bottom", ha="left",
+            )
+            y_pos += 0.06
 
     # Panel 1: Relative SB difference (first method as reference)
     ax_diff = fig.add_subplot(right[1], sharex=ax_sb)
@@ -1810,17 +1862,53 @@ def plot_comparison_qa_figure(
             pa_margin = max(3.0, 0.08 * (pa_high - pa_low + 1e-6))
             ax_pa.set_ylim(pa_low - pa_margin, pa_high + pa_margin)
 
-    # Panel 4: Center offset
+    # Panel 4: Center offset (relative to isoster's robust median center)
+    # Reference center: median of inner 10 stop=0 isophotes from the first
+    # method (isoster), after 3-sigma clipping.
+    ref_x0, ref_y0 = None, None
+    first_method = available[0] if available else None
+    if first_method and "x0" in profiles[first_method]:
+        fprof = profiles[first_method]
+        # Select stop=0 isophotes, sorted by SMA (innermost first)
+        if "stop_codes" in fprof:
+            good = fprof["stop_codes"] == 0
+        else:
+            good = np.isfinite(fprof["x0"])
+        order = np.argsort(fprof["sma"])
+        good_sorted = good[order]
+        x0_sorted = fprof["x0"][order]
+        y0_sorted = fprof["y0"][order]
+        inner_x0 = x0_sorted[good_sorted][:10]
+        inner_y0 = y0_sorted[good_sorted][:10]
+
+        # 3-sigma clipping on radial distance from raw median
+        if inner_x0.size > 0:
+            mx, my = np.nanmedian(inner_x0), np.nanmedian(inner_y0)
+            dist = np.sqrt((inner_x0 - mx) ** 2 + (inner_y0 - my) ** 2)
+            sigma = np.nanstd(dist)
+            if sigma > 0:
+                keep = dist < 3 * sigma
+                inner_x0 = inner_x0[keep]
+                inner_y0 = inner_y0[keep]
+            if inner_x0.size > 0:
+                ref_x0 = float(np.nanmedian(inner_x0))
+                ref_y0 = float(np.nanmedian(inner_y0))
+
     ax_cen = fig.add_subplot(right[4], sharex=ax_sb)
     for method_name in available:
         prof = profiles[method_name]
         if "x0" not in prof:
             continue
         style = styles.get(method_name, {})
-        x0_med = np.nanmedian(prof["x0"])
-        y0_med = np.nanmedian(prof["y0"])
+        # All methods use the isoster reference center if available;
+        # fall back to own median if reference is not available
+        if ref_x0 is not None:
+            cx, cy = ref_x0, ref_y0
+        else:
+            cx = np.nanmedian(prof["x0"])
+            cy = np.nanmedian(prof["y0"])
         offset = np.sqrt(
-            (prof["x0"] - x0_med) ** 2 + (prof["y0"] - y0_med) ** 2
+            (prof["x0"] - cx) ** 2 + (prof["y0"] - cy) ** 2
         )
         mfc = (
             style["color"]
@@ -1833,7 +1921,7 @@ def plot_comparison_qa_figure(
             facecolors=mfc, edgecolors=style["color"],
             s=18, alpha=0.7, zorder=3,
         )
-    ax_cen.set_ylabel("Center Offset (pix)")
+    ax_cen.set_ylabel(r"$\delta$ Cen (pix)")
     ax_cen.set_xlabel(r"SMA$^{0.25}$ (pix$^{0.25}$)")
     ax_cen.grid(alpha=0.25)
 
