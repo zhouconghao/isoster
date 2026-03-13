@@ -130,20 +130,29 @@ def extract_forced_photometry(image, mask, x0, y0, sma, eps, pa, integrator='mea
             result.update(_build_harmonic_fields(harmonic_orders))
         return result
 
-    # Sigma clipping
+    # Sigma clipping (clip variances in lockstep when present)
     if nclip > 0:
-        phi, intens, _ = sigma_clip(phi, intens, sclip, nclip)
+        if variances is not None:
+            phi, intens, _, variances = sigma_clip(
+                phi, intens, sclip, nclip, extra_arrays=[variances]
+            )
+        else:
+            phi, intens, _ = sigma_clip(phi, intens, sclip, nclip)
 
-    # Compute intensity
-    if integrator == 'median':
+    # Compute intensity — use weighted mean under WLS
+    if variances is not None:
+        weights = 1.0 / variances
+        sum_weights = np.sum(weights)
+        intensity = np.sum(weights * intens) / sum_weights
+        # Propagated error from known per-pixel variances (exact WLS covariance)
+        intens_err = 1.0 / np.sqrt(sum_weights)
+    elif integrator == 'median':
         intensity = np.median(intens)
     else:
         intensity = np.mean(intens)
 
     rms = np.std(intens)
-    if variances is not None:
-        intens_err = np.sqrt(np.sum(variances) / len(variances)**2)
-    else:
+    if variances is None:
         intens_err = rms / np.sqrt(len(intens))
 
     result = {

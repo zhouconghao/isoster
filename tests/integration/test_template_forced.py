@@ -282,6 +282,137 @@ class TestTemplateForced:
         assert sma_values == sorted(sma_values), "Output should be sorted by SMA"
 
 
+class TestTemplateWithVarianceMap:
+    """Regression tests for variance_map support in template/forced mode."""
+
+    def test_variance_map_threaded_to_forced_photometry(self):
+        """variance_map should affect intens_err in forced mode (not silently ignored)."""
+        shape = (100, 100)
+        x0, y0 = 50.0, 50.0
+        eps, pa = 0.3, np.pi / 4
+
+        image = make_elliptical_image(shape, x0, y0, eps, pa, 1000.0, 15.0)
+        # Add noise so OLS and WLS errors differ meaningfully
+        rng = np.random.default_rng(42)
+        image += rng.normal(0, 5.0, shape)
+
+        # Heteroscedastic variance: one half noisier than the other
+        variance_map = np.full(shape, 25.0)
+        variance_map[:, 50:] = 2500.0  # right half 10x noisier
+
+        template = build_template_isophotes(
+            x0=x0, y0=y0, eps=eps, pa=pa,
+            sma_values=[10.0, 15.0, 20.0, 25.0, 30.0]
+        )
+        config = IsosterConfig(x0=x0, y0=y0, eps=eps, pa=pa,
+                               sma0=10.0, maxsma=30.0)
+
+        result_no_var = fit_image(image, None, config, template=template)
+        result_wls = fit_image(image, None, config, template=template,
+                               variance_map=variance_map)
+
+        assert len(result_wls['isophotes']) == len(template)
+
+        # At least one non-central isophote should have different intens_err
+        # (WLS propagated error vs OLS scatter-based error)
+        any_differ = False
+        for iso_ols, iso_wls in zip(result_no_var['isophotes'],
+                                     result_wls['isophotes']):
+            if iso_ols['sma'] > 0 and np.isfinite(iso_ols['intens_err']):
+                if iso_ols['intens_err'] != iso_wls['intens_err']:
+                    any_differ = True
+                    break
+        assert any_differ, (
+            "variance_map had no effect on intens_err — "
+            "it may be silently ignored in forced mode"
+        )
+
+    def test_forced_wls_uses_weighted_mean(self):
+        """Forced photometry with variance_map should use weighted mean intensity."""
+        shape = (100, 100)
+        x0, y0 = 50.0, 50.0
+        eps, pa = 0.0, 0.0
+
+        # Uniform image — intensity differences come only from weighting
+        image = np.full(shape, 100.0)
+        # Inject a bright strip that would bias an unweighted mean
+        image[48:52, :] = 200.0
+
+        # Give the bright strip very high variance (low weight)
+        variance_map = np.full(shape, 1.0)
+        variance_map[48:52, :] = 1e6
+
+        template = build_template_isophotes(
+            x0=x0, y0=y0, eps=eps, pa=pa, sma_values=[20.0]
+        )
+        config = IsosterConfig(x0=x0, y0=y0, eps=eps, pa=pa,
+                               sma0=20.0, maxsma=20.0)
+
+        result_ols = fit_image(image, None, config, template=template)
+        result_wls = fit_image(image, None, config, template=template,
+                               variance_map=variance_map)
+
+        intens_ols = result_ols['isophotes'][0]['intens']
+        intens_wls = result_wls['isophotes'][0]['intens']
+
+        # Unweighted mean should be pulled toward 200; weighted mean should stay near 100
+        assert intens_ols > intens_wls, (
+            f"Weighted mean ({intens_wls:.2f}) should be lower than unweighted "
+            f"({intens_ols:.2f}) because bright pixels have high variance"
+        )
+
+    def test_forced_wls_sigma_clip_preserves_variance_alignment(self):
+        """Sigma clipping in forced mode should clip variances alongside intensities."""
+        shape = (100, 100)
+        x0, y0 = 50.0, 50.0
+        eps, pa = 0.2, 0.0
+
+        image = make_elliptical_image(shape, x0, y0, eps, pa, 1000.0, 15.0)
+        variance_map = np.full(shape, 25.0)
+
+        template = build_template_isophotes(
+            x0=x0, y0=y0, eps=eps, pa=pa, sma_values=[15.0]
+        )
+        config = IsosterConfig(x0=x0, y0=y0, eps=eps, pa=pa,
+                               sma0=15.0, maxsma=15.0,
+                               nclip=3, sclip=3.0)
+
+        # Should not raise any shape mismatch or array length errors
+        result = fit_image(image, None, config, template=template,
+                           variance_map=variance_map)
+        assert len(result['isophotes']) == 1
+        assert np.isfinite(result['isophotes'][0]['intens'])
+        assert np.isfinite(result['isophotes'][0]['intens_err'])
+
+    def test_forced_wls_byte_identity_without_variance(self):
+        """Forced mode without variance_map should be identical to variance_map=None."""
+        shape = (100, 100)
+        x0, y0 = 50.0, 50.0
+        eps, pa = 0.3, np.pi / 4
+
+        image = make_elliptical_image(shape, x0, y0, eps, pa, 1000.0, 15.0)
+
+        template = build_template_isophotes(
+            x0=x0, y0=y0, eps=eps, pa=pa,
+            sma_values=[10.0, 15.0, 20.0, 25.0, 30.0]
+        )
+        config = IsosterConfig(x0=x0, y0=y0, eps=eps, pa=pa,
+                               sma0=10.0, maxsma=30.0)
+
+        result_a = fit_image(image, None, config, template=template)
+        result_b = fit_image(image, None, config, template=template,
+                             variance_map=None)
+
+        for iso_a, iso_b in zip(result_a['isophotes'], result_b['isophotes']):
+            for key in iso_a:
+                val_a, val_b = iso_a[key], iso_b[key]
+                if isinstance(val_a, float):
+                    if np.isnan(val_a):
+                        assert np.isnan(val_b), f"Key {key}: expected NaN"
+                    else:
+                        assert val_a == val_b, f"Key {key}: {val_a} != {val_b}"
+
+
 class TestUnifiedTemplateAPI:
     """Tests for the unified template= parameter (R26-05)."""
 
