@@ -14,7 +14,8 @@ IsophoteData = namedtuple('IsophoteData', [
     'angles',      # ψ (EA mode) or φ (regular mode) - for harmonic fitting
     'phi',         # φ (position angles) - for geometry updates
     'intens',      # Intensity values
-    'radii'        # Semi-major axis values
+    'radii',       # Semi-major axis values
+    'variances'    # Per-pixel variance values (None when no variance map provided)
 ])
 
 
@@ -89,7 +90,7 @@ def get_elliptical_coordinates(x, y, x0, y0, pa, eps):
     
     return sma, phi
 
-def extract_isophote_data(image, mask, x0, y0, sma, eps, pa, use_eccentric_anomaly=False):
+def extract_isophote_data(image, mask, x0, y0, sma, eps, pa, use_eccentric_anomaly=False, variance_map=None):
     """
     Extract image pixels along an elliptical path using vectorized sampling.
 
@@ -116,7 +117,10 @@ def extract_isophote_data(image, mask, x0, y0, sma, eps, pa, use_eccentric_anoma
     use_eccentric_anomaly : bool
         If True, sample uniformly in ψ and fit harmonics in ψ space (Ciambur 2015).
         If False, sample uniformly in φ and fit harmonics in φ space (traditional).
-        
+    variance_map : 2D array, optional
+        Per-pixel variance map. When provided, variance values are sampled along the
+        ellipse using bilinear interpolation and included in the returned IsophoteData.
+
     Returns
     -------
     IsophoteData : namedtuple
@@ -124,6 +128,7 @@ def extract_isophote_data(image, mask, x0, y0, sma, eps, pa, use_eccentric_anoma
         - phi: φ (position angles) - always present, for geometry updates
         - intens: Intensity values
         - radii: Semi-major axis values (constant = sma)
+        - variances: Per-pixel variance values (None when variance_map is not provided)
     """
     h, w = image.shape
 
@@ -147,19 +152,28 @@ def extract_isophote_data(image, mask, x0, y0, sma, eps, pa, use_eccentric_anoma
         valid = np.ones_like(intens, dtype=bool)
         
     valid &= ~np.isnan(intens)
-    
+
+    # Sample variance map if provided
+    var_vals = None
+    if variance_map is not None:
+        var_vals = map_coordinates(variance_map, coords, order=1, mode='constant', cval=np.nan)
+        valid &= ~np.isnan(var_vals)
+
     # Return named tuple with appropriate angles
+    sampled_variances = var_vals[valid] if var_vals is not None else None
     if use_eccentric_anomaly:
         return IsophoteData(
             angles=psi[valid],      # ψ for harmonic fitting (Ciambur 2015)
             phi=phi[valid],          # φ for geometry updates
             intens=intens[valid],
-            radii=np.full(np.sum(valid), sma)
+            radii=np.full(np.sum(valid), sma),
+            variances=sampled_variances
         )
     else:
         return IsophoteData(
             angles=phi[valid],       # φ for harmonic fitting (traditional)
             phi=phi[valid],          # φ for geometry (same as angles)
             intens=intens[valid],
-            radii=np.full(np.sum(valid), sma)
+            radii=np.full(np.sum(valid), sma),
+            variances=sampled_variances
         )

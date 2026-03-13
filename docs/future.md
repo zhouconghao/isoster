@@ -22,8 +22,9 @@ This document outlines the strategic roadmap for long-term improvements to `isos
 **Goal:** Prevent premature failures (`stop_code=-1`) in the noise-dominated outer disk.
 **Details:** The analytic Newton-Raphson geometry updates fail when the radial gradient approaches zero at the noise floor. We plan to implement a gradient-free fallback optimization (e.g., Brent's method minimizing sample variance) that activates only when the gradient signal-to-noise drops below a reliable threshold.
 
-## 5. Variance Maps & Exact Covariance (Accuracy)
+## 5. Variance Maps & Exact Covariance (Accuracy) — IMPLEMENTED
 **Goal:** Exact parameter covariance and automatic outlier handling.
 **Details:** Support a per-pixel variance map to perform Weighted Least Squares (WLS) harmonic fitting. This replaces residual-based noise estimates with exact photon noise and automatically down-weights outlier pixels (e.g., unmasked cosmic rays).
+**Status:** Implemented on `feat/variance-map` branch. `fit_image(image, variance_map=...)` threads WLS through all fitting functions. See `docs/algorithm.md` and `docs/user-guide.md` for usage.
 
 *(For detailed theoretical derivations of these plans, see the synthesis documents in `docs/archive/review/`)*

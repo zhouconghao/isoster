@@ -32,7 +32,7 @@ Angle semantics:
 - Regular mode (`use_eccentric_anomaly=False`): harmonics use `phi` (position angle).
 - Eccentric-anomaly mode (`use_eccentric_anomaly=True`): harmonics use `psi`; geometry updates still use `phi`.
 
-The returned structure is `IsophoteData(angles, phi, intens, radii)` where `angles` is the harmonic-fit angle basis.
+The returned structure is `IsophoteData(angles, phi, intens, radii, variances)` where `angles` is the harmonic-fit angle basis and `variances` is `None` when no variance map is provided.
 
 ## Per-Isophote Fitting Loop
 
@@ -87,6 +87,24 @@ Supported config values:
 - `adaptive` (switches to `median` when `sma > lsb_sma_threshold`)
 
 `adaptive` requires `lsb_sma_threshold` by config validation.
+
+## Weighted Least Squares (Variance Map)
+
+When `variance_map` is provided to `fit_image`, all harmonic fits switch to WLS:
+
+**OLS (default)**: minimizes `||y - Ax||²`, covariance = `(A^T A)^-1 * σ²_res` where `σ²_res` is estimated from residuals.
+
+**WLS**: minimizes `||W^{1/2}(y - Ax)||²` with `W = diag(1/σ²_i)`:
+- Normal equations: `(A^T W A) x = A^T W y`
+- Covariance: `(A^T W A)^-1` — exact, no residual scaling needed.
+
+**Gradient error** (WLS): `σ_grad = sqrt(Var(mean_c) + Var(mean_g)) / Δr` where `Var(mean) = Σσ²_i / N²`.
+
+**Intensity error** (WLS): `intens_err = sqrt(Σσ²_i / N²)` (exact variance of the mean).
+
+The OLS path is byte-identical when `variance_map=None`. All WLS branches are gated by `if variances is not None`.
+
+Reference: `docs/archive/review/autoprof-3-variance-map-error-propagation.md`.
 
 ## Forced and Template Modes
 

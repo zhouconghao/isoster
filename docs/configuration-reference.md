@@ -307,6 +307,34 @@ Controls how the representative intensity is derived from sampled points.
 
 ---
 
+## Variance Map / WLS Fitting (via `variance_map`)
+
+Weighted Least Squares fitting is enabled by passing a per-pixel variance map to
+`fit_image()`. This is a function-level parameter, not an `IsosterConfig` field.
+
+```python
+results = fit_image(image, config=config, variance_map=variance_map)
+```
+
+### Input requirements
+
+| Requirement | Behavior |
+|-------------|----------|
+| Shape must match `image` | `ValueError` raised on mismatch |
+| `NaN` values | Replaced with `1e30` (near-zero weight), warning emitted |
+| `inf` values | Replaced with `1e30` (near-zero weight), warning emitted |
+| Non-positive values (0, negative) | Clamped to `1e-30` (near-infinite weight), warning emitted |
+| Caller's array | Never mutated (copy-on-write) |
+
+### Interaction with other parameters
+
+- `variance_map=None` (default): pure OLS, byte-identical to pre-WLS code.
+- Compatible with all geometry constraints: `fix_center`, `fix_pa`, `fix_eps`.
+- Compatible with `simultaneous_harmonics=True` (isofit mode).
+- Compatible with `template` forced photometry mode.
+
+---
+
 ## Forced Photometry (via `template`)
 
 Forced photometry is performed by passing the `template` argument to `fit_image()`. This

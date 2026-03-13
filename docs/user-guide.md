@@ -70,6 +70,43 @@ template = [
 results = fit_image(image, mask=mask, config=config, template=template)
 ```
 
+### Using Variance Maps (WLS Fitting)
+
+When a per-pixel variance map is available (e.g., from survey pipelines like DESI Legacy Survey), pass it to `fit_image` to enable Weighted Least Squares fitting:
+
+```python
+from astropy.io import fits
+from isoster import fit_image
+from isoster.config import IsosterConfig
+import numpy as np
+
+image = fits.getdata("galaxy-image-r.fits.fz")
+invvar = fits.getdata("galaxy-invvar-r.fits.fz")
+
+# Convert inverse variance to variance; mask zero-invvar pixels
+variance_map = np.where(invvar > 0, 1.0 / invvar, 1e30)
+
+config = IsosterConfig(sma0=10.0, maxsma=100.0)
+results = fit_image(image, config=config, variance_map=variance_map)
+```
+
+WLS benefits:
+- **Exact covariance**: error bars come from the variance map directly, not from fit residuals.
+- **Automatic outlier down-weighting**: cosmic rays and hot pixels (high variance) get negligible weight.
+- **Pure photon-noise gradient error**: cleanly separated from galaxy structure scatter (arms, dust, bars).
+- **Byte-identical fallback**: when `variance_map=None` (default), the code path is identical to OLS.
+
+Input requirements and safeguards:
+- `variance_map` must have the same shape as `image` (raises `ValueError` otherwise).
+- `NaN` and `inf` values are replaced with `1e30` (near-zero weight) and a `RuntimeWarning` is emitted.
+- Non-positive values (zeros, negatives) are clamped to `1e-30` internally with a warning. Consider masking these pixels instead for cleaner results.
+- The caller's array is never mutated (copy-on-write).
+- For inverse-variance maps, convert with `variance = 1.0 / invvar` and handle zero-invvar pixels appropriately (mask them or set variance to a large value like `1e30`).
+
+Compatibility:
+- WLS works with all constraint modes: `fix_center`, `fix_pa`, `fix_eps`, and `simultaneous_harmonics` (isofit).
+- WLS error bars are typically 1.2–2.1x larger than OLS for outer isophotes, reflecting realistic per-pixel noise rather than fit-residual scatter.
+
 ## Key Configuration Options
 
 ### Sampling and Stability
