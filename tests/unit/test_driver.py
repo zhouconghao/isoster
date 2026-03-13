@@ -170,7 +170,7 @@ def test_fit_image_passes_previous_geometry_to_growth_calls(monkeypatch):
     call_log = []
 
     def fake_fit_isophote(image_arg, mask_arg, sma, start_geometry, cfg_arg,
-                          going_inwards=False, previous_geometry=None):
+                          going_inwards=False, previous_geometry=None, **kwargs):
         result = _build_mock_isophote(sma=sma, stop_code=0)
         call_log.append({
             'sma': sma,
@@ -207,7 +207,7 @@ def test_fit_image_skips_inward_growth_when_first_isophote_fails(monkeypatch):
     call_count = {'n': 0}
 
     def fake_fit_isophote(image_arg, mask_arg, sma, start_geometry, cfg_arg,
-                          going_inwards=False, previous_geometry=None):
+                          going_inwards=False, previous_geometry=None, **kwargs):
         call_count['n'] += 1
         if call_count['n'] > 1:
             pytest.fail("fit_isophote should only run once when first isophote is unacceptable")
@@ -237,7 +237,7 @@ def test_fit_image_treats_stop_code_2_as_acceptable(monkeypatch):
     call_count = {'n': 0}
 
     def fake_fit_isophote(image_arg, mask_arg, sma, start_geometry, cfg_arg,
-                          going_inwards=False, previous_geometry=None):
+                          going_inwards=False, previous_geometry=None, **kwargs):
         call_count['n'] += 1
         return _build_mock_isophote(sma=sma, stop_code=2)
 
@@ -263,7 +263,7 @@ def test_fit_image_raises_on_negative_error_in_regular_mode(monkeypatch):
     )
 
     def fake_fit_isophote(image_arg, mask_arg, sma, start_geometry, cfg_arg,
-                          going_inwards=False, previous_geometry=None):
+                          going_inwards=False, previous_geometry=None, **kwargs):
         iso = _build_mock_isophote(sma=sma, stop_code=0)
         iso['x0_err'] = -0.01
         return iso

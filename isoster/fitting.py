@@ -65,7 +65,7 @@ def compute_central_regularization_penalty(current_geom, previous_geom, sma, con
     
     return penalty
 
-def extract_forced_photometry(image, mask, x0, y0, sma, eps, pa, integrator='mean', sclip=3.0, nclip=0, use_eccentric_anomaly=False, config=None):
+def extract_forced_photometry(image, mask, x0, y0, sma, eps, pa, integrator='mean', sclip=3.0, nclip=0, use_eccentric_anomaly=False, config=None, variance_map=None):
     """
     Extract forced photometry at a single SMA without fitting.
 
@@ -111,9 +111,12 @@ def extract_forced_photometry(image, mask, x0, y0, sma, eps, pa, integrator='mea
         return fields
 
     # Sample along the ellipse
-    data = extract_isophote_data(image, mask, x0, y0, sma, eps, pa, use_eccentric_anomaly=use_eccentric_anomaly)
+    data = extract_isophote_data(image, mask, x0, y0, sma, eps, pa,
+                                 use_eccentric_anomaly=use_eccentric_anomaly,
+                                 variance_map=variance_map)
     phi = data.angles  # position angle or eccentric anomaly depending on mode
     intens = data.intens
+    variances = data.variances
 
     if len(intens) == 0:
         result = {
@@ -138,7 +141,10 @@ def extract_forced_photometry(image, mask, x0, y0, sma, eps, pa, integrator='mea
         intensity = np.mean(intens)
 
     rms = np.std(intens)
-    intens_err = rms / np.sqrt(len(intens))
+    if variances is not None:
+        intens_err = np.sqrt(np.sum(variances) / len(variances)**2)
+    else:
+        intens_err = rms / np.sqrt(len(intens))
 
     result = {
         'x0': x0, 'y0': y0, 'eps': eps, 'pa': pa, 'sma': sma,
@@ -151,26 +157,41 @@ def extract_forced_photometry(image, mask, x0, y0, sma, eps, pa, integrator='mea
         result.update(_build_harmonic_fields(harmonic_orders))
     return result
 
-def fit_first_and_second_harmonics(phi, intensity):
+def fit_first_and_second_harmonics(phi, intensity, variances=None):
     """
     Fit the 1st and 2nd harmonics to the intensity profile.
 
     The model is:
     y = y0 + A1*sin(E) + B1*cos(E) + A2*sin(2E) + B2*cos(2E)
 
+    When variances are provided, uses Weighted Least Squares (WLS) with
+    weights = 1/variance, giving exact covariance without residual scaling.
+
     Args:
         phi (np.ndarray): eccentric anomaly angles.
         intensity (np.ndarray): sampled intensity values.
+        variances (np.ndarray, optional): per-pixel variance values for WLS.
 
     Returns:
         tuple: (coeffs, ata_inv)
             coeffs: array of [y0, A1, B1, A2, B2]
-            ata_inv: inverse covariance matrix (A^T A)^-1
+            ata_inv: inverse covariance matrix.
+                OLS: (A^T A)^-1 (needs residual scaling for true covariance)
+                WLS: (A^T W A)^-1 (exact covariance, no scaling needed)
     """
     # Use numba-accelerated design matrix construction
     A = build_harmonic_matrix(phi)
 
     try:
+        if variances is not None:
+            weights = 1.0 / variances
+            AW = A * weights[:, None]
+            ATWA = AW.T @ A
+            ATWy = AW.T @ intensity
+            coeffs = np.linalg.solve(ATWA, ATWy)
+            ata_inv = np.linalg.inv(ATWA)
+            return coeffs, ata_inv
+
         coeffs, residuals, rank, s = np.linalg.lstsq(A, intensity, rcond=None)
 
         # Compute covariance matrix (A^T * A)^-1
@@ -243,7 +264,7 @@ def sigma_clip(phi, intens, sclip=3.0, nclip=0, sclip_low=None, sclip_high=None,
         return phi_c, intens_c, total_clipped, *extras_c
     return phi_c, intens_c, total_clipped
 
-def compute_parameter_errors(phi, intens, x0, y0, sma, eps, pa, gradient, gradient_error=None, cov_matrix=None, coeffs=None, var_residual_floor=None):
+def compute_parameter_errors(phi, intens, x0, y0, sma, eps, pa, gradient, gradient_error=None, cov_matrix=None, coeffs=None, var_residual_floor=None, use_exact_covariance=False):
     """Compute parameter errors based on the covariance matrix of harmonic coefficients.
 
     Args:
@@ -255,6 +276,8 @@ def compute_parameter_errors(phi, intens, x0, y0, sma, eps, pa, gradient, gradie
         cov_matrix: Covariance matrix from harmonic fit (optional)
         coeffs: Harmonic coefficients [y0, A1, B1, A2, B2] (optional, avoids re-fitting)
         var_residual_floor: Minimum variance for residuals (optional, e.g. sigma_bg^2)
+        use_exact_covariance: If True (WLS mode), skip residual-variance scaling and
+            use cov_matrix directly as the parameter covariance.
 
     Returns:
         Tuple of (x0_err, y0_err, eps_err, pa_err)
@@ -280,18 +303,21 @@ def compute_parameter_errors(phi, intens, x0, y0, sma, eps, pa, gradient, gradie
                 # No covariance, no coeffs: use fit_first_and_second_harmonics
                 coeffs, cov_matrix = fit_first_and_second_harmonics(phi, intens)
 
-        # 2. Determine residual variance
-        n_params = 5
-        model = harmonic_function(phi, coeffs)
-        var_residual = np.var(intens - model, ddof=n_params)
-        if var_residual_floor is not None:
-            var_residual = max(var_residual, var_residual_floor)
-
-        # 3. Scale covariance matrix by residual variance to get parameter covariance
+        # 2. Determine covariance
         if cov_matrix is None:
             return 0.0, 0.0, 0.0, 0.0
-            
-        covariance = cov_matrix * var_residual
+
+        if use_exact_covariance:
+            # WLS mode: cov_matrix = (A^T W A)^-1 is already the exact covariance
+            covariance = cov_matrix
+        else:
+            # OLS mode: scale by residual variance
+            n_params = 5
+            model = harmonic_function(phi, coeffs)
+            var_residual = np.var(intens - model, ddof=n_params)
+            if var_residual_floor is not None:
+                var_residual = max(var_residual, var_residual_floor)
+            covariance = cov_matrix * var_residual
         errors = np.sqrt(np.diagonal(covariance))
         
         # Parameter error formulas (Corrected to include gradient uncertainty)
@@ -351,52 +377,66 @@ def compute_parameter_errors(phi, intens, x0, y0, sma, eps, pa, gradient, gradie
         return 0.0, 0.0, 0.0, 0.0
     # Note: Removed broad 'except Exception' - unexpected errors should be raised for debugging
 
-def compute_deviations(phi, intens, sma, gradient, order):
-    """Compute deviations from perfect ellipticity (higher order harmonics)."""
+def compute_deviations(phi, intens, sma, gradient, order, variances=None):
+    """Compute deviations from perfect ellipticity (higher order harmonics).
+
+    When variances are provided, uses WLS with exact covariance instead of
+    scipy.optimize.leastsq with residual-scaled covariance.
+    """
     try:
         s_n = np.sin(order * phi)
         c_n = np.cos(order * phi)
-        y0_init = np.mean(intens)
-        params_init = [y0_init, 0.0, 0.0]
-        
-        def residual(params):
-            model = params[0] + params[1]*s_n + params[2]*c_n
-            return intens - model
-            
-        solution = leastsq(residual, params_init, full_output=True)
-        coeffs = solution[0]
-        cov_matrix = solution[1]
-        
-        if cov_matrix is None:
-            return 0.0, 0.0, 0.0, 0.0
-            
-        model = coeffs[0] + coeffs[1]*s_n + coeffs[2]*c_n
-        if len(intens) <= len(coeffs):
-            return 0.0, 0.0, 0.0, 0.0
-        var_residual = np.std(intens - model, ddof=len(coeffs))**2
-        covariance = cov_matrix * var_residual
-        errors = np.sqrt(np.diagonal(covariance))
-        
+
+        if variances is not None:
+            # WLS: explicit weighted solve
+            A = np.column_stack([np.ones_like(phi), s_n, c_n])
+            weights = 1.0 / variances
+            AW = A * weights[:, None]
+            ATWA = AW.T @ A
+            ATWy = AW.T @ intens
+            coeffs = np.linalg.solve(ATWA, ATWy)
+            ata_inv = np.linalg.inv(ATWA)
+            errors = np.sqrt(np.diagonal(ata_inv))
+        else:
+            # OLS: scipy leastsq with residual-scaled covariance
+            y0_init = np.mean(intens)
+            params_init = [y0_init, 0.0, 0.0]
+
+            def residual(params):
+                model = params[0] + params[1]*s_n + params[2]*c_n
+                return intens - model
+
+            solution = leastsq(residual, params_init, full_output=True)
+            coeffs = solution[0]
+            cov_matrix = solution[1]
+
+            if cov_matrix is None:
+                return 0.0, 0.0, 0.0, 0.0
+
+            model = coeffs[0] + coeffs[1]*s_n + coeffs[2]*c_n
+            if len(intens) <= len(coeffs):
+                return 0.0, 0.0, 0.0, 0.0
+            var_residual = np.std(intens - model, ddof=len(coeffs))**2
+            covariance = cov_matrix * var_residual
+            errors = np.sqrt(np.diagonal(covariance))
+
         factor = sma * abs(gradient)
         if factor == 0:
             return 0.0, 0.0, 0.0, 0.0
-            
+
         a = coeffs[1] / factor
         b = coeffs[2] / factor
         a_err = errors[1] / factor
         b_err = errors[2] / factor
-        
+
         return a, b, a_err, b_err
     except (np.linalg.LinAlgError, ValueError, TypeError) as e:
-        # Singular matrix, numerical instability, or degenerate input - return zeros
-        # TypeError can occur from scipy.optimize.leastsq when N_params > N_data
         warnings.warn(
             f"compute_deviations (order={order}) failed (singular matrix, numerical issue, or degenerate input): {e}. "
             f"Returning zeros.",
             RuntimeWarning
         )
         return 0.0, 0.0, 0.0, 0.0
-    # Note: Removed broad 'except Exception' - unexpected errors should be raised for debugging
 
 def build_isofit_design_matrix(angles, orders):
     """
@@ -431,7 +471,7 @@ def build_isofit_design_matrix(angles, orders):
     return A
 
 
-def fit_all_harmonics(angles, intens, orders):
+def fit_all_harmonics(angles, intens, orders, variances=None):
     """
     Fit all harmonics simultaneously via least squares (ISOFIT approach).
 
@@ -440,19 +480,31 @@ def fit_all_harmonics(angles, intens, orders):
 
     Coefficients layout: [I₀, A₁, B₁, A₂, B₂, A_{n1}, B_{n1}, A_{n2}, B_{n2}, ...]
 
+    When variances are provided, uses WLS with weights = 1/variance.
+
     Args:
         angles: Angle array in radians.
         intens: Intensity values at each angle.
         orders: List of higher-order harmonic orders (e.g. [3, 4]).
+        variances (np.ndarray, optional): per-pixel variance values for WLS.
 
     Returns:
-        (coeffs, ata_inv): coeffs array and inverse of (A^T A) for error estimation.
+        (coeffs, ata_inv): coeffs array and inverse of (A^T W A) or (A^T A).
         On failure, returns (zeros, None).
     """
     n_params = 5 + 2 * len(orders)
     A = build_isofit_design_matrix(angles, orders)
 
     try:
+        if variances is not None:
+            weights = 1.0 / variances
+            AW = A * weights[:, None]
+            ATWA = AW.T @ A
+            ATWy = AW.T @ intens
+            coeffs = np.linalg.solve(ATWA, ATWy)
+            ata_inv = np.linalg.inv(ATWA)
+            return coeffs, ata_inv
+
         coeffs, residuals, rank, s = np.linalg.lstsq(A, intens, rcond=None)
         ata_inv = np.linalg.inv(np.dot(A.T, A))
         return coeffs, ata_inv
@@ -490,7 +542,7 @@ def evaluate_harmonic_model(angles, coeffs, orders):
     return model
 
 
-def fit_higher_harmonics_simultaneous(angles, intens, sma, gradient, orders=None):
+def fit_higher_harmonics_simultaneous(angles, intens, sma, gradient, orders=None, variances=None):
     """
     Fit multiple higher-order harmonics simultaneously.
 
@@ -503,12 +555,15 @@ def fit_higher_harmonics_simultaneous(angles, intens, sma, gradient, orders=None
     The coefficients are normalized by (sma * |gradient|) to give dimensionless
     deviations that can be directly compared across different radii.
 
+    When variances are provided, uses WLS with exact covariance (no residual scaling).
+
     Args:
         angles: Angle array in radians (ψ in EA mode, φ in regular mode)
         intens: Intensity values at each angle
         sma: Semi-major axis length
         gradient: Radial intensity gradient (should be negative for typical galaxies)
         orders: List of harmonic orders to fit (default [3, 4])
+        variances (np.ndarray, optional): per-pixel variance values for WLS.
 
     Returns:
         dict: {n: (a_n, b_n, a_n_err, b_n_err) for n in orders}
@@ -541,21 +596,25 @@ def fit_higher_harmonics_simultaneous(angles, intens, sma, gradient, orders=None
         col_idx += 2
 
     try:
-        # Solve least squares
-        coeffs, residuals, rank, s = np.linalg.lstsq(A, intens, rcond=None)
-
-        # Compute covariance matrix (A^T * A)^-1
-        ata_inv = np.linalg.inv(np.dot(A.T, A))
-
-        # Compute model and residual variance
-        model = np.dot(A, coeffs)
-        if len(intens) <= n_params:
-            return {n: (0.0, 0.0, 0.0, 0.0) for n in orders}
-        var_residual = np.var(intens - model, ddof=n_params)
-
-        # Coefficient errors from covariance
-        covariance = ata_inv * var_residual
-        errors = np.sqrt(np.diagonal(covariance))
+        if variances is not None:
+            # WLS: exact covariance, no residual scaling
+            weights = 1.0 / variances
+            AW = A * weights[:, None]
+            ATWA = AW.T @ A
+            ATWy = AW.T @ intens
+            coeffs = np.linalg.solve(ATWA, ATWy)
+            ata_inv = np.linalg.inv(ATWA)
+            errors = np.sqrt(np.diagonal(ata_inv))
+        else:
+            # OLS: residual-scaled covariance
+            coeffs, residuals, rank, s = np.linalg.lstsq(A, intens, rcond=None)
+            ata_inv = np.linalg.inv(np.dot(A.T, A))
+            model = np.dot(A, coeffs)
+            if len(intens) <= n_params:
+                return {n: (0.0, 0.0, 0.0, 0.0) for n in orders}
+            var_residual = np.var(intens - model, ddof=n_params)
+            covariance = ata_inv * var_residual
+            errors = np.sqrt(np.diagonal(covariance))
 
     except (np.linalg.LinAlgError, ValueError) as e:
         warnings.warn(
@@ -593,7 +652,7 @@ def fit_higher_harmonics_simultaneous(angles, intens, sma, gradient, orders=None
     return result
 
 
-def compute_gradient(image, mask, geometry, config, previous_gradient=None, current_data=None):
+def compute_gradient(image, mask, geometry, config, previous_gradient=None, current_data=None, variance_map=None):
     """Compute the radial intensity gradient.
 
     Args:
@@ -602,7 +661,10 @@ def compute_gradient(image, mask, geometry, config, previous_gradient=None, curr
         geometry: dict with keys {x0, y0, sma, eps, pa}
         config: dict or IsosterConfig with keys/attrs {astep, linear_growth, integrator, use_eccentric_anomaly}
         previous_gradient: Previous gradient value for comparison (optional)
-        current_data: Cached (phi, intens) tuple to avoid re-extraction (optional)
+        current_data: Cached (phi, intens) tuple, or (phi, intens, variances) when
+            variance_map is used, to avoid re-extraction (optional)
+        variance_map: 2D per-pixel variance array (optional). When provided, gradient
+            error uses exact per-sample variance instead of scatter-based estimates.
 
     Returns:
         (gradient, gradient_error): Tuple of gradient value and its error estimate
@@ -617,13 +679,20 @@ def compute_gradient(image, mask, geometry, config, previous_gradient=None, curr
     integrator = _get('integrator')
     use_eccentric_anomaly = _get('use_eccentric_anomaly')
 
+    var_c = None
     if current_data is not None:
-        phi_c, intens_c = current_data
+        if len(current_data) == 3:
+            phi_c, intens_c, var_c = current_data
+        else:
+            phi_c, intens_c = current_data
     else:
         # Extract current SMA data
-        data_c = extract_isophote_data(image, mask, x0, y0, sma, eps, pa, use_eccentric_anomaly=use_eccentric_anomaly)
-        phi_c = data_c.angles  # Use angles for fitting (φ in this case)
+        data_c = extract_isophote_data(image, mask, x0, y0, sma, eps, pa,
+                                       use_eccentric_anomaly=use_eccentric_anomaly,
+                                       variance_map=variance_map)
+        phi_c = data_c.angles
         intens_c = data_c.intens
+        var_c = data_c.variances
     
     if len(intens_c) == 0:
         return previous_gradient * 0.8 if previous_gradient else -1.0, None
@@ -639,9 +708,12 @@ def compute_gradient(image, mask, geometry, config, previous_gradient=None, curr
         gradient_sma = sma * (1.0 + step)
         
     # Extract gradient SMA data
-    data_g = extract_isophote_data(image, mask, x0, y0, gradient_sma, eps, pa, use_eccentric_anomaly=use_eccentric_anomaly)
+    data_g = extract_isophote_data(image, mask, x0, y0, gradient_sma, eps, pa,
+                                   use_eccentric_anomaly=use_eccentric_anomaly,
+                                   variance_map=variance_map)
     phi_g = data_g.angles
     intens_g = data_g.intens
+    var_g = data_g.variances
     
     if len(intens_g) == 0:
         return previous_gradient * 0.8 if previous_gradient else -1.0, None
@@ -653,10 +725,17 @@ def compute_gradient(image, mask, geometry, config, previous_gradient=None, curr
     delta_r = step if linear_growth else sma * step
     gradient = (mean_g - mean_c) / delta_r
 
-    sigma_c = np.std(intens_c)
-    sigma_g = np.std(intens_g)
-    gradient_error = (np.sqrt(sigma_c**2 / len(intens_c) + sigma_g**2 / len(intens_g))
-                     / delta_r)
+    if var_c is not None and var_g is not None:
+        # WLS: exact variance of the mean from per-pixel variances
+        var_mean_c = np.sum(var_c) / len(var_c)**2
+        var_mean_g = np.sum(var_g) / len(var_g)**2
+        gradient_error = np.sqrt(var_mean_c + var_mean_g) / delta_r
+    else:
+        # OLS: scatter-based error estimate
+        sigma_c = np.std(intens_c)
+        sigma_g = np.std(intens_g)
+        gradient_error = (np.sqrt(sigma_c**2 / len(intens_c) + sigma_g**2 / len(intens_g))
+                         / delta_r)
     
     if previous_gradient is None:
         previous_gradient = gradient + gradient_error
@@ -677,9 +756,12 @@ def compute_gradient(image, mask, geometry, config, previous_gradient=None, curr
             gradient_sma_2 = sma * (1.0 + 2 * step)
 
         # Extract second gradient SMA
-        data_g2 = extract_isophote_data(image, mask, x0, y0, gradient_sma_2, eps, pa, use_eccentric_anomaly=use_eccentric_anomaly)
+        data_g2 = extract_isophote_data(image, mask, x0, y0, gradient_sma_2, eps, pa,
+                                        use_eccentric_anomaly=use_eccentric_anomaly,
+                                        variance_map=variance_map)
         phi_g2 = data_g2.angles
         intens_g2 = data_g2.intens
+        var_g2 = data_g2.variances
 
         if len(intens_g2) > 0:
             if integrator == 'median':
@@ -688,9 +770,15 @@ def compute_gradient(image, mask, geometry, config, previous_gradient=None, curr
                 mean_g2 = np.mean(intens_g2)
             delta_r_2 = 2 * step if linear_growth else sma * 2 * step
             gradient = (mean_g2 - mean_c) / delta_r_2
-            sigma_g2 = np.std(intens_g2)
-            gradient_error = (np.sqrt(sigma_c**2 / len(intens_c) + sigma_g2**2 / len(intens_g2))
-                            / delta_r_2)
+            if var_c is not None and var_g2 is not None:
+                var_mean_c = np.sum(var_c) / len(var_c)**2
+                var_mean_g2 = np.sum(var_g2) / len(var_g2)**2
+                gradient_error = np.sqrt(var_mean_c + var_mean_g2) / delta_r_2
+            else:
+                sigma_c = np.std(intens_c)
+                sigma_g2 = np.std(intens_g2)
+                gradient_error = (np.sqrt(sigma_c**2 / len(intens_c) + sigma_g2**2 / len(intens_g2))
+                                / delta_r_2)
 
     if gradient >= (previous_gradient / 3.0):
         gradient = previous_gradient * 0.8
@@ -771,7 +859,8 @@ def _attach_full_photometry(isophote_result, image, mask):
 def _compute_posthoc_harmonics(best_geometry, angles, intens, gradient,
                                best_angles, best_intens, best_gradient,
                                sma, harmonic_orders, isofit_mode,
-                               simultaneous_harmonics):
+                               simultaneous_harmonics, variances=None,
+                               best_variances=None):
     """Compute post-hoc harmonic deviations and store them in best_geometry.
 
     Called after convergence (stop_code=0 via harmonic or geometry criteria)
@@ -790,16 +879,20 @@ def _compute_posthoc_harmonics(best_geometry, angles, intens, gradient,
         harmonic_orders: List of harmonic orders to compute (e.g. [3, 4]).
         isofit_mode: 'in_loop' or 'original'.
         simultaneous_harmonics: Whether to use simultaneous fitting.
+        variances: Current-iteration per-pixel variances (optional, for WLS).
+        best_variances: Saved best-iteration variances (optional, for WLS).
     """
     use_best_data = (isofit_mode == 'original' and simultaneous_harmonics
                      and best_angles is not None)
     posthoc_angles = best_angles if use_best_data else angles
     posthoc_intens = best_intens if use_best_data else intens
     posthoc_gradient = best_gradient if use_best_data else gradient
+    posthoc_variances = best_variances if use_best_data else variances
 
     if simultaneous_harmonics:
         sim_harmonics = fit_higher_harmonics_simultaneous(
-            posthoc_angles, posthoc_intens, sma, posthoc_gradient, harmonic_orders
+            posthoc_angles, posthoc_intens, sma, posthoc_gradient, harmonic_orders,
+            variances=posthoc_variances
         )
         for n in harmonic_orders:
             an, bn, an_err, bn_err = sim_harmonics.get(n, (0.0, 0.0, 0.0, 0.0))
@@ -810,7 +903,8 @@ def _compute_posthoc_harmonics(best_geometry, angles, intens, gradient,
     else:
         for n in harmonic_orders:
             an, bn, an_err, bn_err = compute_deviations(
-                posthoc_angles, posthoc_intens, sma, posthoc_gradient, n
+                posthoc_angles, posthoc_intens, sma, posthoc_gradient, n,
+                variances=posthoc_variances
             )
             best_geometry[f'a{n}'] = an
             best_geometry[f'b{n}'] = bn
@@ -818,7 +912,7 @@ def _compute_posthoc_harmonics(best_geometry, angles, intens, gradient,
             best_geometry[f'b{n}_err'] = bn_err
 
 
-def fit_isophote(image, mask, sma, start_geometry, config, going_inwards=False, previous_geometry=None):
+def fit_isophote(image, mask, sma, start_geometry, config, going_inwards=False, previous_geometry=None, variance_map=None):
     """
     Fit a single isophote with quality control.
 
@@ -832,6 +926,7 @@ def fit_isophote(image, mask, sma, start_geometry, config, going_inwards=False, 
         config (dict or IsosterConfig): Configuration object.
         going_inwards (bool): Flag indicating if the fitting is progressing inwards (affecting gradient checks).
         previous_geometry (dict): Previous isophote geometry for regularization (optional).
+        variance_map (np.ndarray, optional): 2D per-pixel variance map for WLS fitting.
 
     Returns:
         dict: The best fitted geometry and metadata for this isophote.
@@ -896,6 +991,7 @@ def fit_isophote(image, mask, sma, start_geometry, config, going_inwards=False, 
     best_angles = None
     best_intens = None
     best_gradient = None
+    best_variances = None
 
     # Geometry convergence tracking
     prev_geom = (x0, y0, eps, pa)
@@ -912,21 +1008,37 @@ def fit_isophote(image, mask, sma, start_geometry, config, going_inwards=False, 
         # Extract isophote data - returns named tuple
         # For EA mode: angles=ψ (for harmonics), phi=φ (for geometry)
         # For regular: angles=φ (for harmonics), phi=φ (same)
-        data = extract_isophote_data(image, mask, x0, y0, sma, eps, pa, use_eccentric_anomaly=use_eccentric_anomaly)
-        
+        data = extract_isophote_data(image, mask, x0, y0, sma, eps, pa,
+                                     use_eccentric_anomaly=use_eccentric_anomaly,
+                                     variance_map=variance_map)
+
         angles = data.angles  # ψ for EA mode, φ for regular mode
         phi = data.phi        # φ (always available for geometry updates)
         intens = data.intens
+        variances = data.variances  # None when no variance_map
         
         total_points = len(angles)
         
         # Sigma clipping operates on (angle, intensity) pairs.
         # In EA mode, phi differs from angles (psi) and must be clipped with the same mask.
+        # Variances (when present) must also be clipped with the same mask.
+        extra = []
         if use_eccentric_anomaly:
-            angles, intens, n_clipped, phi = sigma_clip(
-                angles, intens, sclip, nclip, sclip_low, sclip_high,
-                extra_arrays=[phi]
-            )
+            extra.append(phi)
+        if variances is not None:
+            extra.append(variances)
+
+        if extra:
+            result = sigma_clip(angles, intens, sclip, nclip, sclip_low, sclip_high,
+                                extra_arrays=extra)
+            angles, intens, n_clipped = result[0], result[1], result[2]
+            idx = 3
+            if use_eccentric_anomaly:
+                phi = result[idx]; idx += 1
+            else:
+                phi = angles
+            if variances is not None:
+                variances = result[idx]
         else:
             angles, intens, n_clipped = sigma_clip(angles, intens, sclip, nclip, sclip_low, sclip_high)
             phi = angles  # In regular mode, angles and phi are identical
@@ -976,9 +1088,9 @@ def fit_isophote(image, mask, sma, start_geometry, config, going_inwards=False, 
         # Default path: fit only 1st and 2nd harmonics (5-param, numba-accelerated)
         use_isofit_in_loop = use_isofit_this_iter and isofit_mode == 'in_loop'
         if use_isofit_in_loop:
-            coeffs, cov_matrix = fit_all_harmonics(angles, intens, harmonic_orders)
+            coeffs, cov_matrix = fit_all_harmonics(angles, intens, harmonic_orders, variances=variances)
         else:
-            coeffs, cov_matrix = fit_first_and_second_harmonics(angles, intens)
+            coeffs, cov_matrix = fit_first_and_second_harmonics(angles, intens, variances=variances)
         y0_fit = coeffs[0]
         A1, B1, A2, B2 = coeffs[1], coeffs[2], coeffs[3], coeffs[4]
         
@@ -992,10 +1104,12 @@ def fit_isophote(image, mask, sma, start_geometry, config, going_inwards=False, 
                 'integrator': eff_integrator,
                 'use_eccentric_anomaly': use_eccentric_anomaly
             }
+            current_data_for_grad = (phi, intens, variances) if variances is not None else (phi, intens)
             gradient, gradient_error = compute_gradient(
                 image, mask, geometry, gradient_config,
                 previous_gradient=previous_gradient,
-                current_data=(phi, intens)
+                current_data=current_data_for_grad,
+                variance_map=variance_map
             )
             cached_gradient = gradient
             cached_gradient_error = gradient_error
@@ -1052,9 +1166,14 @@ def fit_isophote(image, mask, sma, start_geometry, config, going_inwards=False, 
         if effective_amp < min_amplitude:
             min_amplitude = effective_amp
             no_improvement_count = 0
-            intens_err = rms / np.sqrt(len(intens))
+            # WLS: exact Var(mean) from per-pixel variances; OLS: rms/sqrt(N)
+            if variances is not None:
+                intens_err = np.sqrt(np.sum(variances) / len(variances)**2)
+            else:
+                intens_err = rms / np.sqrt(len(intens))
             # For ISOFIT in_loop, pass 5x5 sub-matrix and first 5 coefficients
             # so compute_parameter_errors uses correct dimensions
+            wls_mode = variances is not None
             if compute_errors:
                 cov_5x5 = cov_matrix[:5, :5] if (use_isofit_in_loop and cov_matrix is not None) else cov_matrix
                 coeffs_5 = coeffs[:5]
@@ -1062,7 +1181,8 @@ def fit_isophote(image, mask, sma, start_geometry, config, going_inwards=False, 
                     phi, intens, x0, y0, sma, eps, pa, gradient,
                     gradient_error=gradient_error if cfg.use_corrected_errors else None,
                     cov_matrix=cov_5x5, coeffs=coeffs_5,
-                    var_residual_floor=cfg.sigma_bg**2 if cfg.sigma_bg is not None else None
+                    var_residual_floor=cfg.sigma_bg**2 if cfg.sigma_bg is not None else None,
+                    use_exact_covariance=wls_mode
                 )
             else:
                 x0_err, y0_err, eps_err, pa_err = 0.0, 0.0, 0.0, 0.0
@@ -1086,14 +1206,19 @@ def fit_isophote(image, mask, sma, start_geometry, config, going_inwards=False, 
             best_angles = angles.copy()
             best_intens = intens.copy()
             best_gradient = gradient
+            best_variances = variances.copy() if variances is not None else None
             # ISOFIT in_loop: extract and store higher-order harmonics from the joint fit
             if use_isofit_in_loop and gradient != 0:
                 factor = sma * abs(gradient)
                 if factor > 0:
-                    # Compute residual variance once outside the per-order loop (R26-08)
+                    # WLS: cov_matrix is exact (A^T W A)^-1, no residual scaling
+                    # OLS: scale by residual variance
                     if cov_matrix is not None:
-                        n_params = len(coeffs)
-                        var_residual = np.var(intens - model, ddof=n_params) if len(intens) > n_params else 0.0
+                        if wls_mode:
+                            var_residual = 1.0  # no scaling for WLS
+                        else:
+                            n_params = len(coeffs)
+                            var_residual = np.var(intens - model, ddof=n_params) if len(intens) > n_params else 0.0
                     for k, n_order in enumerate(harmonic_orders):
                         sin_coeff = coeffs[5 + 2 * k]
                         cos_coeff = coeffs[5 + 2 * k + 1]
@@ -1125,6 +1250,7 @@ def fit_isophote(image, mask, sma, start_geometry, config, going_inwards=False, 
                     best_geometry, angles, intens, gradient,
                     best_angles, best_intens, best_gradient,
                     sma, harmonic_orders, isofit_mode, simultaneous_harmonics,
+                    variances=variances, best_variances=best_variances,
                 )
 
             # 6. FULL PHOTOMETRY (If requested)
@@ -1233,6 +1359,7 @@ def fit_isophote(image, mask, sma, start_geometry, config, going_inwards=False, 
                         best_geometry, angles, intens, gradient,
                         best_angles, best_intens, best_gradient,
                         sma, harmonic_orders, isofit_mode, simultaneous_harmonics,
+                        variances=variances, best_variances=best_variances,
                     )
                 if full_photometry:
                     _attach_full_photometry(best_geometry, image, mask)
@@ -1262,6 +1389,7 @@ def fit_isophote(image, mask, sma, start_geometry, config, going_inwards=False, 
                 best_geometry, angles, intens, gradient,
                 best_angles, best_intens, best_gradient,
                 sma, harmonic_orders, isofit_mode, simultaneous_harmonics,
+                variances=variances, best_variances=best_variances,
             )
         if full_photometry:
             _attach_full_photometry(best_geometry, image, mask)

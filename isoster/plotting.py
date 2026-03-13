@@ -211,7 +211,8 @@ def build_method_profile(
             profile["stop_codes"] = np.array(
                 [iso.get("stop_code", 0) for iso in data]
             )
-        for key in ("x0", "y0", "intens_err", "rms"):
+        for key in ("x0", "y0", "intens_err", "rms",
+                    "eps_err", "pa_err", "x0_err", "y0_err"):
             if key in data[0]:
                 profile[key] = np.array(
                     [iso.get(key, np.nan) for iso in data]
@@ -237,7 +238,8 @@ def build_method_profile(
             "eps": np.asarray(data["eps"]),
             "pa": np.asarray(data["pa"]),
         }
-        for key in ("stop_codes", "stop_code", "x0", "y0", "intens_err", "rms"):
+        for key in ("stop_codes", "stop_code", "x0", "y0", "intens_err", "rms",
+                    "eps_err", "pa_err", "x0_err", "y0_err"):
             if key in data and isinstance(data[key], np.ndarray):
                 out_key = "stop_codes" if key == "stop_code" else key
                 profile[out_key] = data[key]
@@ -412,18 +414,34 @@ def set_x_limits_with_right_margin(
     x_values: np.ndarray,
     min_margin: float = 0.02,
     margin_fraction: float = 0.03,
+    skip_innermost: bool = True,
 ) -> None:
-    """Set x-axis limits with a small right-edge margin for readability."""
+    """Set x-axis limits with margins for readability.
+
+    Parameters
+    ----------
+    skip_innermost : bool
+        If True (default), the left edge starts from the second-smallest
+        unique x value (with a small left margin) so that the innermost
+        point where no isophote can be reliably defined does not dominate
+        the x-range.
+    """
     finite_values = np.asarray(x_values, dtype=float)
     finite_values = finite_values[np.isfinite(finite_values)]
     if finite_values.size == 0:
         return
 
-    x_low = float(np.nanmin(finite_values))
-    x_high = float(np.nanmax(finite_values))
+    sorted_unique = np.unique(finite_values)
+    if skip_innermost and sorted_unique.size >= 2:
+        x_low = float(sorted_unique[1])
+    else:
+        x_low = float(sorted_unique[0])
+
+    x_high = float(sorted_unique[-1])
     width = max(x_high - x_low, 0.0)
     right_margin = max(min_margin, margin_fraction * max(width, 1.0))
-    axis.set_xlim(x_low, x_high + right_margin)
+    left_margin = max(min_margin, margin_fraction * max(width, 1.0))
+    axis.set_xlim(x_low - left_margin, x_high + right_margin)
 
 
 # ---------------------------------------------------------------------------
@@ -1846,6 +1864,16 @@ def plot_comparison_qa_figure(
     ax_sb.legend(loc="upper right", fontsize=10)
     ax_sb.tick_params(labelbottom=False)
     set_x_limits_with_right_margin(ax_sb, all_x)
+    # Data-driven Y-axis: range from data values, not error bars
+    all_sb_vals = []
+    for m in available:
+        intens = profiles[m]["intens"]
+        v = np.isfinite(intens) & (intens > 0)
+        if np.any(v):
+            all_sb_vals.append(np.log10(intens[v]))
+    if all_sb_vals:
+        all_sb = np.concatenate(all_sb_vals)
+        set_axis_limits_from_finite_values(ax_sb, all_sb, invert=False)
 
     # Runtime annotation in bottom-left of SB panel
     if _runtime_lines:
@@ -1859,7 +1887,11 @@ def plot_comparison_qa_figure(
             y_pos += 0.06
 
     # Panel 1: Relative SB difference (first method as reference)
+    # Outliers beyond ±100% are shown as lower-limit markers (triangles)
+    # and the Y-axis is capped at ±100% when such outliers exist.
+    _DIFF_CAP = 100.0  # percent
     ax_diff = fig.add_subplot(right[1], sharex=ax_sb)
+    has_outliers = False
     if n_methods >= 2:
         ref_method = available[0]
         ref_prof = profiles[ref_method]
@@ -1890,17 +1922,49 @@ def plot_comparison_qa_figure(
                 if style.get("marker_face") == "filled"
                 else "none"
             )
+            base_marker = style.get("marker", "o")
+
+            # Split into normal points and outliers (|dI/I| > cap)
+            inlier = valid & (np.abs(rel_diff) <= _DIFF_CAP)
+            outlier = valid & (np.abs(rel_diff) > _DIFF_CAP)
+
+            if np.any(outlier):
+                has_outliers = True
+
+            # Normal points
             ax_diff.scatter(
-                prof["x_axis"][valid], rel_diff[valid],
-                color=style["color"], marker=style.get("marker", "o"),
+                prof["x_axis"][inlier], rel_diff[inlier],
+                color=style["color"], marker=base_marker,
                 facecolors=mfc, edgecolors=style["color"],
                 s=18, alpha=0.7, label=style.get("label", method_name),
                 zorder=3,
             )
+            # Outlier points: clamp to ±cap, show as triangle markers
+            if np.any(outlier):
+                clamped = np.clip(rel_diff[outlier], -_DIFF_CAP, _DIFF_CAP)
+                # Triangle pointing in the direction of the outlier
+                outlier_markers = np.where(
+                    rel_diff[outlier] > 0, "^", "v"
+                )
+                for om in ["^", "v"]:
+                    om_mask = outlier_markers == om
+                    if np.any(om_mask):
+                        ax_diff.scatter(
+                            prof["x_axis"][outlier][om_mask],
+                            clamped[om_mask],
+                            color=style["color"], marker=om,
+                            facecolors=style["color"],
+                            edgecolors=style["color"],
+                            s=30, alpha=0.5, zorder=4,
+                        )
+
         ax_diff.axhline(0, color="black", linestyle="--", linewidth=0.8)
-        ref_label = styles.get(ref_method, {}).get("label", ref_method)
-        ax_diff.set_ylabel(f"dI/I_{ref_label} [%]")
+        ax_diff.set_ylabel("dI/I [%]")
         ax_diff.legend(loc="best", fontsize=9)
+
+        # Cap Y-axis when outliers exist
+        if has_outliers:
+            ax_diff.set_ylim(-_DIFF_CAP * 1.08, _DIFF_CAP * 1.08)
     else:
         ax_diff.set_ylabel("dI/I [%]")
         ax_diff.text(
@@ -1910,32 +1974,52 @@ def plot_comparison_qa_figure(
     ax_diff.grid(alpha=0.25)
     ax_diff.tick_params(labelbottom=False)
 
-    # Panel 2: Ellipticity
+    # Panel 2: Ellipticity (with error bars when available)
     ax_eps = fig.add_subplot(right[2], sharex=ax_sb)
     for method_name in available:
         prof = profiles[method_name]
         style = styles.get(method_name, {})
+        eps_err = prof.get("eps_err")
         mfc = (
             style["color"]
             if style.get("marker_face") == "filled"
             else "none"
         )
-        ax_eps.scatter(
-            prof["x_axis"], prof["eps"],
-            color=style["color"], marker=style.get("marker", "o"),
-            facecolors=mfc, edgecolors=style["color"],
-            s=18, alpha=0.7, zorder=3,
-        )
+        if eps_err is not None:
+            if "stop_codes" in prof:
+                _scatter_by_stop_code_in_method_color(
+                    ax_eps, prof["x_axis"], prof["eps"],
+                    prof["stop_codes"], base_color=style["color"],
+                    y_errors=eps_err, marker_size=18,
+                    label_stop_codes=False,
+                    label=style.get("label", method_name),
+                )
+            else:
+                ax_eps.errorbar(
+                    prof["x_axis"], prof["eps"], yerr=eps_err,
+                    fmt=style.get("marker", "o"), color=style["color"],
+                    mfc=mfc, mec=style["color"],
+                    markersize=4.2, capsize=1.5, linewidth=0.6,
+                    alpha=0.7, zorder=3,
+                )
+        else:
+            ax_eps.scatter(
+                prof["x_axis"], prof["eps"],
+                color=style["color"], marker=style.get("marker", "o"),
+                facecolors=mfc, edgecolors=style["color"],
+                s=18, alpha=0.7, zorder=3,
+            )
     ax_eps.set_ylabel("Ellipticity")
     ax_eps.grid(alpha=0.25)
     ax_eps.tick_params(labelbottom=False)
+    # Data-driven Y-axis: limits from data values only, not error bars
     all_eps = np.concatenate([profiles[m]["eps"] for m in available])
     set_axis_limits_from_finite_values(
         ax_eps, all_eps, margin_fraction=0.08, min_margin=0.03,
         lower_clip=0.0, upper_clip=1.0,
     )
 
-    # Panel 3: PA (normalized with cross-method anchoring)
+    # Panel 3: PA (normalized with cross-method anchoring, with error bars)
     ax_pa = fig.add_subplot(right[3], sharex=ax_sb)
     all_pa_norm = []
     ref_pa_median = None
@@ -1953,21 +2037,43 @@ def plot_comparison_qa_figure(
                 ref_pa_median = float(np.nanmedian(finite_pa))
 
         all_pa_norm.append(pa_norm)
+        pa_err_deg = None
+        if "pa_err" in prof:
+            pa_err_deg = np.degrees(prof["pa_err"])
+
         mfc = (
             style["color"]
             if style.get("marker_face") == "filled"
             else "none"
         )
-        ax_pa.scatter(
-            prof["x_axis"], pa_norm,
-            color=style["color"], marker=style.get("marker", "o"),
-            facecolors=mfc, edgecolors=style["color"],
-            s=18, alpha=0.7, zorder=3,
-        )
+        if pa_err_deg is not None:
+            if "stop_codes" in prof:
+                _scatter_by_stop_code_in_method_color(
+                    ax_pa, prof["x_axis"], pa_norm,
+                    prof["stop_codes"], base_color=style["color"],
+                    y_errors=pa_err_deg, marker_size=18,
+                    label_stop_codes=False,
+                    label=style.get("label", method_name),
+                )
+            else:
+                ax_pa.errorbar(
+                    prof["x_axis"], pa_norm, yerr=pa_err_deg,
+                    fmt=style.get("marker", "o"), color=style["color"],
+                    mfc=mfc, mec=style["color"],
+                    markersize=4.2, capsize=1.5, linewidth=0.6,
+                    alpha=0.7, zorder=3,
+                )
+        else:
+            ax_pa.scatter(
+                prof["x_axis"], pa_norm,
+                color=style["color"], marker=style.get("marker", "o"),
+                facecolors=mfc, edgecolors=style["color"],
+                s=18, alpha=0.7, zorder=3,
+            )
     ax_pa.set_ylabel("PA (deg)")
     ax_pa.grid(alpha=0.25)
     ax_pa.tick_params(labelbottom=False)
-    # Robust PA limits from stop=0 data of first method, or all data
+    # Data-driven PA limits from stop=0 data of first method, or all data
     if available and all_pa_norm:
         if "stop_codes" in profiles[available[0]]:
             sc = profiles[available[0]]["stop_codes"]
@@ -2013,6 +2119,7 @@ def plot_comparison_qa_figure(
                 ref_y0 = float(np.nanmedian(inner_y0))
 
     ax_cen = fig.add_subplot(right[4], sharex=ax_sb)
+    all_offsets = []
     for method_name in available:
         prof = profiles[method_name]
         if "x0" not in prof:
@@ -2028,20 +2135,66 @@ def plot_comparison_qa_figure(
         offset = np.sqrt(
             (prof["x0"] - cx) ** 2 + (prof["y0"] - cy) ** 2
         )
+        all_offsets.append(offset)
+
+        # Propagate center errors to offset error:
+        # d(offset)/d(x0) ~ (x0-cx)/offset, etc.
+        offset_err = None
+        if "x0_err" in prof and "y0_err" in prof:
+            safe_offset = np.where(offset > 0, offset, 1.0)
+            dx = prof["x0"] - cx
+            dy = prof["y0"] - cy
+            offset_err = np.sqrt(
+                (dx / safe_offset * prof["x0_err"]) ** 2
+                + (dy / safe_offset * prof["y0_err"]) ** 2
+            )
+            # Where offset is ~0, use simple quadrature
+            near_zero = offset < 1e-6
+            if np.any(near_zero):
+                offset_err[near_zero] = np.sqrt(
+                    prof["x0_err"][near_zero] ** 2
+                    + prof["y0_err"][near_zero] ** 2
+                )
+
         mfc = (
             style["color"]
             if style.get("marker_face") == "filled"
             else "none"
         )
-        ax_cen.scatter(
-            prof["x_axis"], offset,
-            color=style["color"], marker=style.get("marker", "o"),
-            facecolors=mfc, edgecolors=style["color"],
-            s=18, alpha=0.7, zorder=3,
-        )
+        if offset_err is not None:
+            if "stop_codes" in prof:
+                _scatter_by_stop_code_in_method_color(
+                    ax_cen, prof["x_axis"], offset,
+                    prof["stop_codes"], base_color=style["color"],
+                    y_errors=offset_err, marker_size=18,
+                    label_stop_codes=False,
+                    label=style.get("label", method_name),
+                )
+            else:
+                ax_cen.errorbar(
+                    prof["x_axis"], offset, yerr=offset_err,
+                    fmt=style.get("marker", "o"), color=style["color"],
+                    mfc=mfc, mec=style["color"],
+                    markersize=4.2, capsize=1.5, linewidth=0.6,
+                    alpha=0.7, zorder=3,
+                )
+        else:
+            ax_cen.scatter(
+                prof["x_axis"], offset,
+                color=style["color"], marker=style.get("marker", "o"),
+                facecolors=mfc, edgecolors=style["color"],
+                s=18, alpha=0.7, zorder=3,
+            )
     ax_cen.set_ylabel(r"$\delta$ Cen (pix)")
     ax_cen.set_xlabel(r"SMA$^{0.25}$ (pix$^{0.25}$)")
     ax_cen.grid(alpha=0.25)
+    # Data-driven Y-axis for center offset
+    if all_offsets:
+        all_off = np.concatenate(all_offsets)
+        set_axis_limits_from_finite_values(
+            ax_cen, all_off, margin_fraction=0.08, min_margin=0.05,
+            lower_clip=0.0,
+        )
 
     output_path = _Path(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)

@@ -153,7 +153,7 @@ def fit_central_pixel(image, mask, x0, y0, debug=False):
                        'grad': np.nan, 'grad_error': np.nan, 'grad_r_error': np.nan})
     return result
 
-def fit_image(image, mask=None, config=None, template=None, template_isophotes=None):
+def fit_image(image, mask=None, config=None, template=None, template_isophotes=None, variance_map=None):
     """
     Main driver to fit isophotes to an entire image.
 
@@ -174,6 +174,10 @@ def fit_image(image, mask=None, config=None, template=None, template_isophotes=N
             defines geometry and others use the same geometry.
         template_isophotes (list of dict, optional): Deprecated. Use ``template``
             instead. Will be removed in a future version.
+        variance_map (np.ndarray, optional): 2D per-pixel variance map matching
+            image shape. When provided, Weighted Least Squares (WLS) is used
+            instead of OLS, giving exact covariance and automatic outlier
+            down-weighting. Typical source: ``1.0 / invvar`` from survey pipelines.
 
     Returns:
         dict: A dictionary containing:
@@ -184,6 +188,9 @@ def fit_image(image, mask=None, config=None, template=None, template_isophotes=N
     --------
     >>> # Normal fitting
     >>> results_g = fit_image(image_g, mask_g, config)
+    >>>
+    >>> # With variance map (WLS)
+    >>> results_g = fit_image(image_g, mask_g, config, variance_map=var_g)
     >>>
     >>> # Template-based forced photometry (multiband)
     >>> results_r = fit_image(image_r, mask_r, config, template=results_g)
@@ -214,6 +221,51 @@ def fit_image(image, mask=None, config=None, template=None, template_isophotes=N
         )
         template = template_isophotes
 
+    # Validate and sanitize variance_map
+    if variance_map is not None:
+        if variance_map.shape != image.shape:
+            raise ValueError(
+                f"variance_map shape {variance_map.shape} does not match "
+                f"image shape {image.shape}"
+            )
+
+        # Work on a copy to avoid mutating the caller's array
+        variance_map = variance_map.copy()
+
+        # Replace NaN with large sentinel (effectively zero weight)
+        _VARIANCE_SENTINEL = 1e30
+        n_nan = np.sum(np.isnan(variance_map))
+        if n_nan > 0:
+            variance_map[np.isnan(variance_map)] = _VARIANCE_SENTINEL
+            warnings.warn(
+                f"variance_map contains {n_nan} NaN values; "
+                f"replaced with {_VARIANCE_SENTINEL:.0e} (near-zero weight).",
+                RuntimeWarning, stacklevel=2,
+            )
+
+        # Replace inf with large sentinel (effectively zero weight)
+        n_inf = np.sum(np.isinf(variance_map))
+        if n_inf > 0:
+            variance_map[np.isinf(variance_map)] = _VARIANCE_SENTINEL
+            warnings.warn(
+                f"variance_map contains {n_inf} infinite values; "
+                f"replaced with {_VARIANCE_SENTINEL:.0e} (near-zero weight).",
+                RuntimeWarning, stacklevel=2,
+            )
+
+        # Warn on non-positive values (zeros or negatives produce infinite weights)
+        n_non_pos = np.sum(variance_map <= 0)
+        if n_non_pos > 0:
+            warnings.warn(
+                f"variance_map contains {n_non_pos} non-positive values; "
+                f"these will be clamped to 1e-30 (near-infinite weight). "
+                f"Consider masking these pixels instead.",
+                RuntimeWarning, stacklevel=2,
+            )
+
+        # Clamp minimum variance to prevent numerical overflow in 1/variance
+        variance_map = np.maximum(variance_map, 1e-30)
+
     # Handle template-based forced mode
     if template is not None:
         resolved = _resolve_template(template)
@@ -241,7 +293,7 @@ def fit_image(image, mask=None, config=None, template=None, template_isophotes=N
     }
     
     # Pass cfg object to fit_isophote
-    first_iso = fit_isophote(image, mask, sma0, start_geometry, cfg)
+    first_iso = fit_isophote(image, mask, sma0, start_geometry, cfg, variance_map=variance_map)
     
     # 3. Grow Outwards
     outwards_results = []
@@ -264,7 +316,8 @@ def fit_image(image, mask=None, config=None, template=None, template_isophotes=N
                 
             next_iso = fit_isophote(
                 image, mask, next_sma, current_iso, cfg,
-                previous_geometry=current_iso
+                previous_geometry=current_iso,
+                variance_map=variance_map
             )
             outwards_results.append(next_iso)
 
@@ -296,7 +349,8 @@ def fit_image(image, mask=None, config=None, template=None, template_isophotes=N
             next_iso = fit_isophote(
                 image, mask, next_sma, current_iso, cfg,
                 going_inwards=True,
-                previous_geometry=current_iso
+                previous_geometry=current_iso,
+                variance_map=variance_map
             )
             inwards_results.append(next_iso)
 

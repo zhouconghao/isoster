@@ -6,7 +6,7 @@ ISOSTER is a Python library for elliptical isophote fitting on 2D images, with a
 
 ## Public Interfaces
 
-- `isoster.fit_image(image, mask=None, config=None, template=None)`
+- `isoster.fit_image(image, mask=None, config=None, template=None, variance_map=None)`
 - `isoster.fit_isophote(...)`
 - `isoster.isophote_results_to_fits(...)`
 - `isoster.isophote_results_from_fits(...)`
@@ -51,7 +51,8 @@ For each SMA in regular mode:
 3. Fit harmonics:
    - **Default path** (`simultaneous_harmonics=False`): Fit 5-param model (`I0`, `A1`, `B1`, `A2`, `B2`) via `fit_first_and_second_harmonics()`. Higher-order harmonics fitted post-hoc after convergence.
    - **ISOFIT path** (`simultaneous_harmonics=True`): Fit all harmonics simultaneously via `fit_all_harmonics()` using an extended design matrix `[1, sin(θ), cos(θ), sin(2θ), cos(2θ), sin(n₁θ), cos(n₁θ), ...]`. Falls back to 5-param when `n_points < 1 + 2*(2 + len(orders))`. Geometry updates use `A1, B1, A2, B2 = coeffs[1:5]` identically in both paths.
-4. Estimate radial gradient (`fitting.compute_gradient`).
+   - **WLS mode** (`variance_map` provided to `fit_image`): All harmonic fits use Weighted Least Squares with `w_i = 1/σ²_i`. The covariance matrix `(A^T W A)^-1` is exact — no residual-variance scaling is needed. This cleanly separates photon noise from galaxy structure scatter and automatically down-weights high-variance pixels (cosmic rays, hot pixels). When `variance_map=None`, the OLS path is byte-identical to the non-WLS code.
+4. Estimate radial gradient (`fitting.compute_gradient`). When `variance_map` is provided, gradient error uses exact per-sample variance (`Var(mean) = Σσ²_i / N²`) instead of scatter-based estimates.
 5. Update geometry based on dominant harmonic coefficient.
 6. Check convergence criterion: `abs(max_amp) < conver * rms` with iteration index check `i >= minit`.
 
