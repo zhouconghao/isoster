@@ -269,7 +269,8 @@ def fit_image(image, mask=None, config=None, template=None, template_isophotes=N
     # Handle template-based forced mode
     if template is not None:
         resolved = _resolve_template(template)
-        return _fit_image_template_forced(image, mask, cfg, resolved)
+        return _fit_image_template_forced(image, mask, cfg, resolved,
+                                          variance_map=variance_map)
 
     # Regular fitting mode
     h, w = image.shape
@@ -384,7 +385,8 @@ def fit_image(image, mask=None, config=None, template=None, template_isophotes=N
     return _build_fit_result(final_list, cfg)
 
 
-def _fit_image_template_forced(image, mask, config, template_isophotes):
+def _fit_image_template_forced(image, mask, config, template_isophotes,
+                               variance_map=None):
     """
     Extract forced photometry using geometry from template isophotes.
 
@@ -399,6 +401,9 @@ def _fit_image_template_forced(image, mask, config, template_isophotes):
             nclip, and use_eccentric_anomaly settings.
         template_isophotes (list of dict): Pre-validated, SMA-sorted list of
             isophote dicts from ``_resolve_template()``.
+        variance_map (np.ndarray, optional): 2D per-pixel variance map. When
+            provided, forced photometry uses WLS (weighted mean intensity and
+            propagated uncertainty).
 
     Returns:
         dict: Results dictionary with 'isophotes' (list of dicts) and 'config'
@@ -437,7 +442,8 @@ def _fit_image_template_forced(image, mask, config, template_isophotes):
                 sclip=config.sclip,
                 nclip=config.nclip,
                 use_eccentric_anomaly=config.use_eccentric_anomaly,
-                config=config
+                config=config,
+                variance_map=variance_map
             )
         isophotes.append(iso)
 
