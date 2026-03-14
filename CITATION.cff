@@ -10,9 +10,9 @@ abstract: >-
   Provides 10-15x faster performance compared to photutils.isophote using
   vectorized path-based sampling via scipy's map_coordinates.
 authors:
-  - family-names: ""    # TODO: Fill in author family name
-    given-names: ""     # TODO: Fill in author given name
-    orcid: ""           # TODO: Fill in ORCID (e.g., https://orcid.org/0000-0000-0000-0000)
+  - family-names: "Huang"
+    given-names: "Song" 
+    orcid: "0000-0003-1385-7591"          
 keywords:
   - astronomy
   - isophote fitting
