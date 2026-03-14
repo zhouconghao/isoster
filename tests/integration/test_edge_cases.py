@@ -10,10 +10,11 @@ This test file addresses ISSUE-6 gaps in test coverage:
 
 import numpy as np
 import pytest
+from pydantic import ValidationError
+
 from isoster import fit_image
 from isoster.config import IsosterConfig
 from isoster.fitting import extract_forced_photometry
-from pydantic import ValidationError
 
 
 class TestForcedMode:
@@ -23,30 +24,28 @@ class TestForcedMode:
         """Test template-based forced mode extracts photometry at specified SMA values."""
         image = np.zeros((100, 100))
         y, x = np.ogrid[:100, :100]
-        r = np.sqrt((x - 50)**2 + (y - 50)**2)
+        r = np.sqrt((x - 50) ** 2 + (y - 50) ** 2)
         image = 1000.0 * np.exp(-r / 10.0)
 
         forced_sma = [5.0, 10.0, 15.0, 20.0]
         x0, y0, eps, pa = 50.0, 50.0, 0.0, 0.0
 
-        template = [
-            {'sma': sma, 'x0': x0, 'y0': y0, 'eps': eps, 'pa': pa}
-            for sma in forced_sma
-        ]
+        template = [{"sma": sma, "x0": x0, "y0": y0, "eps": eps, "pa": pa} for sma in forced_sma]
 
         results = fit_image(image, None, {}, template=template)
-        isophotes = results['isophotes']
+        isophotes = results["isophotes"]
 
         assert len(isophotes) == len(forced_sma)
-        sma_values = [iso['sma'] for iso in isophotes]
+        sma_values = [iso["sma"] for iso in isophotes]
         assert sma_values == forced_sma
 
-        stop_codes = [iso['stop_code'] for iso in isophotes]
+        stop_codes = [iso["stop_code"] for iso in isophotes]
         assert all(code == 0 for code in stop_codes), "All forced mode isophotes should have stop_code=0"
 
-        intensities = [iso['intens'] for iso in isophotes]
-        assert all(intensities[i] > intensities[i+1] for i in range(len(intensities)-1)), \
+        intensities = [iso["intens"] for iso in isophotes]
+        assert all(intensities[i] > intensities[i + 1] for i in range(len(intensities) - 1)), (
             "Intensity should decrease with radius"
+        )
 
     def test_forced_vs_fitted_mode(self):
         """Compare template-forced photometry against fitted mode at same SMA values."""
@@ -59,39 +58,37 @@ class TestForcedMode:
         dy = y - y0
         x_rot = dx * np.cos(pa) + dy * np.sin(pa)
         y_rot = -dx * np.sin(pa) + dy * np.cos(pa)
-        r_ell = np.sqrt(x_rot**2 + (y_rot / (1 - eps))**2)
+        r_ell = np.sqrt(x_rot**2 + (y_rot / (1 - eps)) ** 2)
 
         image = 1000.0 * np.exp(-r_ell / 15.0)
 
         config_fit = IsosterConfig(
-            x0=x0, y0=y0, eps=eps, pa=pa,
-            sma0=10.0, minsma=5.0, maxsma=30.0,
-            astep=0.2, linear_growth=True,
+            x0=x0,
+            y0=y0,
+            eps=eps,
+            pa=pa,
+            sma0=10.0,
+            minsma=5.0,
+            maxsma=30.0,
+            astep=0.2,
+            linear_growth=True,
         )
         results_fit = fit_image(image, None, config_fit)
 
         usable_stop_codes = {0, 1, 2}
-        fitted_sma = [
-            iso['sma']
-            for iso in results_fit['isophotes']
-            if iso['stop_code'] in usable_stop_codes
-        ]
+        fitted_sma = [iso["sma"] for iso in results_fit["isophotes"] if iso["stop_code"] in usable_stop_codes]
         assert fitted_sma, "Fitted mode should provide at least one usable isophote"
 
         # Template-forced mode at same SMA values (use first 5 for speed)
-        template = [
-            {'sma': sma, 'x0': x0, 'y0': y0, 'eps': eps, 'pa': pa}
-            for sma in fitted_sma[:5]
-        ]
+        template = [{"sma": sma, "x0": x0, "y0": y0, "eps": eps, "pa": pa} for sma in fitted_sma[:5]]
         results_forced = fit_image(image, None, config_fit, template=template)
 
-        for iso_forced in results_forced['isophotes']:
-            sma = iso_forced['sma']
-            iso_fit = [iso for iso in results_fit['isophotes'] if iso['sma'] == sma][0]
+        for iso_forced in results_forced["isophotes"]:
+            sma = iso_forced["sma"]
+            iso_fit = [iso for iso in results_fit["isophotes"] if iso["sma"] == sma][0]
 
-            rel_diff = abs(iso_forced['intens'] - iso_fit['intens']) / iso_fit['intens']
-            assert rel_diff < 0.05, \
-                f"Forced mode intensity should match fitted mode within 5% at SMA={sma}"
+            rel_diff = abs(iso_forced["intens"] - iso_fit["intens"]) / iso_fit["intens"]
+            assert rel_diff < 0.05, f"Forced mode intensity should match fitted mode within 5% at SMA={sma}"
 
     def test_forced_mode_with_mask(self):
         """Test template-forced mode handles masked regions correctly."""
@@ -99,23 +96,19 @@ class TestForcedMode:
         mask = np.zeros((100, 100), dtype=bool)
 
         y, x = np.ogrid[:100, :100]
-        r = np.sqrt((x - 50)**2 + (y - 50)**2)
+        r = np.sqrt((x - 50) ** 2 + (y - 50) ** 2)
         mask[r < 15] = True
 
         x0, y0, eps, pa = 50.0, 50.0, 0.0, 0.0
-        template = [
-            {'sma': sma, 'x0': x0, 'y0': y0, 'eps': eps, 'pa': pa}
-            for sma in [10.0, 20.0, 30.0]
-        ]
+        template = [{"sma": sma, "x0": x0, "y0": y0, "eps": eps, "pa": pa} for sma in [10.0, 20.0, 30.0]]
 
         results = fit_image(image, mask, {}, template=template)
-        isophotes = results['isophotes']
+        isophotes = results["isophotes"]
 
-        assert isophotes[0]['stop_code'] == 3, \
-            "Masked isophote should have stop_code=3 (too few points)"
+        assert isophotes[0]["stop_code"] == 3, "Masked isophote should have stop_code=3 (too few points)"
 
-        assert isophotes[1]['stop_code'] == 0
-        assert isophotes[2]['stop_code'] == 0
+        assert isophotes[1]["stop_code"] == 0
+        assert isophotes[2]["stop_code"] == 0
 
     def test_extract_forced_photometry_direct(self):
         """Test extract_forced_photometry function directly."""
@@ -123,18 +116,17 @@ class TestForcedMode:
         mask = None
 
         result = extract_forced_photometry(
-            image, mask, sma=10.0, x0=50.0, y0=50.0,
-            eps=0.2, pa=0.5, use_eccentric_anomaly=False
+            image, mask, sma=10.0, x0=50.0, y0=50.0, eps=0.2, pa=0.5, use_eccentric_anomaly=False
         )
 
         # Check result structure
-        assert 'sma' in result
-        assert 'intens' in result
-        assert 'stop_code' in result
-        assert result['sma'] == 10.0
-        assert result['stop_code'] == 0
-        assert abs(result['intens'] - 100.0) < 1.0  # Should be ~100
-        assert result['valid'] is True, "Successful forced photometry should have valid=True"
+        assert "sma" in result
+        assert "intens" in result
+        assert "stop_code" in result
+        assert result["sma"] == 10.0
+        assert result["stop_code"] == 0
+        assert abs(result["intens"] - 100.0) < 1.0  # Should be ~100
+        assert result["valid"] is True, "Successful forced photometry should have valid=True"
 
     def test_forced_photometry_has_valid_field_on_failure(self):
         """Regression test for I7: forced photometry with no data should have valid=False."""
@@ -142,13 +134,12 @@ class TestForcedMode:
         mask = np.ones((100, 100), dtype=bool)  # Everything masked
 
         result = extract_forced_photometry(
-            image, mask, sma=10.0, x0=50.0, y0=50.0,
-            eps=0.2, pa=0.5, use_eccentric_anomaly=False
+            image, mask, sma=10.0, x0=50.0, y0=50.0, eps=0.2, pa=0.5, use_eccentric_anomaly=False
         )
 
-        assert 'valid' in result, "Forced photometry result must include 'valid' field"
-        assert result['valid'] is False
-        assert result['stop_code'] == 3
+        assert "valid" in result, "Forced photometry result must include 'valid' field"
+        assert result["valid"] is False
+        assert result["stop_code"] == 3
 
 
 class TestCoGMode:
@@ -159,31 +150,35 @@ class TestCoGMode:
         # Create circular gradient
         image = np.zeros((100, 100))
         y, x = np.ogrid[:100, :100]
-        r = np.sqrt((x - 50)**2 + (y - 50)**2)
+        r = np.sqrt((x - 50) ** 2 + (y - 50) ** 2)
         image = 1000.0 * np.exp(-r / 10.0)
 
         config = IsosterConfig(
-            x0=50.0, y0=50.0,
-            sma0=10.0, minsma=5.0, maxsma=30.0,
+            x0=50.0,
+            y0=50.0,
+            sma0=10.0,
+            minsma=5.0,
+            maxsma=30.0,
             astep=0.3,
             compute_cog=True,  # Enable CoG
         )
 
         results = fit_image(image, None, config)
-        isophotes = results['isophotes']
+        isophotes = results["isophotes"]
 
         # Check CoG fields exist
-        assert 'tflux_e' in isophotes[0], "CoG mode should include tflux_e"
-        assert 'tflux_c' in isophotes[0], "CoG mode should include tflux_c"
+        assert "tflux_e" in isophotes[0], "CoG mode should include tflux_e"
+        assert "tflux_c" in isophotes[0], "CoG mode should include tflux_c"
 
         # CoG should be monotonically increasing with SMA
-        cog_values = [iso['tflux_c'] for iso in isophotes if iso['stop_code'] in {0, 1, 2}]
+        cog_values = [iso["tflux_c"] for iso in isophotes if iso["stop_code"] in {0, 1, 2}]
         # Filter out NaN values
         cog_values = [v for v in cog_values if not np.isnan(v)]
 
         if len(cog_values) > 1:
-            assert all(cog_values[i] <= cog_values[i+1] for i in range(len(cog_values)-1)), \
+            assert all(cog_values[i] <= cog_values[i + 1] for i in range(len(cog_values) - 1)), (
                 "Curve-of-growth should be monotonically increasing"
+            )
 
     def test_cog_vs_no_cog(self):
         """Test that CoG mode adds extra fields without affecting other results."""
@@ -191,8 +186,11 @@ class TestCoGMode:
 
         # Without CoG
         config_no_cog = IsosterConfig(
-            x0=50.0, y0=50.0,
-            sma0=10.0, minsma=5.0, maxsma=20.0,
+            x0=50.0,
+            y0=50.0,
+            sma0=10.0,
+            minsma=5.0,
+            maxsma=20.0,
             astep=0.5,
             compute_cog=False,
         )
@@ -200,20 +198,23 @@ class TestCoGMode:
 
         # With CoG
         config_cog = IsosterConfig(
-            x0=50.0, y0=50.0,
-            sma0=10.0, minsma=5.0, maxsma=20.0,
+            x0=50.0,
+            y0=50.0,
+            sma0=10.0,
+            minsma=5.0,
+            maxsma=20.0,
             astep=0.5,
             compute_cog=True,
         )
         results_cog = fit_image(image, None, config_cog)
 
         # Should have same number of isophotes
-        assert len(results_no_cog['isophotes']) == len(results_cog['isophotes'])
+        assert len(results_no_cog["isophotes"]) == len(results_cog["isophotes"])
 
         # Intensities should be identical
-        for iso_no, iso_yes in zip(results_no_cog['isophotes'], results_cog['isophotes']):
-            if iso_no['stop_code'] in {0, 1, 2} and iso_yes['stop_code'] in {0, 1, 2}:
-                assert abs(iso_no['intens'] - iso_yes['intens']) < 1e-10
+        for iso_no, iso_yes in zip(results_no_cog["isophotes"], results_cog["isophotes"]):
+            if iso_no["stop_code"] in {0, 1, 2} and iso_yes["stop_code"] in {0, 1, 2}:
+                assert abs(iso_no["intens"] - iso_yes["intens"]) < 1e-10
 
 
 class TestAddCogLengthCheck:
@@ -223,13 +224,13 @@ class TestAddCogLengthCheck:
         """Mismatched isophote and CoG list lengths should raise ValueError."""
         from isoster.cog import add_cog_to_isophotes
 
-        isophotes = [{'sma': 10.0}, {'sma': 20.0}, {'sma': 30.0}]
+        isophotes = [{"sma": 10.0}, {"sma": 20.0}, {"sma": 30.0}]
         cog_results = {
-            'cog': [1.0, 2.0],
-            'cog_annulus': [0.5, 1.0],
-            'area_annulus': [100.0, 200.0],
-            'flag_cross': [False, False],
-            'flag_negative_area': [False, False],
+            "cog": [1.0, 2.0],
+            "cog_annulus": [0.5, 1.0],
+            "area_annulus": [100.0, 200.0],
+            "flag_cross": [False, False],
+            "flag_negative_area": [False, False],
         }
 
         with pytest.raises(ValueError, match="Length mismatch"):
@@ -245,22 +246,25 @@ class TestMaskedImages:
         mask = np.ones((100, 100), dtype=bool)  # Everything masked
 
         config = IsosterConfig(
-            x0=50.0, y0=50.0,
-            sma0=10.0, minsma=5.0, maxsma=30.0,
+            x0=50.0,
+            y0=50.0,
+            sma0=10.0,
+            minsma=5.0,
+            maxsma=30.0,
         )
 
         results = fit_image(image, mask, config)
-        isophotes = results['isophotes']
+        isophotes = results["isophotes"]
 
         # All sampled rows should be non-success if any were produced.
-        stop_codes = [iso['stop_code'] for iso in isophotes]
-        assert all(code != 0 for code in stop_codes), \
-            "All-masked image should produce no successful isophotes"
+        stop_codes = [iso["stop_code"] for iso in isophotes]
+        assert all(code != 0 for code in stop_codes), "All-masked image should produce no successful isophotes"
 
         # Depending on startup gating, this may return zero rows or only failures.
         if stop_codes:
-            assert any(code in {3, -1} for code in stop_codes), \
+            assert any(code in {3, -1} for code in stop_codes), (
                 "All-masked image should only produce failure stop codes"
+            )
 
     def test_center_masked(self):
         """Test fitting when central pixel is masked."""
@@ -269,15 +273,18 @@ class TestMaskedImages:
         mask[50, 50] = True  # Mask center
 
         config = IsosterConfig(
-            x0=50.0, y0=50.0,
-            sma0=10.0, minsma=5.0, maxsma=30.0,
+            x0=50.0,
+            y0=50.0,
+            sma0=10.0,
+            minsma=5.0,
+            maxsma=30.0,
         )
 
         results = fit_image(image, mask, config)
 
         # Should handle gracefully (may return zero rows if startup fit is rejected).
-        assert 'isophotes' in results
-        stop_codes = [iso['stop_code'] for iso in results['isophotes']]
+        assert "isophotes" in results
+        stop_codes = [iso["stop_code"] for iso in results["isophotes"]]
         if stop_codes:
             assert all(code != 0 for code in stop_codes)
 
@@ -290,40 +297,49 @@ class TestMaskedImages:
         mask[:, 85:] = True
 
         config = IsosterConfig(
-            x0=50.0, y0=50.0,
-            eps=0.0, pa=0.0,  # Circular isophotes
-            sma0=10.0, minsma=5.0, maxsma=40.0,
+            x0=50.0,
+            y0=50.0,
+            eps=0.0,
+            pa=0.0,  # Circular isophotes
+            sma0=10.0,
+            minsma=5.0,
+            maxsma=40.0,
             fflag=0.3,  # More permissive (allow up to 70% flagged)
         )
 
         results = fit_image(image, mask, config)
-        isophotes = results['isophotes']
+        isophotes = results["isophotes"]
 
         # Check that output structure is valid; row count can be zero if startup fit is rejected.
         assert isinstance(isophotes, list)
 
         # Check that masked crossings do not produce all-success rows when rows exist.
-        stop_codes = [iso['stop_code'] for iso in isophotes]
+        stop_codes = [iso["stop_code"] for iso in isophotes]
         if stop_codes:
-            assert any(code != 0 for code in stop_codes), \
+            assert any(code != 0 for code in stop_codes), (
                 "Some isophotes should fail when crossing masked region heavily"
+            )
 
     def test_empty_image(self):
         """Test fitting on zero/empty image."""
         image = np.zeros((100, 100))  # All zeros
 
         config = IsosterConfig(
-            x0=50.0, y0=50.0,
-            sma0=10.0, minsma=5.0, maxsma=30.0,
+            x0=50.0,
+            y0=50.0,
+            sma0=10.0,
+            minsma=5.0,
+            maxsma=30.0,
         )
 
         results = fit_image(image, None, config)
-        isophotes = results['isophotes']
+        isophotes = results["isophotes"]
 
         # Should get gradient errors (stop_code=-1) or too few points
-        stop_codes = [iso['stop_code'] for iso in isophotes]
-        assert all(code <= 0 or code == 3 for code in stop_codes), \
+        stop_codes = [iso["stop_code"] for iso in isophotes]
+        assert all(code <= 0 or code == 3 for code in stop_codes), (
             "Zero image should produce gradient errors or too-few-points"
+        )
 
 
 class TestConfigValidation:
@@ -345,11 +361,11 @@ class TestConfigValidation:
     def test_adaptive_integrator_requires_threshold(self):
         """Test that adaptive integrator requires lsb_sma_threshold."""
         with pytest.raises(ValidationError):
-            IsosterConfig(integrator='adaptive')  # Missing lsb_sma_threshold
+            IsosterConfig(integrator="adaptive")  # Missing lsb_sma_threshold
 
         # Should work with threshold
-        config = IsosterConfig(integrator='adaptive', lsb_sma_threshold=20.0)
-        assert config.integrator == 'adaptive'
+        config = IsosterConfig(integrator="adaptive", lsb_sma_threshold=20.0)
+        assert config.integrator == "adaptive"
         assert config.lsb_sma_threshold == 20.0
 
     def test_template_requires_valid_input(self):
@@ -363,19 +379,17 @@ class TestConfigValidation:
             _resolve_template(42)
 
         # Should work with valid list
-        result = _resolve_template([
-            {'sma': 10.0, 'x0': 50.0, 'y0': 50.0, 'eps': 0.2, 'pa': 0.0}
-        ])
+        result = _resolve_template([{"sma": 10.0, "x0": 50.0, "y0": 50.0, "eps": 0.2, "pa": 0.0}])
         assert len(result) == 1
 
     def test_invalid_integrator(self):
         """Test that invalid integrator name raises ValidationError."""
         with pytest.raises(ValidationError):
-            IsosterConfig(integrator='invalid')
+            IsosterConfig(integrator="invalid")
 
         # Valid integrators should work
-        for integrator in ['mean', 'median', 'adaptive']:
-            if integrator == 'adaptive':
+        for integrator in ["mean", "median", "adaptive"]:
+            if integrator == "adaptive":
                 config = IsosterConfig(integrator=integrator, lsb_sma_threshold=20.0)
             else:
                 config = IsosterConfig(integrator=integrator)
@@ -384,22 +398,36 @@ class TestConfigValidation:
     def test_valid_config_passes(self):
         """Test that valid config passes validation."""
         config = IsosterConfig(
-            x0=50.0, y0=50.0,
-            eps=0.3, pa=1.0,
-            sma0=10.0, minsma=5.0, maxsma=100.0,
-            astep=0.1, linear_growth=False,
-            maxit=50, minit=10, conver=0.05,
-            sclip=3.0, nclip=0, fflag=0.5, maxgerr=0.5,
-            fix_center=False, fix_pa=False, fix_eps=False,
-            compute_errors=True, compute_deviations=True,
-            full_photometry=False, compute_cog=False,
-            integrator='mean',
+            x0=50.0,
+            y0=50.0,
+            eps=0.3,
+            pa=1.0,
+            sma0=10.0,
+            minsma=5.0,
+            maxsma=100.0,
+            astep=0.1,
+            linear_growth=False,
+            maxit=50,
+            minit=10,
+            conver=0.05,
+            sclip=3.0,
+            nclip=0,
+            fflag=0.5,
+            maxgerr=0.5,
+            fix_center=False,
+            fix_pa=False,
+            fix_eps=False,
+            compute_errors=True,
+            compute_deviations=True,
+            full_photometry=False,
+            compute_cog=False,
+            integrator="mean",
             use_eccentric_anomaly=False,
         )
 
         assert config.eps == 0.3
         assert config.maxsma == 100.0
-        assert config.integrator == 'mean'
+        assert config.integrator == "mean"
 
     def test_default_values(self):
         """Test that config defaults are sensible."""
@@ -420,5 +448,5 @@ class TestConfigValidation:
         assert config.use_eccentric_anomaly is False
 
 
-if __name__ == '__main__':
-    pytest.main([__file__, '-v'])
+if __name__ == "__main__":
+    pytest.main([__file__, "-v"])

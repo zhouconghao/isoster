@@ -15,7 +15,6 @@ import pytest
 from isoster import fit_image
 from isoster.config import IsosterConfig
 
-
 # Path to M51 data
 M51_PATH = Path(__file__).parent.parent.parent / "data" / "m51" / "M51.fits"
 
@@ -31,6 +30,7 @@ class TestM51:
             pytest.skip(f"M51 data not found at {M51_PATH}")
 
         from astropy.io import fits
+
         with fits.open(M51_PATH) as hdul:
             image = hdul[0].data.astype(np.float64)
         return image
@@ -62,18 +62,17 @@ class TestM51:
         )
 
         results = fit_image(m51_image, mask=None, config=config)
-        isophotes = results['isophotes']
+        isophotes = results["isophotes"]
 
         # Basic checks
         assert len(isophotes) > 10, f"Expected >10 isophotes, got {len(isophotes)}"
 
         # Check convergence rate
-        stop_codes = [iso['stop_code'] for iso in isophotes]
+        stop_codes = [iso["stop_code"] for iso in isophotes]
         converged = sum(1 for sc in stop_codes if sc == 0)
         convergence_rate = converged / len(isophotes)
 
-        assert convergence_rate > 0.5, \
-            f"Low convergence rate: {convergence_rate:.1%} ({converged}/{len(isophotes)})"
+        assert convergence_rate > 0.5, f"Low convergence rate: {convergence_rate:.1%} ({converged}/{len(isophotes)})"
 
         print("\nm51_test results:")
         print(f"  Total isophotes: {len(isophotes)}")
@@ -107,10 +106,10 @@ class TestM51:
         )
 
         results = fit_image(m51_image, mask=mask, config=config)
-        isophotes = results['isophotes']
+        isophotes = results["isophotes"]
 
         assert len(isophotes) > 5, f"Expected >5 isophotes with mask, got {len(isophotes)}"
 
         print("\nM51 with mask results:")
-        print(f"  Masked pixels: {mask.sum()} ({100*mask.sum()/mask.size:.2f}%)")
+        print(f"  Masked pixels: {mask.sum()} ({100 * mask.sum() / mask.size:.2f}%)")
         print(f"  Total isophotes: {len(isophotes)}")

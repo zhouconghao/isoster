@@ -2,70 +2,81 @@ import warnings
 
 import numpy as np
 from scipy.optimize import leastsq
-from .sampling import extract_isophote_data
+
 from .config import IsosterConfig
 
 # Import numba-accelerated kernels (with numpy fallback)
-from .numba_kernels import (
-    harmonic_model,
-    build_harmonic_matrix,
-    NUMBA_AVAILABLE
-)
+from .numba_kernels import build_harmonic_matrix, harmonic_model
+from .sampling import extract_isophote_data
+
 
 def compute_central_regularization_penalty(current_geom, previous_geom, sma, config):
     """
     Compute regularization penalty for geometry changes in central region.
-    
+
     Adds penalty to discourage large geometry changes at low SMA, helping stabilize
     fits in low S/N central regions.
-    
+
     Args:
         current_geom (dict): Current geometry {'x0', 'y0', 'eps', 'pa'}
         previous_geom (dict): Previous isophote geometry (or None)
         sma (float): Current semi-major axis
         config (IsosterConfig): Configuration with regularization parameters
-        
+
     Returns:
         float: Regularization penalty value
     """
     if not config.use_central_regularization:
         return 0.0
-    
+
     if previous_geom is None:
         return 0.0
-    
+
     # Regularization strength decays exponentially from center
     # λ(sma) = max_strength * exp(-(sma/threshold)²)
-    lambda_sma = config.central_reg_strength * np.exp(
-        -(sma / config.central_reg_sma_threshold)**2
-    )
-    
+    lambda_sma = config.central_reg_strength * np.exp(-((sma / config.central_reg_sma_threshold) ** 2))
+
     # No regularization beyond 3× threshold
     if lambda_sma < 1e-6:
         return 0.0
-    
+
     weights = config.central_reg_weights
-    
+
     # Compute changes from previous isophote
-    delta_eps = current_geom['eps'] - previous_geom['eps']
-    delta_pa = current_geom['pa'] - previous_geom['pa']
-    
+    delta_eps = current_geom["eps"] - previous_geom["eps"]
+    delta_pa = current_geom["pa"] - previous_geom["pa"]
+
     # Handle PA wrap-around (force to [-π, π])
     delta_pa = ((delta_pa + np.pi) % (2 * np.pi)) - np.pi
-    
-    delta_x0 = current_geom['x0'] - previous_geom['x0']
-    delta_y0 = current_geom['y0'] - previous_geom['y0']
-    
+
+    delta_x0 = current_geom["x0"] - previous_geom["x0"]
+    delta_y0 = current_geom["y0"] - previous_geom["y0"]
+
     # Penalty: λ(sma) * weighted sum of squared changes
     penalty = lambda_sma * (
-        weights.get('eps', 1.0) * delta_eps**2 +
-        weights.get('pa', 1.0) * delta_pa**2 +
-        weights.get('center', 1.0) * (delta_x0**2 + delta_y0**2)
+        weights.get("eps", 1.0) * delta_eps**2
+        + weights.get("pa", 1.0) * delta_pa**2
+        + weights.get("center", 1.0) * (delta_x0**2 + delta_y0**2)
     )
-    
+
     return penalty
 
-def extract_forced_photometry(image, mask, x0, y0, sma, eps, pa, integrator='mean', sclip=3.0, nclip=0, use_eccentric_anomaly=False, config=None, variance_map=None):
+
+def extract_forced_photometry(
+    image,
+    mask,
+    x0,
+    y0,
+    sma,
+    eps,
+    pa,
+    integrator="mean",
+    sclip=3.0,
+    nclip=0,
+    use_eccentric_anomaly=False,
+    config=None,
+    variance_map=None,
+):
     """
     Extract forced photometry at a single SMA without fitting.
 
@@ -104,27 +115,41 @@ def extract_forced_photometry(image, mask, x0, y0, sma, eps, pa, integrator='mea
         """Build zero-valued harmonic key-value pairs for given orders."""
         fields = {}
         for order in orders:
-            fields[f'a{order}'] = 0.0
-            fields[f'b{order}'] = 0.0
-            fields[f'a{order}_err'] = 0.0
-            fields[f'b{order}_err'] = 0.0
+            fields[f"a{order}"] = 0.0
+            fields[f"b{order}"] = 0.0
+            fields[f"a{order}_err"] = 0.0
+            fields[f"b{order}_err"] = 0.0
         return fields
 
     # Sample along the ellipse
-    data = extract_isophote_data(image, mask, x0, y0, sma, eps, pa,
-                                 use_eccentric_anomaly=use_eccentric_anomaly,
-                                 variance_map=variance_map)
+    data = extract_isophote_data(
+        image, mask, x0, y0, sma, eps, pa, use_eccentric_anomaly=use_eccentric_anomaly, variance_map=variance_map
+    )
     phi = data.angles  # position angle or eccentric anomaly depending on mode
     intens = data.intens
     variances = data.variances
 
     if len(intens) == 0:
         result = {
-            'x0': x0, 'y0': y0, 'eps': eps, 'pa': pa, 'sma': sma,
-            'intens': np.nan, 'rms': np.nan, 'intens_err': np.nan,
-            'x0_err': 0.0, 'y0_err': 0.0, 'eps_err': 0.0, 'pa_err': 0.0,
-            'tflux_e': np.nan, 'tflux_c': np.nan, 'npix_e': 0, 'npix_c': 0,
-            'stop_code': 3, 'niter': 0, 'valid': False
+            "x0": x0,
+            "y0": y0,
+            "eps": eps,
+            "pa": pa,
+            "sma": sma,
+            "intens": np.nan,
+            "rms": np.nan,
+            "intens_err": np.nan,
+            "x0_err": 0.0,
+            "y0_err": 0.0,
+            "eps_err": 0.0,
+            "pa_err": 0.0,
+            "tflux_e": np.nan,
+            "tflux_c": np.nan,
+            "npix_e": 0,
+            "npix_c": 0,
+            "stop_code": 3,
+            "niter": 0,
+            "valid": False,
         }
         if include_harmonics:
             result.update(_build_harmonic_fields(harmonic_orders))
@@ -133,9 +158,7 @@ def extract_forced_photometry(image, mask, x0, y0, sma, eps, pa, integrator='mea
     # Sigma clipping (clip variances in lockstep when present)
     if nclip > 0:
         if variances is not None:
-            phi, intens, _, variances = sigma_clip(
-                phi, intens, sclip, nclip, extra_arrays=[variances]
-            )
+            phi, intens, _, variances = sigma_clip(phi, intens, sclip, nclip, extra_arrays=[variances])
         else:
             phi, intens, _ = sigma_clip(phi, intens, sclip, nclip)
 
@@ -146,7 +169,7 @@ def extract_forced_photometry(image, mask, x0, y0, sma, eps, pa, integrator='mea
         intensity = np.sum(weights * intens) / sum_weights
         # Propagated error from known per-pixel variances (exact WLS covariance)
         intens_err = 1.0 / np.sqrt(sum_weights)
-    elif integrator == 'median':
+    elif integrator == "median":
         intensity = np.median(intens)
     else:
         intensity = np.mean(intens)
@@ -156,15 +179,30 @@ def extract_forced_photometry(image, mask, x0, y0, sma, eps, pa, integrator='mea
         intens_err = rms / np.sqrt(len(intens))
 
     result = {
-        'x0': x0, 'y0': y0, 'eps': eps, 'pa': pa, 'sma': sma,
-        'intens': intensity, 'rms': rms, 'intens_err': intens_err,
-        'x0_err': 0.0, 'y0_err': 0.0, 'eps_err': 0.0, 'pa_err': 0.0,
-        'tflux_e': np.nan, 'tflux_c': np.nan, 'npix_e': 0, 'npix_c': 0,
-        'stop_code': 0, 'niter': 0, 'valid': True
+        "x0": x0,
+        "y0": y0,
+        "eps": eps,
+        "pa": pa,
+        "sma": sma,
+        "intens": intensity,
+        "rms": rms,
+        "intens_err": intens_err,
+        "x0_err": 0.0,
+        "y0_err": 0.0,
+        "eps_err": 0.0,
+        "pa_err": 0.0,
+        "tflux_e": np.nan,
+        "tflux_c": np.nan,
+        "npix_e": 0,
+        "npix_c": 0,
+        "stop_code": 0,
+        "niter": 0,
+        "valid": True,
     }
     if include_harmonics:
         result.update(_build_harmonic_fields(harmonic_orders))
     return result
+
 
 def fit_first_and_second_harmonics(phi, intensity, variances=None):
     """
@@ -210,6 +248,7 @@ def fit_first_and_second_harmonics(phi, intensity, variances=None):
     except np.linalg.LinAlgError:
         return np.array([np.mean(intensity), 0.0, 0.0, 0.0, 0.0]), None
 
+
 def harmonic_function(phi, coeffs):
     """
     Evaluate harmonic model at given angles.
@@ -217,6 +256,7 @@ def harmonic_function(phi, coeffs):
     Uses numba-accelerated implementation when available for better performance.
     """
     return harmonic_model(phi, coeffs)
+
 
 def sigma_clip(phi, intens, sclip=3.0, nclip=0, sclip_low=None, sclip_high=None, extra_arrays=None):
     """Perform iterative sigma clipping on intensity data.
@@ -273,7 +313,22 @@ def sigma_clip(phi, intens, sclip=3.0, nclip=0, sclip_low=None, sclip_high=None,
         return phi_c, intens_c, total_clipped, *extras_c
     return phi_c, intens_c, total_clipped
 
-def compute_parameter_errors(phi, intens, x0, y0, sma, eps, pa, gradient, gradient_error=None, cov_matrix=None, coeffs=None, var_residual_floor=None, use_exact_covariance=False):
+
+def compute_parameter_errors(
+    phi,
+    intens,
+    x0,
+    y0,
+    sma,
+    eps,
+    pa,
+    gradient,
+    gradient_error=None,
+    cov_matrix=None,
+    coeffs=None,
+    var_residual_floor=None,
+    use_exact_covariance=False,
+):
     """Compute parameter errors based on the covariance matrix of harmonic coefficients.
 
     Args:
@@ -297,7 +352,7 @@ def compute_parameter_errors(phi, intens, x0, y0, sma, eps, pa, gradient, gradie
     # Guard against too few data points for the harmonic model (5 params)
     if len(intens) <= 5:
         return 0.0, 0.0, 0.0, 0.0
-    
+
     g_err_sq = gradient_error**2 if gradient_error is not None else 0.0
     g_sq = gradient**2
 
@@ -328,12 +383,12 @@ def compute_parameter_errors(phi, intens, x0, y0, sma, eps, pa, gradient, gradie
                 var_residual = max(var_residual, var_residual_floor)
             covariance = cov_matrix * var_residual
         errors = np.sqrt(np.diagonal(covariance))
-        
+
         # Parameter error formulas (Corrected to include gradient uncertainty)
         # 1. Harmonic coefficient variances
-        sig_a1_sq, sig_b1_sq = errors[1]**2, errors[2]**2
-        sig_a2_sq, sig_b2_sq = errors[3]**2, errors[4]**2
-        
+        sig_a1_sq, sig_b1_sq = errors[1] ** 2, errors[2] ** 2
+        sig_a2_sq, sig_b2_sq = errors[3] ** 2, errors[4] ** 2
+
         # 2. Geometric harmonic amplitudes (A1, B1, A2, B2)
         # indexing matches fit_first_and_second_harmonics: [y0, A1, B1, A2, B2]
         a1, b1 = coeffs[1], coeffs[2]
@@ -343,48 +398,48 @@ def compute_parameter_errors(phi, intens, x0, y0, sma, eps, pa, gradient, gradie
         # Major axis: Var(B1/g) = (1/g^2) * [Var(B1) + (B1/g)^2 * Var(g)]
         var_major = (sig_b1_sq + (b1**2 / g_sq) * g_err_sq) / g_sq
         # Minor axis: Var(A1*(1-eps)/g) = ((1-eps)^2/g^2) * [Var(A1) + (A1/g)^2 * Var(g)]
-        var_minor = ((1.0 - eps)**2 / g_sq) * (sig_a1_sq + (a1**2 / g_sq) * g_err_sq)
-        
-        x0_err = np.sqrt((var_minor * np.sin(pa)**2) + (var_major * np.cos(pa)**2))
-        y0_err = np.sqrt((var_minor * np.cos(pa)**2) + (var_major * np.sin(pa)**2))
-        
+        var_minor = ((1.0 - eps) ** 2 / g_sq) * (sig_a1_sq + (a1**2 / g_sq) * g_err_sq)
+
+        x0_err = np.sqrt((var_minor * np.sin(pa) ** 2) + (var_major * np.cos(pa) ** 2))
+        y0_err = np.sqrt((var_minor * np.cos(pa) ** 2) + (var_major * np.sin(pa) ** 2))
+
         # 4. Ellipticity variance
         # Var(eps) = Var(2*(1-eps)*B2 / (a*g))
         #          = (2*(1-eps)/(a*g))^2 * [Var(B2) + (B2/g)^2 * Var(g)]
-        var_eps = (2.0 * (1.0 - eps) / (sma * gradient))**2 * (sig_b2_sq + (b2**2 / g_sq) * g_err_sq)
+        var_eps = (2.0 * (1.0 - eps) / (sma * gradient)) ** 2 * (sig_b2_sq + (b2**2 / g_sq) * g_err_sq)
         eps_err = np.sqrt(var_eps)
-        
+
         # 5. Position angle variance
         if abs(eps) > np.finfo(float).resolution:
             # denom = (1-eps)^2 - 1
-            denom = (1.0 - eps)**2 - 1.0
-            if abs(denom) < 1e-10: denom = -1e-10
-            
+            denom = (1.0 - eps) ** 2 - 1.0
+            if abs(denom) < 1e-10:
+                denom = -1e-10
+
             # Var(PA) = Var(2*(1-eps)*A2 / (a*g*denom))
             #         = (2*(1-eps)/(a*g*denom))^2 * [Var(A2) + (A2/g)^2 * Var(g)]
-            var_pa = (2.0 * (1.0 - eps) / (sma * gradient * denom))**2 * (sig_a2_sq + (a2**2 / g_sq) * g_err_sq)
+            var_pa = (2.0 * (1.0 - eps) / (sma * gradient * denom)) ** 2 * (sig_a2_sq + (a2**2 / g_sq) * g_err_sq)
             pa_err = np.sqrt(var_pa)
         else:
             pa_err = 0.0
-            
+
         return float(x0_err), float(y0_err), float(eps_err), float(pa_err)
     except (np.linalg.LinAlgError, ValueError) as e:
         # Singular matrix or numerical instability - return zero errors
         warnings.warn(
-            f"compute_parameter_errors failed (singular matrix or numerical issue): {e}. "
-            f"Returning zero errors.",
-            RuntimeWarning
+            f"compute_parameter_errors failed (singular matrix or numerical issue): {e}. Returning zero errors.",
+            RuntimeWarning,
         )
         return 0.0, 0.0, 0.0, 0.0
     except (np.linalg.LinAlgError, ValueError) as e:
         # Singular matrix or numerical instability - return zero errors
         warnings.warn(
-            f"compute_parameter_errors failed (singular matrix or numerical issue): {e}. "
-            f"Returning zero errors.",
-            RuntimeWarning
+            f"compute_parameter_errors failed (singular matrix or numerical issue): {e}. Returning zero errors.",
+            RuntimeWarning,
         )
         return 0.0, 0.0, 0.0, 0.0
     # Note: Removed broad 'except Exception' - unexpected errors should be raised for debugging
+
 
 def compute_deviations(phi, intens, sma, gradient, order, variances=None):
     """Compute deviations from perfect ellipticity (higher order harmonics).
@@ -412,7 +467,7 @@ def compute_deviations(phi, intens, sma, gradient, order, variances=None):
             params_init = [y0_init, 0.0, 0.0]
 
             def residual(params):
-                model = params[0] + params[1]*s_n + params[2]*c_n
+                model = params[0] + params[1] * s_n + params[2] * c_n
                 return intens - model
 
             solution = leastsq(residual, params_init, full_output=True)
@@ -422,10 +477,10 @@ def compute_deviations(phi, intens, sma, gradient, order, variances=None):
             if cov_matrix is None:
                 return 0.0, 0.0, 0.0, 0.0
 
-            model = coeffs[0] + coeffs[1]*s_n + coeffs[2]*c_n
+            model = coeffs[0] + coeffs[1] * s_n + coeffs[2] * c_n
             if len(intens) <= len(coeffs):
                 return 0.0, 0.0, 0.0, 0.0
-            var_residual = np.std(intens - model, ddof=len(coeffs))**2
+            var_residual = np.std(intens - model, ddof=len(coeffs)) ** 2
             covariance = cov_matrix * var_residual
             errors = np.sqrt(np.diagonal(covariance))
 
@@ -443,9 +498,10 @@ def compute_deviations(phi, intens, sma, gradient, order, variances=None):
         warnings.warn(
             f"compute_deviations (order={order}) failed (singular matrix, numerical issue, or degenerate input): {e}. "
             f"Returning zeros.",
-            RuntimeWarning
+            RuntimeWarning,
         )
         return 0.0, 0.0, 0.0, 0.0
+
 
 def build_isofit_design_matrix(angles, orders):
     """
@@ -538,11 +594,13 @@ def evaluate_harmonic_model(angles, coeffs, orders):
     Returns:
         Array of model intensities.
     """
-    model = (coeffs[0]
-             + coeffs[1] * np.sin(angles)
-             + coeffs[2] * np.cos(angles)
-             + coeffs[3] * np.sin(2.0 * angles)
-             + coeffs[4] * np.cos(2.0 * angles))
+    model = (
+        coeffs[0]
+        + coeffs[1] * np.sin(angles)
+        + coeffs[2] * np.cos(angles)
+        + coeffs[3] * np.sin(2.0 * angles)
+        + coeffs[4] * np.cos(2.0 * angles)
+    )
 
     for k, n_order in enumerate(orders):
         model += coeffs[5 + 2 * k] * np.sin(n_order * angles)
@@ -626,10 +684,7 @@ def fit_higher_harmonics_simultaneous(angles, intens, sma, gradient, orders=None
             errors = np.sqrt(np.diagonal(covariance))
 
     except (np.linalg.LinAlgError, ValueError) as e:
-        warnings.warn(
-            f"fit_higher_harmonics_simultaneous failed: {e}. Returning zeros.",
-            RuntimeWarning
-        )
+        warnings.warn(f"fit_higher_harmonics_simultaneous failed: {e}. Returning zeros.", RuntimeWarning)
         return {n: (0.0, 0.0, 0.0, 0.0) for n in orders}
 
     # Normalization factor
@@ -679,14 +734,14 @@ def compute_gradient(image, mask, geometry, config, previous_gradient=None, curr
         (gradient, gradient_error): Tuple of gradient value and its error estimate
     """
     # Unpack geometry
-    x0, y0, sma, eps, pa = geometry['x0'], geometry['y0'], geometry['sma'], geometry['eps'], geometry['pa']
+    x0, y0, sma, eps, pa = geometry["x0"], geometry["y0"], geometry["sma"], geometry["eps"], geometry["pa"]
 
     # Unpack config (dict from fit_isophote, or IsosterConfig in tests)
     _get = config.get if isinstance(config, dict) else lambda k: getattr(config, k)
-    step = _get('astep')
-    linear_growth = _get('linear_growth')
-    integrator = _get('integrator')
-    use_eccentric_anomaly = _get('use_eccentric_anomaly')
+    step = _get("astep")
+    linear_growth = _get("linear_growth")
+    integrator = _get("integrator")
+    use_eccentric_anomaly = _get("use_eccentric_anomaly")
 
     var_c = None
     if current_data is not None:
@@ -696,38 +751,44 @@ def compute_gradient(image, mask, geometry, config, previous_gradient=None, curr
             phi_c, intens_c = current_data
     else:
         # Extract current SMA data
-        data_c = extract_isophote_data(image, mask, x0, y0, sma, eps, pa,
-                                       use_eccentric_anomaly=use_eccentric_anomaly,
-                                       variance_map=variance_map)
-        phi_c = data_c.angles
+        data_c = extract_isophote_data(
+            image, mask, x0, y0, sma, eps, pa, use_eccentric_anomaly=use_eccentric_anomaly, variance_map=variance_map
+        )
         intens_c = data_c.intens
         var_c = data_c.variances
-    
+
     if len(intens_c) == 0:
         return previous_gradient * 0.8 if previous_gradient else -1.0, None
-        
-    if integrator == 'median':
+
+    if integrator == "median":
         mean_c = np.median(intens_c)
     else:
         mean_c = np.mean(intens_c)
-    
+
     if linear_growth:
         gradient_sma = sma + step
     else:
         gradient_sma = sma * (1.0 + step)
-        
+
     # Extract gradient SMA data
-    data_g = extract_isophote_data(image, mask, x0, y0, gradient_sma, eps, pa,
-                                   use_eccentric_anomaly=use_eccentric_anomaly,
-                                   variance_map=variance_map)
-    phi_g = data_g.angles
+    data_g = extract_isophote_data(
+        image,
+        mask,
+        x0,
+        y0,
+        gradient_sma,
+        eps,
+        pa,
+        use_eccentric_anomaly=use_eccentric_anomaly,
+        variance_map=variance_map,
+    )
     intens_g = data_g.intens
     var_g = data_g.variances
-    
+
     if len(intens_g) == 0:
         return previous_gradient * 0.8 if previous_gradient else -1.0, None
-        
-    if integrator == 'median':
+
+    if integrator == "median":
         mean_g = np.median(intens_g)
     else:
         mean_g = np.mean(intens_g)
@@ -736,16 +797,15 @@ def compute_gradient(image, mask, geometry, config, previous_gradient=None, curr
 
     if var_c is not None and var_g is not None:
         # WLS: exact variance of the mean from per-pixel variances
-        var_mean_c = np.sum(var_c) / len(var_c)**2
-        var_mean_g = np.sum(var_g) / len(var_g)**2
+        var_mean_c = np.sum(var_c) / len(var_c) ** 2
+        var_mean_g = np.sum(var_g) / len(var_g) ** 2
         gradient_error = np.sqrt(var_mean_c + var_mean_g) / delta_r
     else:
         # OLS: scatter-based error estimate
         sigma_c = np.std(intens_c)
         sigma_g = np.std(intens_g)
-        gradient_error = (np.sqrt(sigma_c**2 / len(intens_c) + sigma_g**2 / len(intens_g))
-                         / delta_r)
-    
+        gradient_error = np.sqrt(sigma_c**2 / len(intens_c) + sigma_g**2 / len(intens_g)) / delta_r
+
     if previous_gradient is None:
         previous_gradient = gradient + gradient_error
 
@@ -765,68 +825,75 @@ def compute_gradient(image, mask, geometry, config, previous_gradient=None, curr
             gradient_sma_2 = sma * (1.0 + 2 * step)
 
         # Extract second gradient SMA
-        data_g2 = extract_isophote_data(image, mask, x0, y0, gradient_sma_2, eps, pa,
-                                        use_eccentric_anomaly=use_eccentric_anomaly,
-                                        variance_map=variance_map)
-        phi_g2 = data_g2.angles
+        data_g2 = extract_isophote_data(
+            image,
+            mask,
+            x0,
+            y0,
+            gradient_sma_2,
+            eps,
+            pa,
+            use_eccentric_anomaly=use_eccentric_anomaly,
+            variance_map=variance_map,
+        )
         intens_g2 = data_g2.intens
         var_g2 = data_g2.variances
 
         if len(intens_g2) > 0:
-            if integrator == 'median':
+            if integrator == "median":
                 mean_g2 = np.median(intens_g2)
             else:
                 mean_g2 = np.mean(intens_g2)
             delta_r_2 = 2 * step if linear_growth else sma * 2 * step
             gradient = (mean_g2 - mean_c) / delta_r_2
             if var_c is not None and var_g2 is not None:
-                var_mean_c = np.sum(var_c) / len(var_c)**2
-                var_mean_g2 = np.sum(var_g2) / len(var_g2)**2
+                var_mean_c = np.sum(var_c) / len(var_c) ** 2
+                var_mean_g2 = np.sum(var_g2) / len(var_g2) ** 2
                 gradient_error = np.sqrt(var_mean_c + var_mean_g2) / delta_r_2
             else:
                 sigma_c = np.std(intens_c)
                 sigma_g2 = np.std(intens_g2)
-                gradient_error = (np.sqrt(sigma_c**2 / len(intens_c) + sigma_g2**2 / len(intens_g2))
-                                / delta_r_2)
+                gradient_error = np.sqrt(sigma_c**2 / len(intens_c) + sigma_g2**2 / len(intens_g2)) / delta_r_2
 
     if gradient >= (previous_gradient / 3.0):
         gradient = previous_gradient * 0.8
         gradient_error = None
-        
+
     return gradient, gradient_error
+
 
 def compute_aperture_photometry(image, mask, x0, y0, sma, eps, pa):
     """
     Compute total flux and pixel counts within elliptical and circular apertures.
-    
+
     This uses a vectorized numpy approach for speed.
     """
     h, w = image.shape
-    
+
     # Bounding box
     x_min = max(0, int(x0 - sma - 1))
     x_max = min(w, int(x0 + sma + 1))
     y_min = max(0, int(y0 - sma - 1))
     y_max = min(h, int(y0 + sma + 1))
-    
+
     if x_max <= x_min or y_max <= y_min:
         return 0.0, 0.0, 0, 0
-        
+
     y, x = np.mgrid[y_min:y_max, x_min:x_max]
-    
+
     # Circular aperture
-    r2 = (x - x0)**2 + (y - y0)**2
+    r2 = (x - x0) ** 2 + (y - y0) ** 2
     mask_c = r2 <= sma**2
-    
+
     # Elliptical aperture
     dx = x - x0
     dy = y - y0
     cos_pa, sin_pa = np.cos(pa), np.sin(pa)
     x_rot = dx * cos_pa + dy * sin_pa
     y_rot = -dx * sin_pa + dy * cos_pa
-    sma_pix2 = x_rot**2 + (y_rot / (1.0 - eps))**2
+    sma_pix2 = x_rot**2 + (y_rot / (1.0 - eps)) ** 2
     mask_e = sma_pix2 <= sma**2
-    
+
     # Data extraction
     data = image[y_min:y_max, x_min:x_max]
     if mask is not None:
@@ -834,16 +901,16 @@ def compute_aperture_photometry(image, mask, x0, y0, sma, eps, pa):
         valid = ~mdata
     else:
         valid = np.ones_like(data, dtype=bool)
-        
+
     valid &= ~np.isnan(data)
-    
+
     # Calculate metrics
     tflux_c = np.sum(data[mask_c & valid])
     npix_c = np.sum(mask_c & valid)
-    
+
     tflux_e = np.sum(data[mask_e & valid])
     npix_e = np.sum(mask_e & valid)
-    
+
     return tflux_e, tflux_c, npix_e, npix_c
 
 
@@ -852,24 +919,37 @@ def _attach_full_photometry(isophote_result, image, mask):
     tflux_e, tflux_c, npix_e, npix_c = compute_aperture_photometry(
         image,
         mask,
-        isophote_result['x0'],
-        isophote_result['y0'],
-        isophote_result['sma'],
-        isophote_result['eps'],
-        isophote_result['pa'],
+        isophote_result["x0"],
+        isophote_result["y0"],
+        isophote_result["sma"],
+        isophote_result["eps"],
+        isophote_result["pa"],
     )
-    isophote_result.update({
-        'tflux_e': tflux_e,
-        'tflux_c': tflux_c,
-        'npix_e': npix_e,
-        'npix_c': npix_c,
-    })
+    isophote_result.update(
+        {
+            "tflux_e": tflux_e,
+            "tflux_c": tflux_c,
+            "npix_e": npix_e,
+            "npix_c": npix_c,
+        }
+    )
 
-def _compute_posthoc_harmonics(best_geometry, angles, intens, gradient,
-                               best_angles, best_intens, best_gradient,
-                               sma, harmonic_orders, isofit_mode,
-                               simultaneous_harmonics, variances=None,
-                               best_variances=None):
+
+def _compute_posthoc_harmonics(
+    best_geometry,
+    angles,
+    intens,
+    gradient,
+    best_angles,
+    best_intens,
+    best_gradient,
+    sma,
+    harmonic_orders,
+    isofit_mode,
+    simultaneous_harmonics,
+    variances=None,
+    best_variances=None,
+):
     """Compute post-hoc harmonic deviations and store them in best_geometry.
 
     Called after convergence (stop_code=0 via harmonic or geometry criteria)
@@ -891,8 +971,7 @@ def _compute_posthoc_harmonics(best_geometry, angles, intens, gradient,
         variances: Current-iteration per-pixel variances (optional, for WLS).
         best_variances: Saved best-iteration variances (optional, for WLS).
     """
-    use_best_data = (isofit_mode == 'original' and simultaneous_harmonics
-                     and best_angles is not None)
+    use_best_data = isofit_mode == "original" and simultaneous_harmonics and best_angles is not None
     posthoc_angles = best_angles if use_best_data else angles
     posthoc_intens = best_intens if use_best_data else intens
     posthoc_gradient = best_gradient if use_best_data else gradient
@@ -900,28 +979,28 @@ def _compute_posthoc_harmonics(best_geometry, angles, intens, gradient,
 
     if simultaneous_harmonics:
         sim_harmonics = fit_higher_harmonics_simultaneous(
-            posthoc_angles, posthoc_intens, sma, posthoc_gradient, harmonic_orders,
-            variances=posthoc_variances
+            posthoc_angles, posthoc_intens, sma, posthoc_gradient, harmonic_orders, variances=posthoc_variances
         )
         for n in harmonic_orders:
             an, bn, an_err, bn_err = sim_harmonics.get(n, (0.0, 0.0, 0.0, 0.0))
-            best_geometry[f'a{n}'] = an
-            best_geometry[f'b{n}'] = bn
-            best_geometry[f'a{n}_err'] = an_err
-            best_geometry[f'b{n}_err'] = bn_err
+            best_geometry[f"a{n}"] = an
+            best_geometry[f"b{n}"] = bn
+            best_geometry[f"a{n}_err"] = an_err
+            best_geometry[f"b{n}_err"] = bn_err
     else:
         for n in harmonic_orders:
             an, bn, an_err, bn_err = compute_deviations(
-                posthoc_angles, posthoc_intens, sma, posthoc_gradient, n,
-                variances=posthoc_variances
+                posthoc_angles, posthoc_intens, sma, posthoc_gradient, n, variances=posthoc_variances
             )
-            best_geometry[f'a{n}'] = an
-            best_geometry[f'b{n}'] = bn
-            best_geometry[f'a{n}_err'] = an_err
-            best_geometry[f'b{n}_err'] = bn_err
+            best_geometry[f"a{n}"] = an
+            best_geometry[f"b{n}"] = bn
+            best_geometry[f"a{n}_err"] = an_err
+            best_geometry[f"b{n}_err"] = bn_err
 
 
-def fit_isophote(image, mask, sma, start_geometry, config, going_inwards=False, previous_geometry=None, variance_map=None):
+def fit_isophote(
+    image, mask, sma, start_geometry, config, going_inwards=False, previous_geometry=None, variance_map=None
+):
     """
     Fit a single isophote with quality control.
 
@@ -973,19 +1052,18 @@ def fit_isophote(image, mask, sma, start_geometry, config, going_inwards=False, 
     isofit_mode = cfg.isofit_mode
     geometry_update_mode = cfg.geometry_update_mode
 
-
-    x0, y0, eps, pa = start_geometry['x0'], start_geometry['y0'], start_geometry['eps'], start_geometry['pa']
+    x0, y0, eps, pa = start_geometry["x0"], start_geometry["y0"], start_geometry["eps"], start_geometry["pa"]
     stop_code, niter, best_geometry = 0, 0, None
     converged = False
     min_amplitude, previous_gradient, lexceed = np.inf, None, False
-    
+
     # Compute convergence scale factor once (sma is constant within the loop)
-    if cfg.convergence_scaling == 'sector_area':
+    if cfg.convergence_scaling == "sector_area":
         n_samples = max(64, int(2 * np.pi * sma))
         angular_width = 2 * np.pi / n_samples
         delta_sma = sma * astep if not linear_growth else astep
         convergence_scale = max(1.0, sma * delta_sma * angular_width)
-    elif cfg.convergence_scaling == 'sqrt_sma':
+    elif cfg.convergence_scaling == "sqrt_sma":
         convergence_scale = max(1.0, np.sqrt(sma))
     else:  # 'none'
         convergence_scale = 1.0
@@ -1005,7 +1083,7 @@ def fit_isophote(image, mask, sma, start_geometry, config, going_inwards=False, 
     # Geometry convergence tracking
     prev_geom = (x0, y0, eps, pa)
     stable_count = 0
-    
+
     # Lazy gradient tracking
     cached_gradient = None
     cached_gradient_error = None
@@ -1013,21 +1091,21 @@ def fit_isophote(image, mask, sma, start_geometry, config, going_inwards=False, 
 
     for i in range(maxit):
         niter = i + 1
-        
+
         # Extract isophote data - returns named tuple
         # For EA mode: angles=ψ (for harmonics), phi=φ (for geometry)
         # For regular: angles=φ (for harmonics), phi=φ (same)
-        data = extract_isophote_data(image, mask, x0, y0, sma, eps, pa,
-                                     use_eccentric_anomaly=use_eccentric_anomaly,
-                                     variance_map=variance_map)
+        data = extract_isophote_data(
+            image, mask, x0, y0, sma, eps, pa, use_eccentric_anomaly=use_eccentric_anomaly, variance_map=variance_map
+        )
 
         angles = data.angles  # ψ for EA mode, φ for regular mode
-        phi = data.phi        # φ (always available for geometry updates)
+        phi = data.phi  # φ (always available for geometry updates)
         intens = data.intens
         variances = data.variances  # None when no variance_map
-        
+
         total_points = len(angles)
-        
+
         # Sigma clipping operates on (angle, intensity) pairs.
         # In EA mode, phi differs from angles (psi) and must be clipped with the same mask.
         # Variances (when present) must also be clipped with the same mask.
@@ -1038,12 +1116,12 @@ def fit_isophote(image, mask, sma, start_geometry, config, going_inwards=False, 
             extra.append(variances)
 
         if extra:
-            result = sigma_clip(angles, intens, sclip, nclip, sclip_low, sclip_high,
-                                extra_arrays=extra)
+            result = sigma_clip(angles, intens, sclip, nclip, sclip_low, sclip_high, extra_arrays=extra)
             angles, intens, n_clipped = result[0], result[1], result[2]
             idx = 3
             if use_eccentric_anomaly:
-                phi = result[idx]; idx += 1
+                phi = result[idx]
+                idx += 1
             else:
                 phi = angles
             if variances is not None:
@@ -1052,21 +1130,40 @@ def fit_isophote(image, mask, sma, start_geometry, config, going_inwards=False, 
             angles, intens, n_clipped = sigma_clip(angles, intens, sclip, nclip, sclip_low, sclip_high)
             phi = angles  # In regular mode, angles and phi are identical
         actual_points = len(angles)
-        
+
         if actual_points < (total_points * (1.0 - fflag)):
             if best_geometry is not None:
-                best_geometry['stop_code'], best_geometry['niter'] = 1, niter  # STOP_CODE 1: Too many flagged pixels
+                best_geometry["stop_code"], best_geometry["niter"] = 1, niter  # STOP_CODE 1: Too many flagged pixels
                 return best_geometry
             else:
-                res = {'x0': x0, 'y0': y0, 'eps': eps, 'pa': pa, 'sma': sma,
-                       'intens': np.nan, 'rms': np.nan, 'intens_err': np.nan,
-                       'stop_code': 1, 'niter': niter,  # STOP_CODE 1: Too many flagged pixels
-                       'tflux_e': np.nan, 'tflux_c': np.nan, 'npix_e': 0, 'npix_c': 0}
+                res = {
+                    "x0": x0,
+                    "y0": y0,
+                    "eps": eps,
+                    "pa": pa,
+                    "sma": sma,
+                    "intens": np.nan,
+                    "rms": np.nan,
+                    "intens_err": np.nan,
+                    "stop_code": 1,
+                    "niter": niter,  # STOP_CODE 1: Too many flagged pixels
+                    "tflux_e": np.nan,
+                    "tflux_c": np.nan,
+                    "npix_e": 0,
+                    "npix_c": 0,
+                }
                 if debug:
-                    res.update({'ndata': actual_points, 'nflag': total_points - actual_points,
-                                'grad': np.nan, 'grad_error': np.nan, 'grad_r_error': np.nan})
+                    res.update(
+                        {
+                            "ndata": actual_points,
+                            "nflag": total_points - actual_points,
+                            "grad": np.nan,
+                            "grad_error": np.nan,
+                            "grad_r_error": np.nan,
+                        }
+                    )
                 return res
-        
+
         if len(intens) < 6:
             stop_code = 3  # STOP_CODE 3: Too few points (need ≥6 for 5-parameter harmonic fit)
             break
@@ -1085,40 +1182,43 @@ def fit_isophote(image, mask, sma, start_geometry, config, going_inwards=False, 
 
         # Determine effective integrator for this isophote
         eff_integrator = integrator
-        if integrator == 'adaptive':
+        if integrator == "adaptive":
             if lsb_sma_threshold is not None and sma > lsb_sma_threshold:
-                eff_integrator = 'median'
+                eff_integrator = "median"
             else:
-                eff_integrator = 'mean'
+                eff_integrator = "mean"
 
         # FIT HARMONICS in appropriate angle space
         # ISOFIT in_loop: fit all orders simultaneously in a single design matrix
         # ISOFIT original: always 5-param inside loop (post-hoc simultaneous after convergence)
         # Default path: fit only 1st and 2nd harmonics (5-param, numba-accelerated)
-        use_isofit_in_loop = use_isofit_this_iter and isofit_mode == 'in_loop'
+        use_isofit_in_loop = use_isofit_this_iter and isofit_mode == "in_loop"
         if use_isofit_in_loop:
             coeffs, cov_matrix = fit_all_harmonics(angles, intens, harmonic_orders, variances=variances)
         else:
             coeffs, cov_matrix = fit_first_and_second_harmonics(angles, intens, variances=variances)
         y0_fit = coeffs[0]
         A1, B1, A2, B2 = coeffs[1], coeffs[2], coeffs[3], coeffs[4]
-        
+
         # GRADIENT computed using φ and current geometry
         # Lazy Evaluation: reuse gradient unless convergence stalls
         if i == 0 or not cfg.use_lazy_gradient or no_improvement_count >= 3 or cached_gradient_error is None or lexceed:
-            geometry = {'x0': x0, 'y0': y0, 'sma': sma, 'eps': eps, 'pa': pa}
+            geometry = {"x0": x0, "y0": y0, "sma": sma, "eps": eps, "pa": pa}
             gradient_config = {
-                'astep': astep,
-                'linear_growth': linear_growth,
-                'integrator': eff_integrator,
-                'use_eccentric_anomaly': use_eccentric_anomaly
+                "astep": astep,
+                "linear_growth": linear_growth,
+                "integrator": eff_integrator,
+                "use_eccentric_anomaly": use_eccentric_anomaly,
             }
             current_data_for_grad = (phi, intens, variances) if variances is not None else (phi, intens)
             gradient, gradient_error = compute_gradient(
-                image, mask, geometry, gradient_config,
+                image,
+                mask,
+                geometry,
+                gradient_config,
                 previous_gradient=previous_gradient,
                 current_data=current_data_for_grad,
-                variance_map=variance_map
+                variance_map=variance_map,
             )
             cached_gradient = gradient
             cached_gradient_error = gradient_error
@@ -1130,8 +1230,12 @@ def fit_isophote(image, mask, sma, start_geometry, config, going_inwards=False, 
 
         if gradient_error is not None:
             previous_gradient = gradient
-        
-        gradient_relative_error = abs(gradient_error / gradient) if (gradient_error is not None and gradient is not None and gradient < 0) else None
+
+        gradient_relative_error = (
+            abs(gradient_error / gradient)
+            if (gradient_error is not None and gradient is not None and gradient < 0)
+            else None
+        )
         if not going_inwards:
             # In permissive mode, skip the check if gradient_relative_error is None
             # This matches photutils's behavior which continues when gradient error can't be computed
@@ -1147,7 +1251,7 @@ def fit_isophote(image, mask, sma, start_geometry, config, going_inwards=False, 
         if gradient == 0:
             stop_code = -1  # STOP_CODE -1: Zero gradient (cannot compute corrections)
             break
-            
+
         # Evaluate model in angle space used for fitting
         # ISOFIT in_loop: full model includes higher-order harmonics → cleaner RMS
         # ISOFIT original / default: 5-param model only
@@ -1157,27 +1261,30 @@ def fit_isophote(image, mask, sma, start_geometry, config, going_inwards=False, 
             model = harmonic_function(angles, coeffs)
         rms = np.std(intens - model)
         harmonics = [A1, B1, A2, B2]
-        if fix_center: harmonics[0] = harmonics[1] = 0
-        if fix_pa: harmonics[2] = 0
-        if fix_eps: harmonics[3] = 0
-            
+        if fix_center:
+            harmonics[0] = harmonics[1] = 0
+        if fix_pa:
+            harmonics[2] = 0
+        if fix_eps:
+            harmonics[3] = 0
+
         max_idx = np.argmax(np.abs(harmonics))
         max_amp = harmonics[max_idx]
-        
+
         # Apply central region regularization penalty if enabled
-        current_geom = {'x0': x0, 'y0': y0, 'eps': eps, 'pa': pa}
+        current_geom = {"x0": x0, "y0": y0, "eps": eps, "pa": pa}
         reg_penalty = compute_central_regularization_penalty(current_geom, previous_geometry, sma, cfg)
-        
+
         # Effective amplitude includes regularization penalty
         # This discourages large geometry changes in the central region
         effective_amp = abs(max_amp) + reg_penalty
-        
+
         if effective_amp < min_amplitude:
             min_amplitude = effective_amp
             no_improvement_count = 0
             # WLS: exact Var(mean) from per-pixel variances; OLS: rms/sqrt(N)
             if variances is not None:
-                intens_err = np.sqrt(np.sum(variances) / len(variances)**2)
+                intens_err = np.sqrt(np.sum(variances) / len(variances) ** 2)
             else:
                 intens_err = rms / np.sqrt(len(intens))
             # For ISOFIT in_loop, pass 5x5 sub-matrix and first 5 coefficients
@@ -1187,30 +1294,53 @@ def fit_isophote(image, mask, sma, start_geometry, config, going_inwards=False, 
                 cov_5x5 = cov_matrix[:5, :5] if (use_isofit_in_loop and cov_matrix is not None) else cov_matrix
                 coeffs_5 = coeffs[:5]
                 x0_err, y0_err, eps_err, pa_err = compute_parameter_errors(
-                    phi, intens, x0, y0, sma, eps, pa, gradient,
+                    phi,
+                    intens,
+                    x0,
+                    y0,
+                    sma,
+                    eps,
+                    pa,
+                    gradient,
                     gradient_error=gradient_error if cfg.use_corrected_errors else None,
-                    cov_matrix=cov_5x5, coeffs=coeffs_5,
+                    cov_matrix=cov_5x5,
+                    coeffs=coeffs_5,
                     var_residual_floor=cfg.sigma_bg**2 if cfg.sigma_bg is not None else None,
-                    use_exact_covariance=wls_mode
+                    use_exact_covariance=wls_mode,
                 )
             else:
                 x0_err, y0_err, eps_err, pa_err = 0.0, 0.0, 0.0, 0.0
-            if eff_integrator == 'median':
+            if eff_integrator == "median":
                 reported_intens = np.median(intens)
             else:
                 reported_intens = y0_fit
-                
-            best_geometry = {'x0': x0, 'y0': y0, 'eps': eps, 'pa': pa, 'sma': sma, 'intens': reported_intens, 'rms': rms, 'intens_err': intens_err,
-                             'x0_err': x0_err, 'y0_err': y0_err, 'eps_err': eps_err, 'pa_err': pa_err,
-                             'tflux_e': np.nan, 'tflux_c': np.nan, 'npix_e': 0, 'npix_c': 0,
-                             'use_eccentric_anomaly': use_eccentric_anomaly}
+
+            best_geometry = {
+                "x0": x0,
+                "y0": y0,
+                "eps": eps,
+                "pa": pa,
+                "sma": sma,
+                "intens": reported_intens,
+                "rms": rms,
+                "intens_err": intens_err,
+                "x0_err": x0_err,
+                "y0_err": y0_err,
+                "eps_err": eps_err,
+                "pa_err": pa_err,
+                "tflux_e": np.nan,
+                "tflux_c": np.nan,
+                "npix_e": 0,
+                "npix_c": 0,
+                "use_eccentric_anomaly": use_eccentric_anomaly,
+            }
             # Initialize harmonics for all requested orders when deviations or ISOFIT active
             if compute_deviations_flag or simultaneous_harmonics:
                 for n in harmonic_orders:
-                    best_geometry[f'a{n}'] = 0.0
-                    best_geometry[f'b{n}'] = 0.0
-                    best_geometry[f'a{n}_err'] = 0.0
-                    best_geometry[f'b{n}_err'] = 0.0
+                    best_geometry[f"a{n}"] = 0.0
+                    best_geometry[f"b{n}"] = 0.0
+                    best_geometry[f"a{n}_err"] = 0.0
+                    best_geometry[f"b{n}_err"] = 0.0
             # Save best-iteration data for post-hoc ISOFIT original mode
             best_angles = angles.copy()
             best_intens = intens.copy()
@@ -1231,21 +1361,33 @@ def fit_isophote(image, mask, sma, start_geometry, config, going_inwards=False, 
                     for k, n_order in enumerate(harmonic_orders):
                         sin_coeff = coeffs[5 + 2 * k]
                         cos_coeff = coeffs[5 + 2 * k + 1]
-                        best_geometry[f'a{n_order}'] = sin_coeff / factor
-                        best_geometry[f'b{n_order}'] = cos_coeff / factor
+                        best_geometry[f"a{n_order}"] = sin_coeff / factor
+                        best_geometry[f"b{n_order}"] = cos_coeff / factor
                         if cov_matrix is not None:
-                            sin_err = np.sqrt(cov_matrix[5 + 2 * k, 5 + 2 * k] * var_residual) if var_residual > 0 else 0.0
-                            cos_err = np.sqrt(cov_matrix[5 + 2 * k + 1, 5 + 2 * k + 1] * var_residual) if var_residual > 0 else 0.0
-                            best_geometry[f'a{n_order}_err'] = sin_err / factor
-                            best_geometry[f'b{n_order}_err'] = cos_err / factor
+                            sin_err = (
+                                np.sqrt(cov_matrix[5 + 2 * k, 5 + 2 * k] * var_residual) if var_residual > 0 else 0.0
+                            )
+                            cos_err = (
+                                np.sqrt(cov_matrix[5 + 2 * k + 1, 5 + 2 * k + 1] * var_residual)
+                                if var_residual > 0
+                                else 0.0
+                            )
+                            best_geometry[f"a{n_order}_err"] = sin_err / factor
+                            best_geometry[f"b{n_order}_err"] = cos_err / factor
                     best_isofit_harmonics_stored = True
             if debug:
-                best_geometry.update({'ndata': actual_points, 'nflag': total_points - actual_points, 'grad': gradient,
-                                      'grad_error': gradient_error if gradient_error is not None else np.nan,
-                                      'grad_r_error': gradient_relative_error if gradient_relative_error is not None else np.nan})
+                best_geometry.update(
+                    {
+                        "ndata": actual_points,
+                        "nflag": total_points - actual_points,
+                        "grad": gradient,
+                        "grad_error": gradient_error if gradient_error is not None else np.nan,
+                        "grad_r_error": gradient_relative_error if gradient_relative_error is not None else np.nan,
+                    }
+                )
         else:
             no_improvement_count += 1
-            
+
         effective_rms = rms
         if cfg.sigma_bg is not None and len(intens) > 0:
             noise_floor = cfg.sigma_bg / np.sqrt(len(intens))
@@ -1256,20 +1398,29 @@ def fit_isophote(image, mask, sma, start_geometry, config, going_inwards=False, 
             converged = True
             if compute_deviations_flag and not best_isofit_harmonics_stored:
                 _compute_posthoc_harmonics(
-                    best_geometry, angles, intens, gradient,
-                    best_angles, best_intens, best_gradient,
-                    sma, harmonic_orders, isofit_mode, simultaneous_harmonics,
-                    variances=variances, best_variances=best_variances,
+                    best_geometry,
+                    angles,
+                    intens,
+                    gradient,
+                    best_angles,
+                    best_intens,
+                    best_gradient,
+                    sma,
+                    harmonic_orders,
+                    isofit_mode,
+                    simultaneous_harmonics,
+                    variances=variances,
+                    best_variances=best_variances,
                 )
 
             # 6. FULL PHOTOMETRY (If requested)
             if full_photometry:
                 _attach_full_photometry(best_geometry, image, mask)
             break
-            
+
         # Update geometry (apply damping to reduce oscillations at large SMA)
         damping = cfg.geometry_damping
-        
+
         # New: Gradient SNR-based damping to stabilize outskirts (LSB)
         # If the gradient is noisy, we reduce the update step size.
         if gradient_error is not None and abs(gradient) > 0:
@@ -1278,13 +1429,13 @@ def fit_isophote(image, mask, sma, start_geometry, config, going_inwards=False, 
             snr_damping = np.clip(grad_snr / 3.0, 0.1, 1.0)
             damping *= snr_damping
 
-        if geometry_update_mode == 'simultaneous':
+        if geometry_update_mode == "simultaneous":
             # Simultaneous: update ALL geometry parameters each iteration
             # Center corrections (minor/major axis)
             if not fix_center:
                 aux_minor = -harmonics[0] * (1.0 - eps) / gradient * damping
                 aux_major = -harmonics[1] / gradient * damping
-                
+
                 # Safety: Clip large jumps in a single iteration
                 if cfg.clip_max_shift is not None:
                     max_iter_shift = max(cfg.clip_max_shift, 0.05 * sma)
@@ -1298,8 +1449,9 @@ def fit_isophote(image, mask, sma, start_geometry, config, going_inwards=False, 
                 y0 += aux_minor * np.cos(pa) + aux_major * np.sin(pa)
             # PA correction
             if not fix_pa:
-                denom = (1.0 - eps)**2 - 1.0
-                if abs(denom) < 1e-10: denom = -1e-10
+                denom = (1.0 - eps) ** 2 - 1.0
+                if abs(denom) < 1e-10:
+                    denom = -1e-10
                 pa_corr = harmonics[2] * 2.0 * (1.0 - eps) / sma / gradient / denom * damping
                 if cfg.clip_max_pa is not None:
                     pa_corr = np.clip(pa_corr, -cfg.clip_max_pa, cfg.clip_max_pa)
@@ -1312,8 +1464,9 @@ def fit_isophote(image, mask, sma, start_geometry, config, going_inwards=False, 
                 eps = min(eps - eps_corr, 0.95)
                 if eps < 0.0:
                     eps = min(-eps, 0.95)
-                    pa = (pa + np.pi/2) % np.pi
-                if eps == 0.0: eps = 0.05
+                    pa = (pa + np.pi / 2) % np.pi
+                if eps == 0.0:
+                    eps = 0.05
         else:
             # Largest: update only the geometry parameter with the largest harmonic amplitude
             if max_idx == 0:  # A1: center shift (minor-axis direction)
@@ -1329,8 +1482,9 @@ def fit_isophote(image, mask, sma, start_geometry, config, going_inwards=False, 
                 x0 += aux * np.cos(pa)
                 y0 += aux * np.sin(pa)
             elif max_idx == 2:  # A2: position angle
-                denom = (1.0 - eps)**2 - 1.0
-                if abs(denom) < 1e-10: denom = -1e-10
+                denom = (1.0 - eps) ** 2 - 1.0
+                if abs(denom) < 1e-10:
+                    denom = -1e-10
                 pa_corr = max_amp * 2.0 * (1.0 - eps) / sma / gradient / denom * damping
                 if cfg.clip_max_pa is not None:
                     pa_corr = np.clip(pa_corr, -cfg.clip_max_pa, cfg.clip_max_pa)
@@ -1342,8 +1496,9 @@ def fit_isophote(image, mask, sma, start_geometry, config, going_inwards=False, 
                 eps = min(eps - eps_corr, 0.95)
                 if eps < 0.0:
                     eps = min(-eps, 0.95)
-                    pa = (pa + np.pi/2) % np.pi
-                if eps == 0.0: eps = 0.05
+                    pa = (pa + np.pi / 2) % np.pi
+                if eps == 0.0:
+                    eps = 0.05
 
         # Geometry-stability convergence check
         if cfg.geometry_convergence and i >= minit:
@@ -1365,10 +1520,19 @@ def fit_isophote(image, mask, sma, start_geometry, config, going_inwards=False, 
                 converged = True
                 if compute_deviations_flag and not best_isofit_harmonics_stored:
                     _compute_posthoc_harmonics(
-                        best_geometry, angles, intens, gradient,
-                        best_angles, best_intens, best_gradient,
-                        sma, harmonic_orders, isofit_mode, simultaneous_harmonics,
-                        variances=variances, best_variances=best_variances,
+                        best_geometry,
+                        angles,
+                        intens,
+                        gradient,
+                        best_angles,
+                        best_intens,
+                        best_gradient,
+                        sma,
+                        harmonic_orders,
+                        isofit_mode,
+                        simultaneous_harmonics,
+                        variances=variances,
+                        best_variances=best_variances,
                     )
                 if full_photometry:
                     _attach_full_photometry(best_geometry, image, mask)
@@ -1377,31 +1541,56 @@ def fit_isophote(image, mask, sma, start_geometry, config, going_inwards=False, 
         prev_geom = (x0, y0, eps, pa)
 
     if best_geometry is None:
-        best_geometry = {'x0': x0, 'y0': y0, 'eps': eps, 'pa': pa, 'sma': sma, 'intens': np.nan, 'rms': np.nan, 'intens_err': np.nan,
-                         'x0_err': 0.0, 'y0_err': 0.0, 'eps_err': 0.0, 'pa_err': 0.0,
-                         'tflux_e': np.nan, 'tflux_c': np.nan, 'npix_e': 0, 'npix_c': 0,
-                         'use_eccentric_anomaly': use_eccentric_anomaly}
+        best_geometry = {
+            "x0": x0,
+            "y0": y0,
+            "eps": eps,
+            "pa": pa,
+            "sma": sma,
+            "intens": np.nan,
+            "rms": np.nan,
+            "intens_err": np.nan,
+            "x0_err": 0.0,
+            "y0_err": 0.0,
+            "eps_err": 0.0,
+            "pa_err": 0.0,
+            "tflux_e": np.nan,
+            "tflux_c": np.nan,
+            "npix_e": 0,
+            "npix_c": 0,
+            "use_eccentric_anomaly": use_eccentric_anomaly,
+        }
         # Initialize harmonics when deviations or ISOFIT active
         if compute_deviations_flag or simultaneous_harmonics:
             for n in harmonic_orders:
-                best_geometry[f'a{n}'] = 0.0
-                best_geometry[f'b{n}'] = 0.0
-                best_geometry[f'a{n}_err'] = 0.0
-                best_geometry[f'b{n}_err'] = 0.0
-        if debug: best_geometry.update({'ndata': 0, 'nflag': 0, 'grad': np.nan, 'grad_error': np.nan, 'grad_r_error': np.nan})
+                best_geometry[f"a{n}"] = 0.0
+                best_geometry[f"b{n}"] = 0.0
+                best_geometry[f"a{n}_err"] = 0.0
+                best_geometry[f"b{n}_err"] = 0.0
+        if debug:
+            best_geometry.update({"ndata": 0, "nflag": 0, "grad": np.nan, "grad_error": np.nan, "grad_r_error": np.nan})
 
     if niter >= maxit and stop_code == 0 and not converged:
         stop_code = 2  # STOP_CODE 2: Reached max iterations without convergence
         # Best-effort harmonic deviations from best-geometry iteration
         if compute_deviations_flag and best_geometry is not None and not best_isofit_harmonics_stored:
             _compute_posthoc_harmonics(
-                best_geometry, angles, intens, gradient,
-                best_angles, best_intens, best_gradient,
-                sma, harmonic_orders, isofit_mode, simultaneous_harmonics,
-                variances=variances, best_variances=best_variances,
+                best_geometry,
+                angles,
+                intens,
+                gradient,
+                best_angles,
+                best_intens,
+                best_gradient,
+                sma,
+                harmonic_orders,
+                isofit_mode,
+                simultaneous_harmonics,
+                variances=variances,
+                best_variances=best_variances,
             )
         if full_photometry:
             _attach_full_photometry(best_geometry, image, mask)
 
-    best_geometry['stop_code'], best_geometry['niter'] = stop_code, niter
+    best_geometry["stop_code"], best_geometry["niter"] = stop_code, niter
     return best_geometry

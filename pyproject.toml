@@ -53,3 +53,16 @@ markers = [
 filterwarnings = [
     "ignore::DeprecationWarning",
 ]
+
+[tool.ruff]
+target-version = "py39"
+line-length = 120
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I"]
+ignore = ["E501", "E701"]
+
+[tool.ruff.lint.per-file-ignores]
+"isoster/__init__.py" = ["F401"]
+"examples/**" = ["E", "F", "W"]
+"tests/**" = ["F841", "E402", "E712"]

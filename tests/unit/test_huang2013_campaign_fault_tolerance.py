@@ -8,21 +8,20 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import numpy as np
+import pytest
 from astropy.io import fits
 from astropy.table import Table
-import pytest
-
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 HUANG2013_DIR = REPO_ROOT / "examples" / "example_huang2013"
 if str(HUANG2013_DIR) not in sys.path:
     sys.path.insert(0, str(HUANG2013_DIR))
 
-import run_huang2013_campaign as campaign  # noqa: E402
 import huang2013_campaign_contract as campaign_contract  # noqa: E402
+import huang2013_shared as real_mock_demo  # noqa: E402
+import run_huang2013_campaign as campaign  # noqa: E402
 import run_huang2013_profile_extraction as profile_extraction  # noqa: E402
 import run_huang2013_qa_afterburner as qa_afterburner  # noqa: E402
-import huang2013_shared as real_mock_demo  # noqa: E402
 
 
 def _build_method_paths(base_dir: Path) -> dict[str, Path]:
@@ -403,9 +402,13 @@ def test_retry_policy_applies_sma0_and_astep_increments_for_isoster(
             raise RuntimeError(f"simulated isoster failure {attempt_state['count']}")
         validated_config = dict(fit_config)
         return (
-            _build_valid_isophotes(),
-            validated_config,
-        ), {"wall_time_seconds": 0.01, "cpu_time_seconds": 0.01}, "runtime-profile\n"
+            (
+                _build_valid_isophotes(),
+                validated_config,
+            ),
+            {"wall_time_seconds": 0.01, "cpu_time_seconds": 0.01},
+            "runtime-profile\n",
+        )
 
     monkeypatch.setattr(profile_extraction, "run_with_runtime_profile", fake_runtime_wrapper)
 

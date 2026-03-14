@@ -5,13 +5,13 @@ These tests verify the main fit_image() entry point using synthetic Sersic model
 and generate QA figures following CLAUDE.md guidelines (vertical layout, centered models).
 """
 
+import matplotlib.pyplot as plt
 import numpy as np
 import pytest
-import matplotlib.pyplot as plt
 from matplotlib.gridspec import GridSpec
 
-from isoster.driver import fit_image
 from isoster.config import IsosterConfig
+from isoster.driver import fit_image
 from isoster.output_paths import resolve_output_directory
 from tests.fixtures import create_sersic_model
 
@@ -38,17 +38,17 @@ def plot_qa_figure(image, results, true_profile, params, output_path):
         params: Dict with model parameters
         output_path: Path to save figure
     """
-    isophotes = results['isophotes']
+    isophotes = results["isophotes"]
 
     # Extract data
-    sma = np.array([iso['sma'] for iso in isophotes])
-    intens = np.array([iso['intens'] for iso in isophotes])
-    intens_err = np.array([iso['intens_err'] for iso in isophotes])
-    x0 = np.array([iso['x0'] for iso in isophotes])
-    y0 = np.array([iso['y0'] for iso in isophotes])
-    eps_fit = np.array([iso['eps'] for iso in isophotes])
-    pa_fit = np.array([iso['pa'] for iso in isophotes])
-    stop_codes = np.array([iso['stop_code'] for iso in isophotes])
+    sma = np.array([iso["sma"] for iso in isophotes])
+    intens = np.array([iso["intens"] for iso in isophotes])
+    intens_err = np.array([iso["intens_err"] for iso in isophotes])
+    x0 = np.array([iso["x0"] for iso in isophotes])
+    y0 = np.array([iso["y0"] for iso in isophotes])
+    eps_fit = np.array([iso["eps"] for iso in isophotes])
+    pa_fit = np.array([iso["pa"] for iso in isophotes])
+    stop_codes = np.array([iso["stop_code"] for iso in isophotes])
 
     # Normalize PA: wrap to [0, pi] and avoid jumps > pi/2
     pa_normalized = pa_fit.copy()
@@ -56,10 +56,10 @@ def plot_qa_figure(image, results, true_profile, params, output_path):
 
     # Fix jumps larger than pi/2
     for i in range(1, len(pa_normalized)):
-        diff = pa_normalized[i] - pa_normalized[i-1]
-        if diff > np.pi/2:
+        diff = pa_normalized[i] - pa_normalized[i - 1]
+        if diff > np.pi / 2:
             pa_normalized[i:] -= np.pi
-        elif diff < -np.pi/2:
+        elif diff < -np.pi / 2:
             pa_normalized[i:] += np.pi
 
     # Wrap back to [0, pi]
@@ -78,47 +78,54 @@ def plot_qa_figure(image, results, true_profile, params, output_path):
 
     # SMA^0.25 for X-axis (compress outer profile)
     x_axis = sma**0.25
-    x_label = r'$\mathrm{SMA}^{0.25}$ (pixels$^{0.25}$)'
+    x_label = r"$\mathrm{SMA}^{0.25}$ (pixels$^{0.25}$)"
 
     # Create figure with 2 columns: images (left) + profiles (right, vertical)
     fig = plt.figure(figsize=(16, 12))
-    gs = GridSpec(5, 2, figure=fig, hspace=0.05, wspace=0.25,
-                  width_ratios=[1, 1], height_ratios=[2, 1, 1, 1, 1])
+    gs = GridSpec(5, 2, figure=fig, hspace=0.05, wspace=0.25, width_ratios=[1, 1], height_ratios=[2, 1, 1, 1, 1])
 
     # ===== LEFT COLUMN: Images =====
     # Original image with isophotes
     ax_img = fig.add_subplot(gs[0, 0])
     vmin, vmax = np.percentile(image[image > 0], [1, 99.9])
-    im = ax_img.imshow(np.log10(np.clip(image, vmin, None)),
-                       cmap='gray', origin='lower', vmin=np.log10(vmin), vmax=np.log10(vmax))
-    plt.colorbar(im, ax=ax_img, label=r'$\log_{10}$(Intensity)')
+    im = ax_img.imshow(
+        np.log10(np.clip(image, vmin, None)), cmap="gray", origin="lower", vmin=np.log10(vmin), vmax=np.log10(vmax)
+    )
+    plt.colorbar(im, ax=ax_img, label=r"$\log_{10}$(Intensity)")
 
     # Plot selective isophotes (every 5th, color-coded by stop code)
     from matplotlib.patches import Ellipse as MPLEllipse
+
     for i, iso in enumerate(isophotes[::5]):
-        color = {0: 'green', 1: 'orange', 2: 'yellow', -1: 'red', 3: 'red'}.get(iso['stop_code'], 'gray')
-        ellipse = MPLEllipse((iso['x0'], iso['y0']),
-                             2*iso['sma'], 2*iso['sma']*(1-iso['eps']),
-                             angle=np.degrees(iso['pa']),
-                             fill=False, edgecolor=color, linewidth=1.5, alpha=0.8)
+        color = {0: "green", 1: "orange", 2: "yellow", -1: "red", 3: "red"}.get(iso["stop_code"], "gray")
+        ellipse = MPLEllipse(
+            (iso["x0"], iso["y0"]),
+            2 * iso["sma"],
+            2 * iso["sma"] * (1 - iso["eps"]),
+            angle=np.degrees(iso["pa"]),
+            fill=False,
+            edgecolor=color,
+            linewidth=1.5,
+            alpha=0.8,
+        )
         ax_img.add_patch(ellipse)
 
     ax_img.set_title(f"Original (n={params['n']}, Re={params['R_e']:.1f}, eps={params['eps']:.2f})")
-    ax_img.set_xlabel('X (pixels)')
-    ax_img.set_ylabel('Y (pixels)')
+    ax_img.set_xlabel("X (pixels)")
+    ax_img.set_ylabel("Y (pixels)")
 
     # Residual
     ax_resid = fig.add_subplot(gs[1:, 0])
     from isoster.model import build_isoster_model
+
     model = build_isoster_model(image.shape, isophotes)
     residual = image - model
     vmax_res = np.percentile(np.abs(residual), 99)
-    im = ax_resid.imshow(residual, cmap='RdBu_r', origin='lower',
-                         vmin=-vmax_res, vmax=vmax_res)
-    plt.colorbar(im, ax=ax_resid, label='Residual')
-    ax_resid.set_title('Residual (Data - Model)')
-    ax_resid.set_xlabel('X (pixels)')
-    ax_resid.set_ylabel('Y (pixels)')
+    im = ax_resid.imshow(residual, cmap="RdBu_r", origin="lower", vmin=-vmax_res, vmax=vmax_res)
+    plt.colorbar(im, ax=ax_resid, label="Residual")
+    ax_resid.set_title("Residual (Data - Model)")
+    ax_resid.set_xlabel("X (pixels)")
+    ax_resid.set_ylabel("Y (pixels)")
 
     # ===== RIGHT COLUMN: 1-D Profiles (VERTICAL LAYOUT, SHARED X-AXIS) =====
 
@@ -126,31 +133,61 @@ def plot_qa_figure(image, results, true_profile, params, output_path):
     ax_sb = fig.add_subplot(gs[0, 1])
 
     # Plot truth as dashed line
-    ax_sb.plot(x_axis, np.log10(true_intens), 'k--', linewidth=2, label='True Sersic', zorder=10)
+    ax_sb.plot(x_axis, np.log10(true_intens), "k--", linewidth=2, label="True Sersic", zorder=10)
 
     # Plot data as scatter with errorbars
     if good.any():
-        ax_sb.errorbar(x_axis[good], np.log10(intens[good]),
-                       yerr=intens_err[good]/(intens[good]*np.log(10)),
-                       fmt='o', color='green', markersize=5, capsize=2, alpha=0.7,
-                       label='Converged (0)', zorder=3)
+        ax_sb.errorbar(
+            x_axis[good],
+            np.log10(intens[good]),
+            yerr=intens_err[good] / (intens[good] * np.log(10)),
+            fmt="o",
+            color="green",
+            markersize=5,
+            capsize=2,
+            alpha=0.7,
+            label="Converged (0)",
+            zorder=3,
+        )
     if minor.any():
-        ax_sb.errorbar(x_axis[minor], np.log10(intens[minor]),
-                       yerr=intens_err[minor]/(intens[minor]*np.log(10)),
-                       fmt='s', color='yellow', markersize=5, capsize=2, alpha=0.7,
-                       label='Minor issues (2)', zorder=2)
+        ax_sb.errorbar(
+            x_axis[minor],
+            np.log10(intens[minor]),
+            yerr=intens_err[minor] / (intens[minor] * np.log(10)),
+            fmt="s",
+            color="yellow",
+            markersize=5,
+            capsize=2,
+            alpha=0.7,
+            label="Minor issues (2)",
+            zorder=2,
+        )
     if flagged.any():
-        ax_sb.scatter(x_axis[flagged], np.log10(intens[flagged]),
-                      marker='^', color='orange', s=30, alpha=0.7,
-                      label='Flagged (1)', zorder=1)
+        ax_sb.scatter(
+            x_axis[flagged],
+            np.log10(intens[flagged]),
+            marker="^",
+            color="orange",
+            s=30,
+            alpha=0.7,
+            label="Flagged (1)",
+            zorder=1,
+        )
     if failed.any():
-        ax_sb.scatter(x_axis[failed], np.log10(intens[failed]),
-                      marker='x', color='red', s=40, alpha=0.7,
-                      label='Failed (-1, 3)', zorder=0)
+        ax_sb.scatter(
+            x_axis[failed],
+            np.log10(intens[failed]),
+            marker="x",
+            color="red",
+            s=40,
+            alpha=0.7,
+            label="Failed (-1, 3)",
+            zorder=0,
+        )
 
-    ax_sb.set_ylabel(r'$\log_{10}$(Intensity)', fontsize=11)
-    ax_sb.set_title('Surface Brightness Profile')
-    ax_sb.legend(loc='upper right', fontsize=9)
+    ax_sb.set_ylabel(r"$\log_{10}$(Intensity)", fontsize=11)
+    ax_sb.set_title("Surface Brightness Profile")
+    ax_sb.legend(loc="upper right", fontsize=9)
     ax_sb.grid(alpha=0.3)
     ax_sb.tick_params(labelbottom=False)  # Hide x-axis labels
 
@@ -163,26 +200,24 @@ def plot_qa_figure(image, results, true_profile, params, output_path):
 
     # Row 2: Relative residual
     ax_res = fig.add_subplot(gs[1, 1], sharex=ax_sb)
-    ax_res.axhline(0, color='k', linestyle='--', linewidth=1, alpha=0.5)
+    ax_res.axhline(0, color="k", linestyle="--", linewidth=1, alpha=0.5)
     if good.any():
-        ax_res.scatter(x_axis[good], rel_residual[good] * 100,
-                       color='green', s=20, alpha=0.7)
+        ax_res.scatter(x_axis[good], rel_residual[good] * 100, color="green", s=20, alpha=0.7)
     if minor.any():
-        ax_res.scatter(x_axis[minor], rel_residual[minor] * 100,
-                       color='yellow', s=20, alpha=0.7)
-    ax_res.set_ylabel('Rel. Residual (%)', fontsize=10)
+        ax_res.scatter(x_axis[minor], rel_residual[minor] * 100, color="yellow", s=20, alpha=0.7)
+    ax_res.set_ylabel("Rel. Residual (%)", fontsize=10)
     ax_res.grid(alpha=0.3)
     ax_res.tick_params(labelbottom=False)
 
     # Row 3: Ellipticity
     ax_eps = fig.add_subplot(gs[2, 1], sharex=ax_sb)
-    ax_eps.axhline(params['eps'], color='k', linestyle='--', linewidth=2, label='True', zorder=10)
+    ax_eps.axhline(params["eps"], color="k", linestyle="--", linewidth=2, label="True", zorder=10)
     if good.any():
-        ax_eps.scatter(x_axis[good], eps_fit[good], color='green', s=20, alpha=0.7, label='Fitted')
+        ax_eps.scatter(x_axis[good], eps_fit[good], color="green", s=20, alpha=0.7, label="Fitted")
     if minor.any():
-        ax_eps.scatter(x_axis[minor], eps_fit[minor], color='yellow', s=20, alpha=0.7)
-    ax_eps.set_ylabel('Ellipticity', fontsize=10)
-    ax_eps.legend(fontsize=8, loc='best')
+        ax_eps.scatter(x_axis[minor], eps_fit[minor], color="yellow", s=20, alpha=0.7)
+    ax_eps.set_ylabel("Ellipticity", fontsize=10)
+    ax_eps.legend(fontsize=8, loc="best")
     ax_eps.grid(alpha=0.3)
     ax_eps.tick_params(labelbottom=False)
 
@@ -190,18 +225,17 @@ def plot_qa_figure(image, results, true_profile, params, output_path):
     valid_eps = eps_fit[(good | minor)]
     if len(valid_eps) > 0:
         eps_margin = 0.1
-        ax_eps.set_ylim(max(0, np.min(valid_eps) - eps_margin),
-                        min(1, np.max(valid_eps) + eps_margin))
+        ax_eps.set_ylim(max(0, np.min(valid_eps) - eps_margin), min(1, np.max(valid_eps) + eps_margin))
 
     # Row 4: Position angle (with Y-axis label as requested)
     ax_pa = fig.add_subplot(gs[3, 1], sharex=ax_sb)
-    ax_pa.axhline(params['pa'], color='k', linestyle='--', linewidth=2, label='True', zorder=10)
+    ax_pa.axhline(params["pa"], color="k", linestyle="--", linewidth=2, label="True", zorder=10)
     if good.any():
-        ax_pa.scatter(x_axis[good], pa_normalized[good], color='green', s=20, alpha=0.7, label='Fitted')
+        ax_pa.scatter(x_axis[good], pa_normalized[good], color="green", s=20, alpha=0.7, label="Fitted")
     if minor.any():
-        ax_pa.scatter(x_axis[minor], pa_normalized[minor], color='yellow', s=20, alpha=0.7)
-    ax_pa.set_ylabel('Position Angle (rad)', fontsize=10)
-    ax_pa.legend(fontsize=8, loc='best')
+        ax_pa.scatter(x_axis[minor], pa_normalized[minor], color="yellow", s=20, alpha=0.7)
+    ax_pa.set_ylabel("Position Angle (rad)", fontsize=10)
+    ax_pa.legend(fontsize=8, loc="best")
     ax_pa.grid(alpha=0.3)
     ax_pa.tick_params(labelbottom=False)
 
@@ -210,21 +244,20 @@ def plot_qa_figure(image, results, true_profile, params, output_path):
     if len(valid_pa) > 0:
         pa_range = np.max(valid_pa) - np.min(valid_pa)
         if pa_range > 0:
-            ax_pa.set_ylim(np.min(valid_pa) - 0.3*pa_range,
-                          np.max(valid_pa) + 0.3*pa_range)
+            ax_pa.set_ylim(np.min(valid_pa) - 0.3 * pa_range, np.max(valid_pa) + 0.3 * pa_range)
 
     # Row 5: Centroid offset
     ax_center = fig.add_subplot(gs[4, 1], sharex=ax_sb)
-    center_offset = np.sqrt((x0 - params['x0'])**2 + (y0 - params['y0'])**2)
+    center_offset = np.sqrt((x0 - params["x0"]) ** 2 + (y0 - params["y0"]) ** 2)
     if good.any():
-        ax_center.scatter(x_axis[good], center_offset[good], color='green', s=20, alpha=0.7)
+        ax_center.scatter(x_axis[good], center_offset[good], color="green", s=20, alpha=0.7)
     if minor.any():
-        ax_center.scatter(x_axis[minor], center_offset[minor], color='yellow', s=20, alpha=0.7)
+        ax_center.scatter(x_axis[minor], center_offset[minor], color="yellow", s=20, alpha=0.7)
     ax_center.set_xlabel(x_label, fontsize=11)
-    ax_center.set_ylabel('Center Offset (pix)', fontsize=10)
+    ax_center.set_ylabel("Center Offset (pix)", fontsize=10)
     ax_center.grid(alpha=0.3)
 
-    plt.savefig(output_path, dpi=150, bbox_inches='tight')
+    plt.savefig(output_path, dpi=150, bbox_inches="tight")
     plt.close()
 
     print(f"QA figure saved to: {output_path}")
@@ -234,6 +267,7 @@ def plot_qa_figure(image, results, true_profile, params, output_path):
 # Integration Tests
 # ============================================================================
 
+
 def test_sersic_n4_noiseless():
     """
     Test Sersic n=4 (de Vaucouleurs) noiseless profile.
@@ -242,38 +276,46 @@ def test_sersic_n4_noiseless():
     """
     # Model parameters
     R_e, n, I_e = 20.0, 4.0, 2000.0
-    eps, pa = 0.4, np.pi/4
+    eps, pa = 0.4, np.pi / 4
 
     # Create model (centered, properly sized, high oversample for n=4)
     image, true_profile, params = create_sersic_model(
-        R_e=R_e, n=n, I_e=I_e, eps=eps, pa=pa,
-        oversample=10  # High for steep central profile
+        R_e=R_e,
+        n=n,
+        I_e=I_e,
+        eps=eps,
+        pa=pa,
+        oversample=10,  # High for steep central profile
     )
 
     # Configure fitting
     cfg = IsosterConfig(
-        x0=params['x0'], y0=params['y0'],
-        sma0=10.0, minsma=3.0, maxsma=min(80, params['x0']-10),
+        x0=params["x0"],
+        y0=params["y0"],
+        sma0=10.0,
+        minsma=3.0,
+        maxsma=min(80, params["x0"] - 10),
         astep=0.12,
-        eps=eps, pa=pa,
-        minit=10, maxit=50,
+        eps=eps,
+        pa=pa,
+        minit=10,
+        maxit=50,
         conver=0.03,  # Tight for noiseless
         fix_center=True,
     )
 
     # Run fit
     results = fit_image(image, mask=None, config=cfg)
-    isophotes = results['isophotes']
+    isophotes = results["isophotes"]
 
     # Generate QA figure
     output_dir = get_qa_output_directory()
-    plot_qa_figure(image, results, true_profile, params,
-                  output_dir / 'test_sersic_n4_noiseless.png')
+    plot_qa_figure(image, results, true_profile, params, output_dir / "test_sersic_n4_noiseless.png")
 
     # Validation: Check accuracy in valid range (0.5*R_e to 8*R_e, sma>=3)
-    sma = np.array([iso['sma'] for iso in isophotes])
-    intens = np.array([iso['intens'] for iso in isophotes])
-    stop_codes = np.array([iso['stop_code'] for iso in isophotes])
+    sma = np.array([iso["sma"] for iso in isophotes])
+    intens = np.array([iso["intens"] for iso in isophotes])
+    stop_codes = np.array([iso["stop_code"] for iso in isophotes])
 
     valid = (sma >= 3) & (sma >= 0.5 * R_e) & (sma <= 8 * R_e) & (stop_codes == 0)
 
@@ -290,12 +332,11 @@ def test_sersic_n4_noiseless():
     print(f"  Image size: {params['shape']}, center: ({params['x0']}, {params['y0']})")
     print(f"  Valid range: {sma[valid].min():.1f} - {sma[valid].max():.1f} pixels")
     print(f"  Valid points: {valid_count}")
-    print(f"  Max rel diff: {max_rel_diff*100:.3f}%")
-    print(f"  Median rel diff: {median_rel_diff*100:.3f}%")
+    print(f"  Max rel diff: {max_rel_diff * 100:.3f}%")
+    print(f"  Median rel diff: {median_rel_diff * 100:.3f}%")
     print(f"  Converged: {(stop_codes == 0).sum()} / {len(isophotes)}")
 
-    assert max_rel_diff < 0.01, \
-        f"Max relative difference {max_rel_diff*100:.2f}% exceeds 1% threshold"
+    assert max_rel_diff < 0.01, f"Max relative difference {max_rel_diff * 100:.2f}% exceeds 1% threshold"
 
 
 def test_sersic_n1_high_ellipticity():
@@ -305,13 +346,10 @@ def test_sersic_n1_high_ellipticity():
     Requires relaxed maxgerr for high ellipticity.
     """
     R_e, n, I_e = 25.0, 1.0, 1500.0
-    eps, pa = 0.7, np.pi/3
+    eps, pa = 0.7, np.pi / 3
 
     # Create model (centered, properly sized)
-    image, true_profile, params = create_sersic_model(
-        R_e=R_e, n=n, I_e=I_e, eps=eps, pa=pa,
-        oversample=5
-    )
+    image, true_profile, params = create_sersic_model(R_e=R_e, n=n, I_e=I_e, eps=eps, pa=pa, oversample=5)
 
     # Add noise
     rng = np.random.RandomState(123)
@@ -321,11 +359,16 @@ def test_sersic_n1_high_ellipticity():
 
     # Configure fitting with EA mode and RELAXED maxgerr for high ellipticity
     cfg = IsosterConfig(
-        x0=params['x0'], y0=params['y0'],
-        sma0=8.0, minsma=3.0, maxsma=min(100, params['x0']-10),
+        x0=params["x0"],
+        y0=params["y0"],
+        sma0=8.0,
+        minsma=3.0,
+        maxsma=min(100, params["x0"] - 10),
         astep=0.15,
-        eps=eps, pa=pa,
-        minit=10, maxit=50,
+        eps=eps,
+        pa=pa,
+        minit=10,
+        maxit=50,
         conver=0.05,
         maxgerr=1.0,  # RELAXED for high ellipticity (default 0.5 too strict)
         use_eccentric_anomaly=True,  # Better for high ellipticity
@@ -333,17 +376,16 @@ def test_sersic_n1_high_ellipticity():
 
     # Run fit
     results = fit_image(image, mask=None, config=cfg)
-    isophotes = results['isophotes']
+    isophotes = results["isophotes"]
 
     # Generate QA figure
     output_dir = get_qa_output_directory()
-    plot_qa_figure(image, results, true_profile, params,
-                  output_dir / 'test_sersic_n1_high_eps.png')
+    plot_qa_figure(image, results, true_profile, params, output_dir / "test_sersic_n1_high_eps.png")
 
     # Validation
-    sma = np.array([iso['sma'] for iso in isophotes])
-    intens = np.array([iso['intens'] for iso in isophotes])
-    stop_codes = np.array([iso['stop_code'] for iso in isophotes])
+    sma = np.array([iso["sma"] for iso in isophotes])
+    intens = np.array([iso["intens"] for iso in isophotes])
+    stop_codes = np.array([iso["stop_code"] for iso in isophotes])
 
     valid = (sma >= 3) & (sma >= 0.5 * R_e) & (sma <= 5 * R_e) & (stop_codes == 0)
 
@@ -359,12 +401,11 @@ def test_sersic_n1_high_ellipticity():
     print(f"  Image size: {params['shape']}, center: ({params['x0']}, {params['y0']})")
     print(f"  Valid range: {sma[valid].min():.1f} - {sma[valid].max():.1f} pixels")
     print(f"  Valid points: {valid_count}")
-    print(f"  Max intensity rel diff: {max_rel_diff*100:.3f}%")
-    print(f"  Median intensity rel diff: {median_rel_diff*100:.3f}%")
+    print(f"  Max intensity rel diff: {max_rel_diff * 100:.3f}%")
+    print(f"  Median intensity rel diff: {median_rel_diff * 100:.3f}%")
     print(f"  Converged: {(stop_codes == 0).sum()} / {len(isophotes)}")
 
-    assert max_rel_diff < 0.05, \
-        f"Max intensity difference {max_rel_diff*100:.2f}% exceeds 5% threshold"
+    assert max_rel_diff < 0.05, f"Max intensity difference {max_rel_diff * 100:.2f}% exceeds 5% threshold"
 
 
 def test_sersic_n4_extreme_ellipticity():
@@ -375,12 +416,16 @@ def test_sersic_n4_extreme_ellipticity():
     Requires high oversampling AND relaxed maxgerr.
     """
     R_e, n, I_e = 20.0, 4.0, 2000.0
-    eps, pa = 0.6, np.pi/6
+    eps, pa = 0.6, np.pi / 6
 
     # Create model (centered, properly sized, VERY high oversample)
     image, true_profile, params = create_sersic_model(
-        R_e=R_e, n=n, I_e=I_e, eps=eps, pa=pa,
-        oversample=15  # Very high for n=4 + high eps
+        R_e=R_e,
+        n=n,
+        I_e=I_e,
+        eps=eps,
+        pa=pa,
+        oversample=15,  # Very high for n=4 + high eps
     )
 
     # Add moderate noise
@@ -391,11 +436,16 @@ def test_sersic_n4_extreme_ellipticity():
 
     # Configure fitting - RELAXED settings for extreme case
     cfg = IsosterConfig(
-        x0=params['x0'], y0=params['y0'],
-        sma0=10.0, minsma=3.0, maxsma=min(80, params['x0']-10),
+        x0=params["x0"],
+        y0=params["y0"],
+        sma0=10.0,
+        minsma=3.0,
+        maxsma=min(80, params["x0"] - 10),
         astep=0.15,
-        eps=eps, pa=pa,
-        minit=10, maxit=60,  # More iterations
+        eps=eps,
+        pa=pa,
+        minit=10,
+        maxit=60,  # More iterations
         conver=0.08,  # Relaxed convergence
         maxgerr=1.2,  # VERY relaxed for extreme ellipticity
         use_eccentric_anomaly=True,  # Essential for high ellipticity
@@ -403,17 +453,16 @@ def test_sersic_n4_extreme_ellipticity():
 
     # Run fit
     results = fit_image(image, mask=None, config=cfg)
-    isophotes = results['isophotes']
+    isophotes = results["isophotes"]
 
     # Generate QA figure
     output_dir = get_qa_output_directory()
-    plot_qa_figure(image, results, true_profile, params,
-                  output_dir / 'test_sersic_n4_eps0.6_extreme.png')
+    plot_qa_figure(image, results, true_profile, params, output_dir / "test_sersic_n4_eps0.6_extreme.png")
 
     # Validation - more relaxed for extreme case
-    sma = np.array([iso['sma'] for iso in isophotes])
-    intens = np.array([iso['intens'] for iso in isophotes])
-    stop_codes = np.array([iso['stop_code'] for iso in isophotes])
+    sma = np.array([iso["sma"] for iso in isophotes])
+    intens = np.array([iso["intens"] for iso in isophotes])
+    stop_codes = np.array([iso["stop_code"] for iso in isophotes])
 
     valid = (sma >= 5) & (sma >= 0.5 * R_e) & (sma <= 5 * R_e) & (stop_codes == 0)
 
@@ -430,17 +479,15 @@ def test_sersic_n4_extreme_ellipticity():
     print(f"  Image size: {params['shape']}, center: ({params['x0']}, {params['y0']})")
     print(f"  Valid range: {sma[valid].min():.1f} - {sma[valid].max():.1f} pixels")
     print(f"  Valid points: {valid_count}")
-    print(f"  Max rel diff: {max_rel_diff*100:.3f}%")
-    print(f"  Median rel diff: {median_rel_diff*100:.3f}%")
+    print(f"  Max rel diff: {max_rel_diff * 100:.3f}%")
+    print(f"  Median rel diff: {median_rel_diff * 100:.3f}%")
     print(f"  Converged: {(stop_codes == 0).sum()} / {len(isophotes)}")
 
     # Relaxed threshold for extreme case: <10% error acceptable
-    assert max_rel_diff < 0.10, \
-        f"Max relative difference {max_rel_diff*100:.2f}% exceeds 10% threshold"
-    assert (stop_codes == 0).sum() > 5, \
-        "Should have at least 5 converged isophotes for extreme case"
+    assert max_rel_diff < 0.10, f"Max relative difference {max_rel_diff * 100:.2f}% exceeds 10% threshold"
+    assert (stop_codes == 0).sum() > 5, "Should have at least 5 converged isophotes for extreme case"
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     # Run tests and generate QA figures
-    pytest.main([__file__, '-v', '-s'])
+    pytest.main([__file__, "-v", "-s"])

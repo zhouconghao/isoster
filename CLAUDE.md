@@ -11,9 +11,9 @@ ISOSTER (ISOphote on STERoid) is an accelerated Python library for elliptical is
 - Always create a new branch for new features and new development. Do not merge back into the main branch unless I approve it.
 - It is essential to provide informative and concise docstrings and inline comments.
 - Warn the users when the context window has <30% left. Remind the users to save the conversation and start fresh. Also propose ways to compact the conversation and save the current progress in files.
-- Keep record of development progress, important lessons, and critical decisions in markdown files in `docs/journal/`.
-- Keep `docs/spec.md` updated for architecture and interface changes.
-- Keep active execution checklist and end-of-phase review in `docs/todo.md`.
+- Keep record of development progress, important lessons, and critical decisions in markdown files in `docs/agent/journal/`.
+- Keep `docs/04-architecture.md` updated for architecture and interface changes.
+- Keep active execution checklist and end-of-phase review in `docs/agent/todo.md`.
 - Use lowercase kebab-case for markdown file names (for example, `stop-codes.md`).
 - Generated artifacts must be written under `outputs/` and not mixed into source folders.
 - Use `uv` as the default tool for dependency management and environment execution.
@@ -22,10 +22,10 @@ ISOSTER (ISOphote on STERoid) is an accelerated Python library for elliptical is
 
 When a task is long or the context window is becoming constrained:
 
-1. Write a concise status snapshot to `docs/journal/` (what was done, what remains, blockers).
-2. Update `docs/todo.md` checklist status and review notes.
-3. Update `docs/spec.md` if architecture or interfaces changed.
-4. Update `docs/lessons.md` when a correction yields a reusable lesson.
+1. Write a concise status snapshot to `docs/agent/journal/` (what was done, what remains, blockers).
+2. Update `docs/agent/todo.md` checklist status and review notes.
+3. Update `docs/04-architecture.md` if architecture or interfaces changed.
+4. Update `docs/agent/lessons.md` when a correction yields a reusable lesson.
 5. Before ending, include exact file paths and commands needed to resume.
 
 ## Build and Test Commands
@@ -78,34 +78,43 @@ Follow these rules for all Python environment and dependency work in this reposi
 
 ## Documentation Index
 
+### Public docs (tracked, served by mkdocs)
+
 | Document | Description |
 |----------|-------------|
-| `docs/spec.md` | Architecture, interfaces, and design decisions |
-| `docs/user-guide.md` | Usage guidance, stop-code reference, public API |
-| `docs/algorithm.md` | Fitting and sampling implementation notes |
-| `docs/configuration-reference.md` | All configuration parameters and guidelines |
-| `docs/testing.md` | Testing and benchmark directives |
-| `docs/qa.md` | QA plotting functions: usage, options, and examples |
-| `docs/qa-figures.md` | QA figure layout and style conventions |
-| `docs/future.md` | Long-term upgrades and research roadmap |
-| `docs/todo.md` | Active execution checklist and review notes |
-| `docs/lessons.md` | Development lessons and process guardrails |
+| `docs/00-index.md` | Documentation home page and map |
+| `docs/01-user-guide.md` | Usage guidance, stop-code reference, public API |
+| `docs/02-configuration-reference.md` | All configuration parameters and guidelines |
+| `docs/03-algorithm.md` | Fitting and sampling implementation notes |
+| `docs/04-architecture.md` | Architecture, interfaces, and design decisions |
+| `docs/05-testing.md` | Testing and benchmark directives |
+| `docs/06-qa-functions.md` | QA plotting functions: usage, options, and examples |
+
+### Agent-internal docs (untracked, in `docs/agent/`)
+
+| Document | Description |
+|----------|-------------|
+| `docs/agent/todo.md` | Active execution checklist and review notes |
+| `docs/agent/lessons.md` | Development lessons and process guardrails |
+| `docs/agent/future.md` | Long-term upgrades and research roadmap |
+| `docs/agent/qa-figures.md` | QA figure layout and style conventions |
+| `docs/agent/journal/` | Chronological project journal notes |
 
 ## Testing and Benchmark Directives
 
-See `docs/testing.md`.
+See `docs/05-testing.md`.
 
 ## QA Figure Rules
 
-See `docs/qa-figures.md`.
+See `docs/agent/qa-figures.md`.
 
 ## Architecture and Key Concepts
 
-See `docs/spec.md` and `docs/algorithm.md`.
+See `docs/04-architecture.md` and `docs/03-algorithm.md`.
 
 ## Public API and Configuration
 
-See `docs/user-guide.md` and `docs/configuration-reference.md`.
+See `docs/01-user-guide.md` and `docs/02-configuration-reference.md`.
 
 ## Mock Generation
 

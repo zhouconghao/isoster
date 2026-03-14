@@ -19,31 +19,26 @@ if str(tests_dir) not in sys.path:
     sys.path.insert(0, str(tests_dir))
 
 from fixtures.sersic_factory import (
-    create_sersic_model,
     SersicFactory,
+    create_sersic_model,
 )
-
 
 # =============================================================================
 # Pytest Markers
 # =============================================================================
 
+
 def pytest_configure(config):
     """Register custom markers."""
-    config.addinivalue_line(
-        "markers", "real_data: tests that use real astronomical data (skipped in CI)"
-    )
-    config.addinivalue_line(
-        "markers", "slow: tests that take longer than usual"
-    )
-    config.addinivalue_line(
-        "markers", "benchmark: performance benchmark tests"
-    )
+    config.addinivalue_line("markers", "real_data: tests that use real astronomical data (skipped in CI)")
+    config.addinivalue_line("markers", "slow: tests that take longer than usual")
+    config.addinivalue_line("markers", "benchmark: performance benchmark tests")
 
 
 # =============================================================================
 # Sersic Model Fixtures
 # =============================================================================
+
 
 @pytest.fixture
 def sersic_factory():
@@ -153,6 +148,7 @@ def sersic_image_noisy():
 # Utility Fixtures
 # =============================================================================
 
+
 @pytest.fixture
 def default_isoster_config():
     """
@@ -161,15 +157,15 @@ def default_isoster_config():
     Returns a config dict that can be used with IsosterConfig(**config).
     """
     return {
-        'sma0': 10.0,
-        'minsma': 3.0,
-        'maxsma': 100.0,
-        'astep': 0.1,
-        'eps': 0.3,
-        'pa': 0.785,  # π/4
-        'minit': 10,
-        'maxit': 50,
-        'conver': 0.05,
+        "sma0": 10.0,
+        "minsma": 3.0,
+        "maxsma": 100.0,
+        "astep": 0.1,
+        "eps": 0.3,
+        "pa": 0.785,  # π/4
+        "minit": 10,
+        "maxit": 50,
+        "conver": 0.05,
     }
 
 

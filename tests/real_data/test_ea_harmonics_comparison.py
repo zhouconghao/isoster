@@ -39,7 +39,8 @@ from isoster.output_paths import resolve_output_directory
 
 # Import photutils
 try:
-    from photutils.isophote import EllipseGeometry, Ellipse
+    from photutils.isophote import Ellipse, EllipseGeometry
+
     HAS_PHOTUTILS = True
 except ImportError:
     HAS_PHOTUTILS = False
@@ -60,6 +61,7 @@ OUTPUT_DIR = resolve_output_directory("tests_real_data", "ea_harmonics_compariso
 # =============================================================================
 # Helper Functions
 # =============================================================================
+
 
 def load_galaxy_image(fits_path, band_index=1):
     """
@@ -102,10 +104,16 @@ def find_galaxy_center(image, initial_guess=None):
 
     # Quick fit to refine center
     config = IsosterConfig(
-        x0=initial_guess[0], y0=initial_guess[1],
-        sma0=5.0, minsma=3.0, maxsma=30.0,
-        astep=0.2, eps=0.3, pa=0.0,
-        fix_center=False, maxit=30,
+        x0=initial_guess[0],
+        y0=initial_guess[1],
+        sma0=5.0,
+        minsma=3.0,
+        maxsma=30.0,
+        astep=0.2,
+        eps=0.3,
+        pa=0.0,
+        fix_center=False,
+        maxit=30,
         compute_deviations=False,
     )
 
@@ -114,15 +122,14 @@ def find_galaxy_center(image, initial_guess=None):
         results = fit_image(image, mask=None, config=config)
 
     # Use median center from inner converged isophotes
-    inner = [iso for iso in results['isophotes']
-             if iso['sma'] < 20 and iso['stop_code'] == 0]
+    inner = [iso for iso in results["isophotes"] if iso["sma"] < 20 and iso["stop_code"] == 0]
 
     if len(inner) < 3:
         # Fall back to initial guess
         return initial_guess
 
-    x0 = np.median([iso['x0'] for iso in inner])
-    y0 = np.median([iso['y0'] for iso in inner])
+    x0 = np.median([iso["x0"] for iso in inner])
+    y0 = np.median([iso["y0"] for iso in inner])
 
     return x0, y0
 
@@ -149,10 +156,10 @@ def benchmark_fit(fit_func, n_runs=3, **kwargs):
         times.append(elapsed)
 
     return {
-        'results': results,
-        'mean_time': np.mean(times),
-        'std_time': np.std(times),
-        'times': times,
+        "results": results,
+        "mean_time": np.mean(times),
+        "std_time": np.std(times),
+        "times": times,
     }
 
 
@@ -187,30 +194,43 @@ def run_photutils(image, x0, y0, sma0=10.0, maxsma=100.0, minsma=3.0, step=0.1, 
     isophotes = []
     for iso in isolist:
         if iso.sma >= minsma:  # Skip very inner isophotes
-            isophotes.append({
-                'sma': iso.sma,
-                'intens': iso.intens,
-                'intens_err': iso.int_err if hasattr(iso, 'int_err') else iso.intens * 0.01,
-                'eps': iso.eps,
-                'eps_err': iso.ellip_err if hasattr(iso, 'ellip_err') else 0.01,
-                'pa': iso.pa,
-                'pa_err': iso.pa_err if hasattr(iso, 'pa_err') else 0.01,
-                'x0': iso.x0,
-                'y0': iso.y0,
-                'a3': iso.a3 if hasattr(iso, 'a3') else 0.0,
-                'b3': iso.b3 if hasattr(iso, 'b3') else 0.0,
-                'a4': iso.a4 if hasattr(iso, 'a4') else 0.0,
-                'b4': iso.b4 if hasattr(iso, 'b4') else 0.0,
-                'stop_code': 0 if iso.stop_code == 0 else -1,
-                'niter': iso.niter if hasattr(iso, 'niter') else 0,
-            })
+            isophotes.append(
+                {
+                    "sma": iso.sma,
+                    "intens": iso.intens,
+                    "intens_err": iso.int_err if hasattr(iso, "int_err") else iso.intens * 0.01,
+                    "eps": iso.eps,
+                    "eps_err": iso.ellip_err if hasattr(iso, "ellip_err") else 0.01,
+                    "pa": iso.pa,
+                    "pa_err": iso.pa_err if hasattr(iso, "pa_err") else 0.01,
+                    "x0": iso.x0,
+                    "y0": iso.y0,
+                    "a3": iso.a3 if hasattr(iso, "a3") else 0.0,
+                    "b3": iso.b3 if hasattr(iso, "b3") else 0.0,
+                    "a4": iso.a4 if hasattr(iso, "a4") else 0.0,
+                    "b4": iso.b4 if hasattr(iso, "b4") else 0.0,
+                    "stop_code": 0 if iso.stop_code == 0 else -1,
+                    "niter": iso.niter if hasattr(iso, "niter") else 0,
+                }
+            )
 
     return isophotes
 
 
-def run_isoster(image, x0, y0, sma0=10.0, maxsma=100.0, minsma=3.0, step=0.1,
-                eps0=0.3, pa0=0.0, use_ea=False, simultaneous=False,
-                harmonic_orders=None):
+def run_isoster(
+    image,
+    x0,
+    y0,
+    sma0=10.0,
+    maxsma=100.0,
+    minsma=3.0,
+    step=0.1,
+    eps0=0.3,
+    pa0=0.0,
+    use_ea=False,
+    simultaneous=False,
+    harmonic_orders=None,
+):
     """
     Run isoster fitting with specified configuration.
 
@@ -221,9 +241,14 @@ def run_isoster(image, x0, y0, sma0=10.0, maxsma=100.0, minsma=3.0, step=0.1,
         harmonic_orders = [3, 4]
 
     config = IsosterConfig(
-        x0=x0, y0=y0,
-        sma0=sma0, minsma=minsma, maxsma=maxsma,
-        astep=step, eps=eps0, pa=pa0,
+        x0=x0,
+        y0=y0,
+        sma0=sma0,
+        minsma=minsma,
+        maxsma=maxsma,
+        astep=step,
+        eps=eps0,
+        pa=pa0,
         use_eccentric_anomaly=use_ea,
         simultaneous_harmonics=simultaneous,
         harmonic_orders=harmonic_orders,
@@ -235,7 +260,7 @@ def run_isoster(image, x0, y0, sma0=10.0, maxsma=100.0, minsma=3.0, step=0.1,
         warnings.simplefilter("ignore")
         results = fit_image(image, mask=None, config=config)
 
-    return results['isophotes']
+    return results["isophotes"]
 
 
 def compute_comparison_metrics(isophotes_test, isophotes_ref, sma_range=(10, 80)):
@@ -251,24 +276,22 @@ def compute_comparison_metrics(isophotes_test, isophotes_ref, sma_range=(10, 80)
         dict of metrics
     """
     # Filter to converged isophotes in range
-    test_conv = [iso for iso in isophotes_test
-                 if iso['stop_code'] == 0 and sma_range[0] <= iso['sma'] <= sma_range[1]]
-    ref_conv = [iso for iso in isophotes_ref
-                if iso['stop_code'] == 0 and sma_range[0] <= iso['sma'] <= sma_range[1]]
+    test_conv = [iso for iso in isophotes_test if iso["stop_code"] == 0 and sma_range[0] <= iso["sma"] <= sma_range[1]]
+    ref_conv = [iso for iso in isophotes_ref if iso["stop_code"] == 0 and sma_range[0] <= iso["sma"] <= sma_range[1]]
 
     if len(test_conv) < 3 or len(ref_conv) < 3:
-        return {'error': 'Insufficient converged isophotes'}
+        return {"error": "Insufficient converged isophotes"}
 
     # Extract arrays
-    sma_test = np.array([iso['sma'] for iso in test_conv])
-    intens_test = np.array([iso['intens'] for iso in test_conv])
-    eps_test = np.array([iso['eps'] for iso in test_conv])
-    pa_test = np.array([iso['pa'] for iso in test_conv])
+    sma_test = np.array([iso["sma"] for iso in test_conv])
+    intens_test = np.array([iso["intens"] for iso in test_conv])
+    eps_test = np.array([iso["eps"] for iso in test_conv])
+    pa_test = np.array([iso["pa"] for iso in test_conv])
 
-    sma_ref = np.array([iso['sma'] for iso in ref_conv])
-    intens_ref = np.array([iso['intens'] for iso in ref_conv])
-    eps_ref = np.array([iso['eps'] for iso in ref_conv])
-    pa_ref = np.array([iso['pa'] for iso in ref_conv])
+    sma_ref = np.array([iso["sma"] for iso in ref_conv])
+    intens_ref = np.array([iso["intens"] for iso in ref_conv])
+    eps_ref = np.array([iso["eps"] for iso in ref_conv])
+    pa_ref = np.array([iso["pa"] for iso in ref_conv])
 
     # Interpolate reference to test SMA grid
     intens_ref_interp = np.interp(sma_test, sma_ref, intens_ref)
@@ -287,14 +310,14 @@ def compute_comparison_metrics(isophotes_test, isophotes_ref, sma_range=(10, 80)
     pa_diff_deg = np.degrees(pa_diff)
 
     return {
-        'n_test': len(test_conv),
-        'n_ref': len(ref_conv),
-        'intens_diff_median': float(np.median(intens_frac_diff)),
-        'intens_diff_max': float(np.max(intens_frac_diff)),
-        'eps_diff_median': float(np.median(eps_diff)),
-        'eps_diff_max': float(np.max(eps_diff)),
-        'pa_diff_median': float(np.median(pa_diff_deg)),
-        'pa_diff_max': float(np.max(pa_diff_deg)),
+        "n_test": len(test_conv),
+        "n_ref": len(ref_conv),
+        "intens_diff_median": float(np.median(intens_frac_diff)),
+        "intens_diff_max": float(np.max(intens_frac_diff)),
+        "eps_diff_median": float(np.median(eps_diff)),
+        "eps_diff_max": float(np.max(eps_diff)),
+        "pa_diff_median": float(np.median(pa_diff_deg)),
+        "pa_diff_max": float(np.max(pa_diff_deg)),
     }
 
 
@@ -316,10 +339,10 @@ def compute_residual_stats(image, model, sma_ranges=None):
     h, w = image.shape
     y0, x0 = h / 2, w / 2  # Approximate center
     y, x = np.mgrid[:h, :w]
-    r = np.sqrt((x - x0)**2 + (y - y0)**2)
+    r = np.sqrt((x - x0) ** 2 + (y - y0) ** 2)
 
     # Fractional residual
-    with np.errstate(divide='ignore', invalid='ignore'):
+    with np.errstate(divide="ignore", invalid="ignore"):
         frac_resid = (image - model) / image * 100
         frac_resid = np.where(np.isfinite(frac_resid) & (image > 0), frac_resid, np.nan)
 
@@ -328,13 +351,13 @@ def compute_residual_stats(image, model, sma_ranges=None):
         mask = (r >= inner) & (r < outer) & np.isfinite(frac_resid)
         if np.sum(mask) > 10:
             resid_region = frac_resid[mask]
-            stats[f'{inner}-{outer}'] = {
-                'median': float(np.nanmedian(resid_region)),
-                'rms': float(np.nanstd(resid_region)),
-                'n_pixels': int(np.sum(mask)),
+            stats[f"{inner}-{outer}"] = {
+                "median": float(np.nanmedian(resid_region)),
+                "rms": float(np.nanstd(resid_region)),
+                "n_pixels": int(np.sum(mask)),
             }
         else:
-            stats[f'{inner}-{outer}'] = {'error': 'Too few pixels'}
+            stats[f"{inner}-{outer}"] = {"error": "Too few pixels"}
 
     return stats
 
@@ -343,7 +366,8 @@ def compute_residual_stats(image, model, sma_ranges=None):
 # Fixtures
 # =============================================================================
 
-@pytest.fixture(scope='module')
+
+@pytest.fixture(scope="module")
 def galaxy_data():
     """
     Load both galaxies and find centers.
@@ -356,11 +380,11 @@ def galaxy_data():
     if ESO243_PATH.exists():
         image_eso = load_galaxy_image(ESO243_PATH, band_index=1)
         x0_eso, y0_eso = find_galaxy_center(image_eso)
-        data['eso243-49'] = {
-            'image': image_eso,
-            'band': 'r',
-            'center': (x0_eso, y0_eso),
-            'path': str(ESO243_PATH),
+        data["eso243-49"] = {
+            "image": image_eso,
+            "band": "r",
+            "center": (x0_eso, y0_eso),
+            "path": str(ESO243_PATH),
         }
         print(f"\nESO 243-49 loaded: shape={image_eso.shape}, center=({x0_eso:.1f}, {y0_eso:.1f})")
 
@@ -368,11 +392,11 @@ def galaxy_data():
     if NGC3610_PATH.exists():
         image_ngc = load_galaxy_image(NGC3610_PATH, band_index=2)
         x0_ngc, y0_ngc = find_galaxy_center(image_ngc)
-        data['ngc3610'] = {
-            'image': image_ngc,
-            'band': 'i',
-            'center': (x0_ngc, y0_ngc),
-            'path': str(NGC3610_PATH),
+        data["ngc3610"] = {
+            "image": image_ngc,
+            "band": "i",
+            "center": (x0_ngc, y0_ngc),
+            "path": str(NGC3610_PATH),
         }
         print(f"NGC 3610 loaded: shape={image_ngc.shape}, center=({x0_ngc:.1f}, {y0_ngc:.1f})")
 
@@ -386,6 +410,7 @@ def galaxy_data():
 # Test Class
 # =============================================================================
 
+
 @pytest.mark.real_data
 class TestEAHarmonicsComparison:
     """
@@ -397,10 +422,10 @@ class TestEAHarmonicsComparison:
         assert len(galaxy_data) > 0, "No galaxy data loaded"
 
         for name, gal in galaxy_data.items():
-            assert 'image' in gal, f"{name}: missing image"
-            assert gal['image'].shape == (256, 256), f"{name}: unexpected shape"
-            assert 'center' in gal, f"{name}: missing center"
-            x0, y0 = gal['center']
+            assert "image" in gal, f"{name}: missing image"
+            assert gal["image"].shape == (256, 256), f"{name}: unexpected shape"
+            assert "center" in gal, f"{name}: missing center"
+            x0, y0 = gal["center"]
             # Center should be within image
             assert 0 < x0 < 256, f"{name}: x0 out of bounds"
             assert 0 < y0 < 256, f"{name}: y0 out of bounds"
@@ -424,18 +449,24 @@ class TestEAHarmonicsComparison:
         benchmark_results = {}
 
         for galaxy_name, gal in galaxy_data.items():
-            print(f"\n{'='*60}")
+            print(f"\n{'=' * 60}")
             print(f"Processing {galaxy_name}")
-            print(f"{'='*60}")
+            print(f"{'=' * 60}")
 
-            image = gal['image']
-            x0, y0 = gal['center']
+            image = gal["image"]
+            x0, y0 = gal["center"]
 
             # Common parameters
             fit_params = dict(
-                image=image, x0=x0, y0=y0,
-                sma0=10.0, maxsma=100.0, minsma=3.0,
-                step=0.1, eps0=0.3, pa0=0.0,
+                image=image,
+                x0=x0,
+                y0=y0,
+                sma0=10.0,
+                maxsma=100.0,
+                minsma=3.0,
+                step=0.1,
+                eps0=0.3,
+                pa0=0.0,
             )
 
             results = {}
@@ -443,63 +474,61 @@ class TestEAHarmonicsComparison:
 
             # 1. photutils reference
             print("\n1. Running photutils.isophote (reference)...")
-            bench = benchmark_fit(
-                lambda **kw: run_photutils(**kw),
-                n_runs=3, **fit_params
-            )
-            results['photutils'] = bench['results']
-            timing['photutils'] = {'mean': bench['mean_time'], 'std': bench['std_time']}
-            n_iso = len(results['photutils'])
-            n_conv = sum(1 for iso in results['photutils'] if iso['stop_code'] == 0)
+            bench = benchmark_fit(lambda **kw: run_photutils(**kw), n_runs=3, **fit_params)
+            results["photutils"] = bench["results"]
+            timing["photutils"] = {"mean": bench["mean_time"], "std": bench["std_time"]}
+            n_iso = len(results["photutils"])
+            n_conv = sum(1 for iso in results["photutils"] if iso["stop_code"] == 0)
             print(f"   Isophotes: {n_iso}, Converged: {n_conv}, Time: {bench['mean_time']:.3f}s")
 
             # 2. isoster PA mode (default)
             print("\n2. Running isoster (PA mode, default)...")
             bench = benchmark_fit(
-                lambda **kw: run_isoster(**kw, use_ea=False, simultaneous=False),
-                n_runs=3, **fit_params
+                lambda **kw: run_isoster(**kw, use_ea=False, simultaneous=False), n_runs=3, **fit_params
             )
-            results['isoster_pa'] = bench['results']
-            timing['isoster_pa'] = {'mean': bench['mean_time'], 'std': bench['std_time']}
-            n_iso = len(results['isoster_pa'])
-            n_conv = sum(1 for iso in results['isoster_pa'] if iso['stop_code'] == 0)
+            results["isoster_pa"] = bench["results"]
+            timing["isoster_pa"] = {"mean": bench["mean_time"], "std": bench["std_time"]}
+            n_iso = len(results["isoster_pa"])
+            n_conv = sum(1 for iso in results["isoster_pa"] if iso["stop_code"] == 0)
             print(f"   Isophotes: {n_iso}, Converged: {n_conv}, Time: {bench['mean_time']:.3f}s")
 
             # 3. isoster EA mode with [3, 4]
             print("\n3. Running isoster (EA mode, harmonics [3,4])...")
             bench = benchmark_fit(
-                lambda **kw: run_isoster(**kw, use_ea=True, simultaneous=True,
-                                         harmonic_orders=[3, 4]),
-                n_runs=3, **fit_params
+                lambda **kw: run_isoster(**kw, use_ea=True, simultaneous=True, harmonic_orders=[3, 4]),
+                n_runs=3,
+                **fit_params,
             )
-            results['isoster_ea_34'] = bench['results']
-            timing['isoster_ea_34'] = {'mean': bench['mean_time'], 'std': bench['std_time']}
-            n_iso = len(results['isoster_ea_34'])
-            n_conv = sum(1 for iso in results['isoster_ea_34'] if iso['stop_code'] == 0)
+            results["isoster_ea_34"] = bench["results"]
+            timing["isoster_ea_34"] = {"mean": bench["mean_time"], "std": bench["std_time"]}
+            n_iso = len(results["isoster_ea_34"])
+            n_conv = sum(1 for iso in results["isoster_ea_34"] if iso["stop_code"] == 0)
             print(f"   Isophotes: {n_iso}, Converged: {n_conv}, Time: {bench['mean_time']:.3f}s")
 
             # 4. isoster EA mode with extended harmonics [3..10]
             print("\n4. Running isoster (EA mode, harmonics [3..10])...")
             bench = benchmark_fit(
-                lambda **kw: run_isoster(**kw, use_ea=True, simultaneous=True,
-                                         harmonic_orders=list(range(3, 11))),
-                n_runs=3, **fit_params
+                lambda **kw: run_isoster(**kw, use_ea=True, simultaneous=True, harmonic_orders=list(range(3, 11))),
+                n_runs=3,
+                **fit_params,
             )
-            results['isoster_ea_310'] = bench['results']
-            timing['isoster_ea_310'] = {'mean': bench['mean_time'], 'std': bench['std_time']}
-            n_iso = len(results['isoster_ea_310'])
-            n_conv = sum(1 for iso in results['isoster_ea_310'] if iso['stop_code'] == 0)
+            results["isoster_ea_310"] = bench["results"]
+            timing["isoster_ea_310"] = {"mean": bench["mean_time"], "std": bench["std_time"]}
+            n_iso = len(results["isoster_ea_310"])
+            n_conv = sum(1 for iso in results["isoster_ea_310"] if iso["stop_code"] == 0)
             print(f"   Isophotes: {n_iso}, Converged: {n_conv}, Time: {bench['mean_time']:.3f}s")
 
             # Compare all methods vs photutils
             print("\n--- Comparison vs photutils ---")
             comparison = {}
-            for method in ['isoster_pa', 'isoster_ea_34', 'isoster_ea_310']:
-                metrics = compute_comparison_metrics(results[method], results['photutils'])
+            for method in ["isoster_pa", "isoster_ea_34", "isoster_ea_310"]:
+                metrics = compute_comparison_metrics(results[method], results["photutils"])
                 comparison[method] = metrics
-                if 'error' not in metrics:
+                if "error" not in metrics:
                     print(f"   {method}:")
-                    print(f"      Intensity diff: {metrics['intens_diff_median']:.2f}% median, {metrics['intens_diff_max']:.2f}% max")
+                    print(
+                        f"      Intensity diff: {metrics['intens_diff_median']:.2f}% median, {metrics['intens_diff_max']:.2f}% max"
+                    )
                     print(f"      Eps diff: {metrics['eps_diff_median']:.4f} median")
                     print(f"      PA diff: {metrics['pa_diff_median']:.2f} deg median")
 
@@ -510,15 +539,17 @@ class TestEAHarmonicsComparison:
                 if len(isos) > 5:
                     model = build_isoster_model(image.shape, isos)
                     resid_stats = compute_residual_stats(image, model)
-                    model_results[method] = {'model': model, 'residual_stats': resid_stats}
-                    print(f"   {method}: 20-50 pix region: median={resid_stats.get('20-50', {}).get('median', 'N/A'):.2f}%")
+                    model_results[method] = {"model": model, "residual_stats": resid_stats}
+                    print(
+                        f"   {method}: 20-50 pix region: median={resid_stats.get('20-50', {}).get('median', 'N/A'):.2f}%"
+                    )
 
             all_results[galaxy_name] = {
-                'isophotes': {k: v for k, v in results.items()},
-                'timing': timing,
-                'comparison': comparison,
-                'models': {k: v['residual_stats'] for k, v in model_results.items()},
-                'center': (x0, y0),
+                "isophotes": {k: v for k, v in results.items()},
+                "timing": timing,
+                "comparison": comparison,
+                "models": {k: v["residual_stats"] for k, v in model_results.items()},
+                "center": (x0, y0),
             }
             benchmark_results[galaxy_name] = timing
 
@@ -533,15 +564,14 @@ class TestEAHarmonicsComparison:
             if galaxy_name in all_results:
                 res = all_results[galaxy_name]
                 # Check that all methods produced isophotes
-                for method in ['photutils', 'isoster_pa', 'isoster_ea_34', 'isoster_ea_310']:
-                    assert method in res['isophotes'], f"{galaxy_name}: {method} missing"
-                    assert len(res['isophotes'][method]) > 10, f"{galaxy_name}: {method} too few isophotes"
+                for method in ["photutils", "isoster_pa", "isoster_ea_34", "isoster_ea_310"]:
+                    assert method in res["isophotes"], f"{galaxy_name}: {method} missing"
+                    assert len(res["isophotes"][method]) > 10, f"{galaxy_name}: {method} too few isophotes"
 
         print("\n--- All Methods Comparison Test Passed ---")
 
     def _generate_figures(self, galaxy_data, all_results):
         """Generate QA figures for all galaxies and methods."""
-        import matplotlib.pyplot as plt
 
         OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -550,7 +580,7 @@ class TestEAHarmonicsComparison:
                 continue
 
             res = all_results[galaxy_name]
-            image = gal['image']
+            image = gal["image"]
 
             # Figure 1: 1D Profile Comparison
             self._plot_profile_comparison(galaxy_name, res, OUTPUT_DIR)
@@ -568,17 +598,17 @@ class TestEAHarmonicsComparison:
         import matplotlib.pyplot as plt
 
         fig, axes = plt.subplots(6, 1, figsize=(10, 14), sharex=True)
-        fig.suptitle(f'{galaxy_name} - Method Comparison', fontsize=14)
+        fig.suptitle(f"{galaxy_name} - Method Comparison", fontsize=14)
 
         # Colors and markers for each method
         styles = {
-            'photutils': {'color': 'black', 'marker': 's', 'label': 'photutils'},
-            'isoster_pa': {'color': 'blue', 'marker': 'o', 'label': 'isoster PA'},
-            'isoster_ea_34': {'color': 'green', 'marker': '^', 'label': 'isoster EA [3,4]'},
-            'isoster_ea_310': {'color': 'red', 'marker': 'D', 'label': 'isoster EA [3..10]'},
+            "photutils": {"color": "black", "marker": "s", "label": "photutils"},
+            "isoster_pa": {"color": "blue", "marker": "o", "label": "isoster PA"},
+            "isoster_ea_34": {"color": "green", "marker": "^", "label": "isoster EA [3,4]"},
+            "isoster_ea_310": {"color": "red", "marker": "D", "label": "isoster EA [3..10]"},
         }
 
-        for method, isos in res['isophotes'].items():
+        for method, isos in res["isophotes"].items():
             if method not in styles:
                 continue
 
@@ -587,126 +617,204 @@ class TestEAHarmonicsComparison:
                 continue
 
             # Extract ALL isophotes (both converged and failed)
-            sma_all = np.array([iso['sma'] for iso in isos])
-            stop_codes = np.array([iso['stop_code'] for iso in isos])
-            mask_conv = (stop_codes == 0)
+            sma_all = np.array([iso["sma"] for iso in isos])
+            stop_codes = np.array([iso["stop_code"] for iso in isos])
+            mask_conv = stop_codes == 0
             n_conv = mask_conv.sum()
             n_total = len(isos)
 
-            sma_quarter_all = sma_all ** 0.25
+            sma_quarter_all = sma_all**0.25
 
             # Panel 1: Intensity (log scale)
-            intens_all = np.array([iso['intens'] for iso in isos])
+            intens_all = np.array([iso["intens"] for iso in isos])
             # Plot failed points with open markers (faded)
             if (~mask_conv).any():
-                axes[0].scatter(sma_quarter_all[~mask_conv], intens_all[~mask_conv],
-                               facecolors='none', edgecolors=style['color'],
-                               marker=style['marker'], s=15, alpha=0.3, linewidths=0.5)
+                axes[0].scatter(
+                    sma_quarter_all[~mask_conv],
+                    intens_all[~mask_conv],
+                    facecolors="none",
+                    edgecolors=style["color"],
+                    marker=style["marker"],
+                    s=15,
+                    alpha=0.3,
+                    linewidths=0.5,
+                )
             # Plot converged points with filled markers (solid)
             if mask_conv.any():
-                axes[0].scatter(sma_quarter_all[mask_conv], intens_all[mask_conv],
-                               c=style['color'], marker=style['marker'], s=15, alpha=0.7,
-                               label=f"{style['label']} ({n_conv}/{n_total})")
+                axes[0].scatter(
+                    sma_quarter_all[mask_conv],
+                    intens_all[mask_conv],
+                    c=style["color"],
+                    marker=style["marker"],
+                    s=15,
+                    alpha=0.7,
+                    label=f"{style['label']} ({n_conv}/{n_total})",
+                )
 
             # Panel 3: Ellipticity
-            eps_all = np.array([iso['eps'] for iso in isos])
+            eps_all = np.array([iso["eps"] for iso in isos])
             if (~mask_conv).any():
-                axes[2].scatter(sma_quarter_all[~mask_conv], eps_all[~mask_conv],
-                               facecolors='none', edgecolors=style['color'],
-                               marker=style['marker'], s=15, alpha=0.3, linewidths=0.5)
+                axes[2].scatter(
+                    sma_quarter_all[~mask_conv],
+                    eps_all[~mask_conv],
+                    facecolors="none",
+                    edgecolors=style["color"],
+                    marker=style["marker"],
+                    s=15,
+                    alpha=0.3,
+                    linewidths=0.5,
+                )
             if mask_conv.any():
-                axes[2].scatter(sma_quarter_all[mask_conv], eps_all[mask_conv],
-                               c=style['color'], marker=style['marker'], s=15, alpha=0.7)
+                axes[2].scatter(
+                    sma_quarter_all[mask_conv],
+                    eps_all[mask_conv],
+                    c=style["color"],
+                    marker=style["marker"],
+                    s=15,
+                    alpha=0.7,
+                )
 
             # Panel 4: Position Angle
-            pa_all = np.array([iso['pa'] for iso in isos])
+            pa_all = np.array([iso["pa"] for iso in isos])
             pa_deg_all = np.degrees(pa_all) % 180
             if (~mask_conv).any():
-                axes[3].scatter(sma_quarter_all[~mask_conv], pa_deg_all[~mask_conv],
-                               facecolors='none', edgecolors=style['color'],
-                               marker=style['marker'], s=15, alpha=0.3, linewidths=0.5)
+                axes[3].scatter(
+                    sma_quarter_all[~mask_conv],
+                    pa_deg_all[~mask_conv],
+                    facecolors="none",
+                    edgecolors=style["color"],
+                    marker=style["marker"],
+                    s=15,
+                    alpha=0.3,
+                    linewidths=0.5,
+                )
             if mask_conv.any():
-                axes[3].scatter(sma_quarter_all[mask_conv], pa_deg_all[mask_conv],
-                               c=style['color'], marker=style['marker'], s=15, alpha=0.7)
+                axes[3].scatter(
+                    sma_quarter_all[mask_conv],
+                    pa_deg_all[mask_conv],
+                    c=style["color"],
+                    marker=style["marker"],
+                    s=15,
+                    alpha=0.7,
+                )
 
             # Panel 5: a4 (boxiness/diskiness)
-            a4_all = np.array([iso.get('a4', 0.0) for iso in isos])
+            a4_all = np.array([iso.get("a4", 0.0) for iso in isos])
             if (~mask_conv).any():
-                axes[4].scatter(sma_quarter_all[~mask_conv], a4_all[~mask_conv],
-                               facecolors='none', edgecolors=style['color'],
-                               marker=style['marker'], s=15, alpha=0.3, linewidths=0.5)
+                axes[4].scatter(
+                    sma_quarter_all[~mask_conv],
+                    a4_all[~mask_conv],
+                    facecolors="none",
+                    edgecolors=style["color"],
+                    marker=style["marker"],
+                    s=15,
+                    alpha=0.3,
+                    linewidths=0.5,
+                )
             if mask_conv.any():
-                axes[4].scatter(sma_quarter_all[mask_conv], a4_all[mask_conv],
-                               c=style['color'], marker=style['marker'], s=15, alpha=0.7)
+                axes[4].scatter(
+                    sma_quarter_all[mask_conv],
+                    a4_all[mask_conv],
+                    c=style["color"],
+                    marker=style["marker"],
+                    s=15,
+                    alpha=0.7,
+                )
 
             # Panel 6: b4
-            b4_all = np.array([iso.get('b4', 0.0) for iso in isos])
+            b4_all = np.array([iso.get("b4", 0.0) for iso in isos])
             if (~mask_conv).any():
-                axes[5].scatter(sma_quarter_all[~mask_conv], b4_all[~mask_conv],
-                               facecolors='none', edgecolors=style['color'],
-                               marker=style['marker'], s=15, alpha=0.3, linewidths=0.5)
+                axes[5].scatter(
+                    sma_quarter_all[~mask_conv],
+                    b4_all[~mask_conv],
+                    facecolors="none",
+                    edgecolors=style["color"],
+                    marker=style["marker"],
+                    s=15,
+                    alpha=0.3,
+                    linewidths=0.5,
+                )
             if mask_conv.any():
-                axes[5].scatter(sma_quarter_all[mask_conv], b4_all[mask_conv],
-                               c=style['color'], marker=style['marker'], s=15, alpha=0.7)
+                axes[5].scatter(
+                    sma_quarter_all[mask_conv],
+                    b4_all[mask_conv],
+                    c=style["color"],
+                    marker=style["marker"],
+                    s=15,
+                    alpha=0.7,
+                )
 
         # Panel 2: Fractional residual vs photutils (converged only for comparison)
-        ref_isos = res['isophotes'].get('photutils', [])
-        ref_conv = [iso for iso in ref_isos if iso['stop_code'] == 0]
+        ref_isos = res["isophotes"].get("photutils", [])
+        ref_conv = [iso for iso in ref_isos if iso["stop_code"] == 0]
         if len(ref_conv) > 3:
-            sma_ref = np.array([iso['sma'] for iso in ref_conv])
-            intens_ref = np.array([iso['intens'] for iso in ref_conv])
+            sma_ref = np.array([iso["sma"] for iso in ref_conv])
+            intens_ref = np.array([iso["intens"] for iso in ref_conv])
 
-            for method in ['isoster_pa', 'isoster_ea_34', 'isoster_ea_310']:
-                if method not in res['isophotes'] or method not in styles:
+            for method in ["isoster_pa", "isoster_ea_34", "isoster_ea_310"]:
+                if method not in res["isophotes"] or method not in styles:
                     continue
 
-                isos = res['isophotes'][method]
+                isos = res["isophotes"][method]
                 # Use ALL isophotes for residual comparison
-                sma_all = np.array([iso['sma'] for iso in isos])
-                intens_all = np.array([iso['intens'] for iso in isos])
-                stop_codes = np.array([iso['stop_code'] for iso in isos])
-                mask_conv = (stop_codes == 0)
+                sma_all = np.array([iso["sma"] for iso in isos])
+                intens_all = np.array([iso["intens"] for iso in isos])
+                stop_codes = np.array([iso["stop_code"] for iso in isos])
+                mask_conv = stop_codes == 0
 
                 intens_ref_interp = np.interp(sma_all, sma_ref, intens_ref)
                 frac_diff = (intens_all - intens_ref_interp) / intens_ref_interp * 100
-                sma_quarter_all = sma_all ** 0.25
+                sma_quarter_all = sma_all**0.25
 
                 style = styles[method]
                 # Plot failed points with open markers
                 if (~mask_conv).any():
-                    axes[1].scatter(sma_quarter_all[~mask_conv], frac_diff[~mask_conv],
-                                   facecolors='none', edgecolors=style['color'],
-                                   marker=style['marker'], s=15, alpha=0.3, linewidths=0.5)
+                    axes[1].scatter(
+                        sma_quarter_all[~mask_conv],
+                        frac_diff[~mask_conv],
+                        facecolors="none",
+                        edgecolors=style["color"],
+                        marker=style["marker"],
+                        s=15,
+                        alpha=0.3,
+                        linewidths=0.5,
+                    )
                 # Plot converged points with filled markers
                 if mask_conv.any():
-                    axes[1].scatter(sma_quarter_all[mask_conv], frac_diff[mask_conv],
-                                   c=style['color'], marker=style['marker'], s=15, alpha=0.7)
+                    axes[1].scatter(
+                        sma_quarter_all[mask_conv],
+                        frac_diff[mask_conv],
+                        c=style["color"],
+                        marker=style["marker"],
+                        s=15,
+                        alpha=0.7,
+                    )
 
         # Formatting
-        axes[0].set_yscale('log')
-        axes[0].set_ylabel('Intensity')
-        axes[0].legend(loc='upper right', fontsize=8)
+        axes[0].set_yscale("log")
+        axes[0].set_ylabel("Intensity")
+        axes[0].legend(loc="upper right", fontsize=8)
 
-        axes[1].axhline(0, color='gray', linestyle='--', linewidth=0.5)
-        axes[1].axhline(1, color='gray', linestyle=':', linewidth=0.5)
-        axes[1].axhline(-1, color='gray', linestyle=':', linewidth=0.5)
-        axes[1].set_ylabel('Residual (%)')
+        axes[1].axhline(0, color="gray", linestyle="--", linewidth=0.5)
+        axes[1].axhline(1, color="gray", linestyle=":", linewidth=0.5)
+        axes[1].axhline(-1, color="gray", linestyle=":", linewidth=0.5)
+        axes[1].set_ylabel("Residual (%)")
         axes[1].set_ylim(-5, 5)
 
-        axes[2].set_ylabel('Ellipticity')
+        axes[2].set_ylabel("Ellipticity")
         axes[2].set_ylim(0, 0.8)
 
-        axes[3].set_ylabel('PA (deg)')
+        axes[3].set_ylabel("PA (deg)")
 
-        axes[4].set_ylabel('a4')
-        axes[4].axhline(0, color='gray', linestyle='--', linewidth=0.5)
+        axes[4].set_ylabel("a4")
+        axes[4].axhline(0, color="gray", linestyle="--", linewidth=0.5)
 
-        axes[5].set_ylabel('b4')
-        axes[5].axhline(0, color='gray', linestyle='--', linewidth=0.5)
-        axes[5].set_xlabel('SMA^0.25 (pixels)')
+        axes[5].set_ylabel("b4")
+        axes[5].axhline(0, color="gray", linestyle="--", linewidth=0.5)
+        axes[5].set_xlabel("SMA^0.25 (pixels)")
 
         plt.tight_layout()
-        plt.savefig(output_dir / f'{galaxy_name}_profile_comparison.png', dpi=150)
+        plt.savefig(output_dir / f"{galaxy_name}_profile_comparison.png", dpi=150)
         plt.close()
 
     def _plot_residual_maps(self, galaxy_name, image, res, output_dir):
@@ -715,59 +823,60 @@ class TestEAHarmonicsComparison:
         from matplotlib.colors import TwoSlopeNorm
 
         fig, axes = plt.subplots(2, 4, figsize=(16, 8))
-        fig.suptitle(f'{galaxy_name} - 2D Model and Residuals', fontsize=14)
+        fig.suptitle(f"{galaxy_name} - 2D Model and Residuals", fontsize=14)
 
-        methods = ['photutils', 'isoster_pa', 'isoster_ea_34', 'isoster_ea_310']
-        titles = ['photutils', 'isoster PA', 'isoster EA [3,4]', 'isoster EA [3..10]']
+        methods = ["photutils", "isoster_pa", "isoster_ea_34", "isoster_ea_310"]
+        titles = ["photutils", "isoster PA", "isoster EA [3,4]", "isoster EA [3..10]"]
 
         # Log scale for image display
         vmin, vmax = np.nanpercentile(image[image > 0], [1, 99])
 
         for i, (method, title) in enumerate(zip(methods, titles)):
-            isos = res['isophotes'].get(method, [])
+            isos = res["isophotes"].get(method, [])
             if len(isos) < 5:
-                axes[0, i].text(0.5, 0.5, 'No data', ha='center', va='center',
-                               transform=axes[0, i].transAxes)
-                axes[1, i].text(0.5, 0.5, 'No data', ha='center', va='center',
-                               transform=axes[1, i].transAxes)
+                axes[0, i].text(0.5, 0.5, "No data", ha="center", va="center", transform=axes[0, i].transAxes)
+                axes[1, i].text(0.5, 0.5, "No data", ha="center", va="center", transform=axes[1, i].transAxes)
                 continue
 
             # Build model
             model = build_isoster_model(image.shape, isos)
 
             # Row 1: Model
-            im0 = axes[0, i].imshow(np.log10(np.clip(model, vmin, None)),
-                                     cmap='viridis', origin='lower',
-                                     vmin=np.log10(vmin), vmax=np.log10(vmax))
-            axes[0, i].set_title(f'{title}\nModel')
-            axes[0, i].axis('off')
+            im0 = axes[0, i].imshow(
+                np.log10(np.clip(model, vmin, None)),
+                cmap="viridis",
+                origin="lower",
+                vmin=np.log10(vmin),
+                vmax=np.log10(vmax),
+            )
+            axes[0, i].set_title(f"{title}\nModel")
+            axes[0, i].axis("off")
 
             # Row 2: Fractional Residual
-            with np.errstate(divide='ignore', invalid='ignore'):
+            with np.errstate(divide="ignore", invalid="ignore"):
                 frac_resid = (image - model) / image * 100
-                frac_resid = np.where(np.isfinite(frac_resid) & (image > vmin),
-                                      frac_resid, np.nan)
+                frac_resid = np.where(np.isfinite(frac_resid) & (image > vmin), frac_resid, np.nan)
 
             norm = TwoSlopeNorm(vmin=-5, vcenter=0, vmax=5)
-            im1 = axes[1, i].imshow(frac_resid, cmap='RdBu_r', origin='lower', norm=norm)
-            axes[1, i].set_title(f'Residual (%)')
-            axes[1, i].axis('off')
+            im1 = axes[1, i].imshow(frac_resid, cmap="RdBu_r", origin="lower", norm=norm)
+            axes[1, i].set_title("Residual (%)")
+            axes[1, i].axis("off")
 
         # Colorbars
-        fig.colorbar(im0, ax=axes[0, :], shrink=0.6, label='log10(Intensity)')
-        fig.colorbar(im1, ax=axes[1, :], shrink=0.6, label='(Data-Model)/Data (%)')
+        fig.colorbar(im0, ax=axes[0, :], shrink=0.6, label="log10(Intensity)")
+        fig.colorbar(im1, ax=axes[1, :], shrink=0.6, label="(Data-Model)/Data (%)")
 
         plt.tight_layout()
-        plt.savefig(output_dir / f'{galaxy_name}_residual_maps.png', dpi=150)
+        plt.savefig(output_dir / f"{galaxy_name}_residual_maps.png", dpi=150)
         plt.close()
 
     def _plot_timing_comparison(self, all_results, output_dir):
         """Plot timing benchmark comparison."""
         import matplotlib.pyplot as plt
 
-        methods = ['photutils', 'isoster_pa', 'isoster_ea_34', 'isoster_ea_310']
-        labels = ['photutils', 'isoster PA', 'isoster EA [3,4]', 'isoster EA [3..10]']
-        colors = ['gray', 'blue', 'green', 'red']
+        methods = ["photutils", "isoster_pa", "isoster_ea_34", "isoster_ea_310"]
+        labels = ["photutils", "isoster PA", "isoster EA [3,4]", "isoster EA [3..10]"]
+        colors = ["gray", "blue", "green", "red"]
 
         fig, ax = plt.subplots(figsize=(10, 6))
 
@@ -776,23 +885,22 @@ class TestEAHarmonicsComparison:
         offset = 0
 
         for galaxy_name, res in all_results.items():
-            timing = res.get('timing', {})
-            means = [timing.get(m, {}).get('mean', 0) for m in methods]
-            stds = [timing.get(m, {}).get('std', 0) for m in methods]
+            timing = res.get("timing", {})
+            means = [timing.get(m, {}).get("mean", 0) for m in methods]
+            stds = [timing.get(m, {}).get("std", 0) for m in methods]
 
-            bars = ax.bar(x + offset, means, width, yerr=stds, label=galaxy_name,
-                         alpha=0.8, capsize=3)
+            bars = ax.bar(x + offset, means, width, yerr=stds, label=galaxy_name, alpha=0.8, capsize=3)
             offset += width
 
-        ax.set_ylabel('Time (seconds)')
-        ax.set_title('Fitting Time Comparison')
+        ax.set_ylabel("Time (seconds)")
+        ax.set_title("Fitting Time Comparison")
         ax.set_xticks(x + width / 2)
-        ax.set_xticklabels(labels, rotation=15, ha='right')
+        ax.set_xticklabels(labels, rotation=15, ha="right")
         ax.legend()
-        ax.grid(axis='y', alpha=0.3)
+        ax.grid(axis="y", alpha=0.3)
 
         plt.tight_layout()
-        plt.savefig(output_dir / 'ea_harmonics_benchmark.png', dpi=150)
+        plt.savefig(output_dir / "ea_harmonics_benchmark.png", dpi=150)
         plt.close()
 
     def _save_results(self, all_results):
@@ -817,16 +925,15 @@ class TestEAHarmonicsComparison:
         json_results = {}
         for galaxy_name, res in all_results.items():
             json_results[galaxy_name] = {
-                'timing': res.get('timing', {}),
-                'comparison': res.get('comparison', {}),
-                'residual_stats': res.get('models', {}),
-                'center': res.get('center', (0, 0)),
-                'n_isophotes': {method: len(isos) for method, isos
-                               in res.get('isophotes', {}).items()},
+                "timing": res.get("timing", {}),
+                "comparison": res.get("comparison", {}),
+                "residual_stats": res.get("models", {}),
+                "center": res.get("center", (0, 0)),
+                "n_isophotes": {method: len(isos) for method, isos in res.get("isophotes", {}).items()},
             }
 
-        output_file = OUTPUT_DIR / 'ea_harmonics_results.json'
-        with open(output_file, 'w') as f:
+        output_file = OUTPUT_DIR / "ea_harmonics_results.json"
+        with open(output_file, "w") as f:
             json.dump(convert(json_results), f, indent=2)
 
         print(f"\nResults saved to {output_file}")
@@ -836,5 +943,5 @@ class TestEAHarmonicsComparison:
 # Standalone Runner
 # =============================================================================
 
-if __name__ == '__main__':
-    pytest.main([__file__, '-v', '-m', 'real_data', '-s'])
+if __name__ == "__main__":
+    pytest.main([__file__, "-v", "-m", "real_data", "-s"])

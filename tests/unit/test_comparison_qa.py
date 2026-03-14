@@ -1,9 +1,6 @@
 """Tests for multi-method comparison QA figure helpers."""
 
-from pathlib import Path
-
 import numpy as np
-import pytest
 
 from isoster.plotting import (
     METHOD_STYLES,
@@ -86,12 +83,14 @@ class TestBuildMethodProfile:
     def test_from_array_dict(self):
         """AutoProf-style: dict with numpy array values."""
         sma = np.arange(1.0, 11.0)
-        prof = build_method_profile({
-            "sma": sma,
-            "intens": 100.0 / sma,
-            "eps": np.full(10, 0.3),
-            "pa": np.full(10, 0.5),
-        })
+        prof = build_method_profile(
+            {
+                "sma": sma,
+                "intens": 100.0 / sma,
+                "eps": np.full(10, 0.3),
+                "pa": np.full(10, 0.5),
+            }
+        )
         assert prof is not None
         assert len(prof["sma"]) == 10
         assert "stop_codes" not in prof
@@ -164,12 +163,14 @@ class TestPlotComparisonQaFigure:
         model = np.full((64, 64), 100.0)
         isos = _make_isophote_list(15)
         sma = np.arange(1.0, 16.0)
-        autoprof_prof = build_method_profile({
-            "sma": sma,
-            "intens": 100.0 / sma,
-            "eps": np.full(15, 0.3),
-            "pa": np.full(15, 0.5),
-        })
+        autoprof_prof = build_method_profile(
+            {
+                "sma": sma,
+                "intens": 100.0 / sma,
+                "eps": np.full(15, 0.3),
+                "pa": np.full(15, 0.5),
+            }
+        )
         out = tmp_path / "mode3.png"
         plot_comparison_qa_figure(
             image=image,
@@ -189,7 +190,10 @@ class TestPlotComparisonQaFigure:
         image = _make_image()
         out = tmp_path / "empty.png"
         plot_comparison_qa_figure(
-            image=image, profiles={}, title="empty", output_path=out,
+            image=image,
+            profiles={},
+            title="empty",
+            output_path=out,
         )
         assert out.exists()
 
@@ -229,12 +233,14 @@ class TestPlotComparisonQaFigure:
         """Method without stop_codes uses plain scatter."""
         image = _make_image()
         sma = np.arange(1.0, 21.0)
-        prof = build_method_profile({
-            "sma": sma,
-            "intens": 100.0 / sma,
-            "eps": np.full(20, 0.3),
-            "pa": np.full(20, 0.5),
-        })
+        prof = build_method_profile(
+            {
+                "sma": sma,
+                "intens": 100.0 / sma,
+                "eps": np.full(20, 0.3),
+                "pa": np.full(20, 0.5),
+            }
+        )
         out = tmp_path / "no_stop.png"
         plot_comparison_qa_figure(
             image=image,
@@ -286,9 +292,7 @@ class TestCrossMethodPaNormalization:
 
         # They should now be within ~5 deg of each other (not 180 apart)
         diff = np.abs(np.nanmedian(norm_a) - np.nanmedian(norm_b))
-        assert diff < 10.0, (
-            f"PA profiles should be close after anchoring, got diff={diff:.1f} deg"
-        )
+        assert diff < 10.0, f"PA profiles should be close after anchoring, got diff={diff:.1f} deg"
 
     def test_pa_no_offset_preserved(self):
         """Two methods with similar PAs should stay similar after anchoring."""

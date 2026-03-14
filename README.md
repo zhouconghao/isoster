@@ -19,29 +19,38 @@ ISOSTER is a Python library for elliptical isophote fitting that provides **10-1
 
 ## Installation
 
-```bash
-# Install from source
-pip install .
+ISOSTER requires Python 3.9+ and uses [uv](https://docs.astral.sh/uv/) for environment and dependency management.
 
-# Or set up a development environment with uv
-uv sync --extra dev --extra docs
+```bash
+# Clone and install
+git clone https://github.com/shuang-stat/isoster.git
+cd isoster
+uv sync                          # core dependencies only
+
+# Optional extras
+uv sync --extra asdf             # ASDF file format support
+uv sync --extra dev --extra docs # development + documentation tools
 ```
+
+If you prefer pip, `pip install .` also works, but `uv` is the supported workflow for development.
 
 ## Quick Start
 
 ```python
 import isoster
+from isoster.config import IsosterConfig
 from astropy.io import fits
 
 # Load a galaxy image
 image = fits.getdata("galaxy.fits")
 
-# Fit isophotes
-config = {'sma0': 10.0, 'maxsma': 100.0}
-results = isoster.fit_image(image, None, config)
+# Configure and fit isophotes
+config = IsosterConfig(sma0=10.0, maxsma=100.0)
+results = isoster.fit_image(image, config=config)
 
-# Save results to FITS
+# Save results (FITS or ASDF)
 isoster.isophote_results_to_fits(results, "isophotes.fits")
+isoster.isophote_results_to_asdf(results, "isophotes.asdf")  # requires asdf extra
 
 # Build a 2D model with harmonic deviations
 model = isoster.build_isoster_model(
@@ -79,11 +88,10 @@ results_i = isoster.fit_image(image_i, None, config, template='galaxy_g.fits')
 
 ## Documentation
 
-- [User Guide](docs/user-guide.md) — usage guidance, public API, and stop-code reference
-- [Configuration Reference](docs/configuration-reference.md) — all parameters and guidelines
-- [Algorithm Notes](docs/algorithm.md) — fitting and sampling implementation details
-- [Architecture Spec](docs/spec.md) — interfaces and design decisions
-- [Future Roadmap](docs/future.md) — planned upgrades and research directions
+- [User Guide](docs/01-user-guide.md) — usage guidance, public API, and stop-code reference
+- [Configuration Reference](docs/02-configuration-reference.md) — all parameters and guidelines
+- [Algorithm Notes](docs/03-algorithm.md) — fitting and sampling implementation details
+- [Architecture](docs/04-architecture.md) — interfaces and design decisions
 
 ## Repository Structure
 
