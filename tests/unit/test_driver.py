@@ -122,6 +122,48 @@ def test_central_pixel_rounding_parametrized(x0, y0, expected_y, expected_x):
         f"For ({x0}, {y0}): Expected image[{expected_y},{expected_x}]={expected_val}, got {result['intens']}"
 
 
+class TestCentralPixelBoundsCheck:
+    """Regression tests for out-of-bounds center coordinates in fit_central_pixel."""
+
+    def test_out_of_bounds_x0(self):
+        """x0 far outside image should return invalid, not IndexError."""
+        image = np.ones((10, 10)) * 42.0
+        result = fit_central_pixel(image, None, x0=100.0, y0=5.0)
+        assert result['valid'] is False
+        assert np.isnan(result['intens'])
+        assert result['stop_code'] == -1
+
+    def test_out_of_bounds_y0(self):
+        """y0 far outside image should return invalid, not IndexError."""
+        image = np.ones((10, 10)) * 42.0
+        result = fit_central_pixel(image, None, x0=5.0, y0=100.0)
+        assert result['valid'] is False
+        assert np.isnan(result['intens'])
+        assert result['stop_code'] == -1
+
+    def test_negative_coords(self):
+        """Negative x0/y0 should return invalid, not IndexError."""
+        image = np.ones((10, 10)) * 42.0
+        result = fit_central_pixel(image, None, x0=-5.0, y0=-5.0)
+        assert result['valid'] is False
+        assert np.isnan(result['intens'])
+        assert result['stop_code'] == -1
+
+    def test_edge_pixel_still_valid(self):
+        """Coordinates at the image boundary should still work."""
+        image = np.arange(100).reshape(10, 10).astype(float)
+        result = fit_central_pixel(image, None, x0=9.0, y0=9.0)
+        assert result['valid'] is True
+        assert result['intens'] == image[9, 9]
+
+    def test_just_outside_boundary(self):
+        """Coordinates rounding to exactly shape should be invalid."""
+        image = np.ones((10, 10)) * 42.0
+        result = fit_central_pixel(image, None, x0=9.6, y0=5.0)
+        assert result['valid'] is False
+        assert np.isnan(result['intens'])
+
+
 def _build_mock_isophote(sma, stop_code=0):
     """Create a minimal fit_isophote-like result for driver-flow tests."""
     return {
