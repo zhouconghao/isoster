@@ -131,10 +131,17 @@ def fit_central_pixel(image, mask, x0, y0, debug=False):
     """
     # Simple estimation for center
     # Use np.round() instead of int() to avoid truncation bias
-    val = image[int(np.round(y0)), int(np.round(x0))]
-    valid = True
-    if mask is not None:
-        if mask[int(np.round(y0)), int(np.round(x0))]:
+    h, w = image.shape
+    iy, ix = int(np.round(y0)), int(np.round(x0))
+
+    # Bounds check: out-of-bounds center → invalid central pixel
+    if iy < 0 or iy >= h or ix < 0 or ix >= w:
+        valid = False
+        val = np.nan
+    else:
+        val = image[iy, ix]
+        valid = True
+        if mask is not None and mask[iy, ix]:
             valid = False
             
     result = {
