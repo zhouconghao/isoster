@@ -182,3 +182,55 @@ def test_build_ellipse_model_deprecated_alias_behavior() -> None:
     )
 
     assert np.allclose(current_model, legacy_model, equal_nan=True)
+
+
+def test_fit_image_returns_expected_keys() -> None:
+    """fit_image() result dict must have 'isophotes' and 'config' keys with documented structure."""
+    from isoster.driver import fit_image as driver_fit_image
+
+    image = create_gaussian_test_image()
+    config = IsosterConfig(
+        x0=60.0, y0=60.0, sma0=10.0, minsma=5.0, maxsma=30.0,
+        eps=0.25, pa=0.2, fix_center=True, fix_eps=True, fix_pa=True,
+    )
+    result = driver_fit_image(image, config=config)
+
+    # Top-level keys
+    assert "isophotes" in result, "Result must contain 'isophotes' key"
+    assert "config" in result, "Result must contain 'config' key"
+    assert isinstance(result["isophotes"], list)
+    assert isinstance(result["config"], IsosterConfig)
+
+    # Per-isophote key set
+    required_iso_keys = {
+        "sma", "intens", "intens_err", "eps", "pa",
+        "x0", "y0", "rms", "stop_code", "niter",
+    }
+    for iso in result["isophotes"]:
+        missing = required_iso_keys - set(iso.keys())
+        assert not missing, f"Isophote at sma={iso.get('sma')} missing keys: {missing}"
+
+
+def test_isophote_results_fits_round_trip(tmp_path) -> None:
+    """Write isophotes to FITS and read back; values should match."""
+    from isoster.utils import isophote_results_from_fits, isophote_results_to_fits
+
+    isophotes = create_public_api_isophotes()
+    fits_path = str(tmp_path / "round_trip.fits")
+
+    isophote_results_to_fits({"isophotes": isophotes, "config": IsosterConfig()}, fits_path)
+    loaded = isophote_results_from_fits(fits_path)
+
+    assert len(loaded["isophotes"]) == len(isophotes)
+    for orig, loaded_iso in zip(isophotes, loaded["isophotes"]):
+        assert loaded_iso["sma"] == pytest.approx(orig["sma"])
+        assert loaded_iso["intens"] == pytest.approx(orig["intens"], rel=1e-5)
+        assert loaded_iso["stop_code"] == orig["stop_code"]
+
+
+def test_optimize_facade_importable() -> None:
+    """The isoster.optimize module should be importable (it is a facade)."""
+    import importlib
+
+    mod = importlib.import_module("isoster.optimize")
+    assert mod is not None

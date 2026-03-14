@@ -17,7 +17,7 @@ class TestModel(unittest.TestCase):
         # At sma=10, intensity should be 100
         r = np.sqrt((np.arange(100) - 50.0) ** 2 + (50.0 - 50.0) ** 2)
         idx_at_sma = np.argmin(np.abs(r - 10.0))  # Find pixel closest to sma=10
-        self.assertAlmostEqual(model[50, idx_at_sma], 100.0, places=1)
+        self.assertAlmostEqual(model[50, idx_at_sma], 100.0, places=2)
 
         # Outside sma, should use boundary value (or fill)
         # With single isophote, pixels beyond sma=10 get fill value (0.0)
@@ -82,6 +82,13 @@ class TestModel(unittest.TestCase):
         # is elongated along the PA direction.
         # With buggy interpolation (~90 deg), the roles reverse.
         self.assertGreater(val_along_major, val_along_minor, "PA interpolation should go through 180/0, not through 90")
+        # The intensity difference should be substantial (>10% of mean) due to eps=0.3
+        mean_val = (val_along_major + val_along_minor) / 2.0
+        if mean_val > 0:
+            self.assertGreater(
+                (val_along_major - val_along_minor) / mean_val, 0.10,
+                "Intensity difference along major vs minor axis should be >10% of mean",
+            )
 
     def test_nan_isophotes_filtered_before_interpolation(self):
         """Regression test for I4: NaN intensities should be filtered out.
@@ -321,6 +328,10 @@ class TestModel(unittest.TestCase):
 
         max_diff = np.max(np.abs(model_with_harm - model_no_harm))
         self.assertGreater(max_diff, 0.01, "Harmonics present in all rows should affect the model")
+
+        # Model shape should match input shape
+        self.assertEqual(model_with_harm.shape, shape)
+        self.assertEqual(model_no_harm.shape, shape)
 
     # ------------------------------------------------------------------
     # Issue 2: EA mode angle space mismatch

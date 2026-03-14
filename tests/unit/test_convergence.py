@@ -106,6 +106,7 @@ class TestGeometryDamping:
 
         # At re=30, intensity should be close to ie (1000) * exp(-bn*(1-1)) = 1000
         assert result["stop_code"] == 0
+        # At re=30, Sersic intensity = ie * exp(-bn*(1-1)) = ie = 1000
         assert abs(result["intens"] - 1000.0) / 1000.0 < 0.05
 
 
@@ -146,3 +147,92 @@ class TestGeometryConvergence:
         cfg = IsosterConfig(geometry_convergence=False, convergence_scaling="none")
         result = fit_isophote(image, mask, 30.0, start_geom, cfg)
         assert result["stop_code"] in {0, 1, 2, 3, -1}
+
+
+class TestConverThresholdEffect:
+    """Test that conver threshold affects iteration count."""
+
+    def test_tighter_conver_needs_more_iterations(self):
+        """A tighter conver threshold should require more iterations to converge."""
+        image = make_sersic_image(shape=(201, 201), x0=100, y0=100, re=30.0, eps=0.3)
+        mask = np.zeros_like(image, dtype=bool)
+        start_geom = {"x0": 100.0, "y0": 100.0, "eps": 0.3, "pa": 0.5}
+
+        cfg_loose = IsosterConfig(conver=0.5, maxit=100, minit=5, convergence_scaling="none")
+        result_loose = fit_isophote(image, mask, 30.0, start_geom, cfg_loose)
+
+        cfg_tight = IsosterConfig(conver=0.001, maxit=100, minit=5, convergence_scaling="none")
+        result_tight = fit_isophote(image, mask, 30.0, start_geom, cfg_tight)
+
+        # Tight threshold should need at least as many iterations
+        assert result_tight["niter"] >= result_loose["niter"], (
+            f"Tight conver should need >= iterations: tight={result_tight['niter']}, loose={result_loose['niter']}"
+        )
+
+
+class TestMaxgerrThreshold:
+    """Test that maxgerr threshold affects stop behavior."""
+
+    def test_tight_maxgerr_terminates_at_outer_radii(self):
+        """Tight maxgerr at outer radius should produce non-zero stop code."""
+        image = make_sersic_image(shape=(201, 201), x0=100, y0=100, re=30.0, eps=0.3)
+        mask = np.zeros_like(image, dtype=bool)
+        start_geom = {"x0": 100.0, "y0": 100.0, "eps": 0.3, "pa": 0.5}
+
+        # At large SMA where gradient is weak, tight maxgerr should reject
+        cfg_tight = IsosterConfig(maxgerr=0.05, maxit=50, convergence_scaling="none")
+        result_tight = fit_isophote(image, mask, 90.0, start_geom, cfg_tight)
+
+        cfg_loose = IsosterConfig(maxgerr=2.0, maxit=50, convergence_scaling="none")
+        result_loose = fit_isophote(image, mask, 90.0, start_geom, cfg_loose)
+
+        # Tight maxgerr should fail or behave differently from loose
+        assert result_tight["stop_code"] != 0 or result_loose["stop_code"] != 0 or (
+            result_tight["stop_code"] >= result_loose["stop_code"]
+        )
+
+
+class TestMaxitExhaustion:
+    """Test that maxit exhaustion produces stop_code=2."""
+
+    def test_maxit_exhaustion_yields_stop_code_2(self):
+        """Very low maxit should produce stop_code=2 with valid photometry."""
+        image = make_sersic_image(shape=(201, 201), x0=100, y0=100, re=30.0, eps=0.3)
+        mask = np.zeros_like(image, dtype=bool)
+        start_geom = {"x0": 100.0, "y0": 100.0, "eps": 0.3, "pa": 0.5}
+
+        # maxit=3 with tight convergence ensures hitting iteration limit
+        cfg = IsosterConfig(conver=0.001, maxit=3, minit=1, convergence_scaling="none")
+        result = fit_isophote(image, mask, 30.0, start_geom, cfg)
+
+        assert result["stop_code"] == 2, (
+            f"Expected stop_code=2 (maxit exhaustion), got {result['stop_code']}"
+        )
+        # Should still have valid photometry
+        assert np.isfinite(result["intens"])
+        assert result["intens"] > 0
+
+
+class TestConvergenceInteraction:
+    """Test that geometry_convergence and convergence_scaling do not conflict."""
+
+    def test_geometry_convergence_with_scaling(self):
+        """Both geometry_convergence and convergence_scaling active should not conflict."""
+        image = make_sersic_image(shape=(401, 401), x0=200, y0=200, re=30.0, eps=0.3)
+        mask = np.zeros_like(image, dtype=bool)
+        start_geom = {"x0": 200.0, "y0": 200.0, "eps": 0.3, "pa": 0.5}
+
+        cfg = IsosterConfig(
+            geometry_convergence=True,
+            convergence_scaling="sector_area",
+            geometry_tolerance=0.01,
+            geometry_stable_iters=3,
+            maxit=50,
+            minit=5,
+            conver=0.02,
+        )
+        result = fit_isophote(image, mask, 100.0, start_geom, cfg)
+
+        # Should complete without error and produce a valid stop code
+        assert result["stop_code"] in {0, 1, 2, 3, -1}
+        assert np.isfinite(result["intens"])

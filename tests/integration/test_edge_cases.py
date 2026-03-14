@@ -342,8 +342,38 @@ class TestMaskedImages:
         )
 
 
+class TestOutOfBoundsCenter:
+    """Test fit_image with out-of-bounds center coordinates."""
+
+    def test_fit_image_with_out_of_bounds_center(self):
+        """fit_image() with OOB center should return results (not crash) with all stop_code != 0."""
+        image = np.ones((100, 100)) * 100.0
+        y, x = np.ogrid[:100, :100]
+        r = np.sqrt((x - 50) ** 2 + (y - 50) ** 2)
+        image += 1000.0 * np.exp(-r / 15.0)
+
+        # x0=500 is far outside the 100x100 image
+        config = IsosterConfig(
+            x0=500.0, y0=500.0, sma0=10.0, minsma=5.0, maxsma=30.0,
+        )
+
+        result = fit_image(image, None, config)
+
+        assert "isophotes" in result
+        # All isophotes should have non-zero stop codes (failures)
+        for iso in result["isophotes"]:
+            assert iso["stop_code"] != 0, (
+                f"OOB center should not produce converged isophotes, got stop_code=0 at sma={iso['sma']}"
+            )
+
+
 class TestConfigValidation:
-    """Test config validation and error handling."""
+    """Test config validation via fit_image() (integration-level).
+
+    Note: unit-level Pydantic validation is tested in tests/unit/test_config_validation.py.
+    This class tests that config validation errors propagate correctly through the
+    full driver path.
+    """
 
     def test_invalid_ellipticity(self):
         """Test that invalid ellipticity raises ValidationError."""
