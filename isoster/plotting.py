@@ -11,12 +11,14 @@ from __future__ import annotations
 
 import platform
 import shutil
+from pathlib import Path
 
-import numpy as np
-import matplotlib.pyplot as plt
 import matplotlib.gridspec as gridspec
+import matplotlib.pyplot as plt
+import numpy as np
 from matplotlib.lines import Line2D
-from matplotlib.patches import Ellipse as MPLEllipse, Polygon as MPLPolygon
+from matplotlib.patches import Ellipse as MPLEllipse
+from matplotlib.patches import Polygon as MPLPolygon
 
 # ---------------------------------------------------------------------------
 # Stop-code styling constants
@@ -86,6 +88,7 @@ METHOD_STYLES: dict[str, dict[str, str | float]] = {
 # Style and text helpers
 # ---------------------------------------------------------------------------
 
+
 def style_for_stop_code(stop_code: int, monochrome: bool = False) -> dict[str, str]:
     """Return plotting style dict (color, marker, label) for a stop code."""
     if monochrome:
@@ -99,9 +102,7 @@ def style_for_stop_code(stop_code: int, monochrome: bool = False) -> dict[str, s
 
 def configure_qa_plot_style() -> None:
     """Apply shared plotting style for QA figures."""
-    latex_available = (
-        platform.system() != "Windows" and shutil.which("latex") is not None
-    )
+    latex_available = platform.system() != "Windows" and shutil.which("latex") is not None
     plt.rcParams.update(
         {
             "font.family": "serif",
@@ -129,15 +130,16 @@ def latex_safe_text(label_text: str) -> str:
 # PA normalization (unwrap-aware)
 # ---------------------------------------------------------------------------
 
+
 def normalize_pa_degrees(pa_degrees: np.ndarray, anchor: float | None = None) -> np.ndarray:
     """Normalize PA values while preserving continuity across 180-degree periodicity.
 
     Uses double-angle unwrap to avoid spurious jumps larger than 90 degrees.
-    
+
     Args:
         pa_degrees: Input PA array in degrees.
-        anchor: If provided, shift the entire unwrapped profile by multiples of 
-                180 to be as close as possible to this anchor value at the first 
+        anchor: If provided, shift the entire unwrapped profile by multiples of
+                180 to be as close as possible to this anchor value at the first
                 valid point.
     """
     pa = np.asarray(pa_degrees, dtype=float)
@@ -148,18 +150,18 @@ def normalize_pa_degrees(pa_degrees: np.ndarray, anchor: float | None = None) ->
 
     # 1. Force into [0, 180) before unwrapping to ensure a clean start
     wrapped = np.mod(pa[finite_mask], 180.0)
-    
+
     # 2. Double-angle unwrap (since PA has 180-deg period, 2*PA has 360-deg period)
     doubled_rad = np.deg2rad(2.0 * wrapped)
     unwrapped_rad = np.unwrap(doubled_rad)
     normalized = np.rad2deg(0.5 * unwrapped_rad)
-    
+
     # 3. Optional anchoring to a global reference (to avoid large offsets from 0-180)
     if anchor is not None:
         first_val = normalized[0]
         offset = 180.0 * np.round((anchor - first_val) / 180.0)
         normalized += offset
-    
+
     output[finite_mask] = normalized
     return output
 
@@ -202,29 +204,22 @@ def build_method_profile(
         sma = np.array([iso["sma"] for iso in data])
         profile = {
             "sma": sma,
-            "x_axis": sma ** 0.25,
+            "x_axis": sma**0.25,
             "intens": np.array([iso["intens"] for iso in data]),
             "eps": np.array([iso["eps"] for iso in data]),
             "pa": np.array([iso["pa"] for iso in data]),
         }
         if "stop_code" in data[0]:
-            profile["stop_codes"] = np.array(
-                [iso.get("stop_code", 0) for iso in data]
-            )
-        for key in ("x0", "y0", "intens_err", "rms",
-                    "eps_err", "pa_err", "x0_err", "y0_err"):
+            profile["stop_codes"] = np.array([iso.get("stop_code", 0) for iso in data])
+        for key in ("x0", "y0", "intens_err", "rms", "eps_err", "pa_err", "x0_err", "y0_err"):
             if key in data[0]:
-                profile[key] = np.array(
-                    [iso.get(key, np.nan) for iso in data]
-                )
+                profile[key] = np.array([iso.get(key, np.nan) for iso in data])
         # Preserve harmonic coefficients (a3, b3, a4, b4, ...)
         for key in data[0]:
             if len(key) >= 2 and key[0] in ("a", "b") and key[1:].isdigit():
                 n = int(key[1:])
                 if n >= 3:
-                    profile[key] = np.array(
-                        [iso.get(key, 0.0) for iso in data]
-                    )
+                    profile[key] = np.array([iso.get(key, 0.0) for iso in data])
         return profile
 
     elif isinstance(data, dict):
@@ -233,13 +228,23 @@ def build_method_profile(
             return None
         profile = {
             "sma": sma,
-            "x_axis": sma ** 0.25,
+            "x_axis": sma**0.25,
             "intens": np.asarray(data["intens"]),
             "eps": np.asarray(data["eps"]),
             "pa": np.asarray(data["pa"]),
         }
-        for key in ("stop_codes", "stop_code", "x0", "y0", "intens_err", "rms",
-                    "eps_err", "pa_err", "x0_err", "y0_err"):
+        for key in (
+            "stop_codes",
+            "stop_code",
+            "x0",
+            "y0",
+            "intens_err",
+            "rms",
+            "eps_err",
+            "pa_err",
+            "x0_err",
+            "y0_err",
+        ):
             if key in data and isinstance(data[key], np.ndarray):
                 out_key = "stop_codes" if key == "stop_code" else key
                 profile[out_key] = data[key]
@@ -257,6 +262,7 @@ def build_method_profile(
 # ---------------------------------------------------------------------------
 # Arcsinh display pipeline
 # ---------------------------------------------------------------------------
+
 
 def derive_arcsinh_parameters(
     image_values: np.ndarray,
@@ -277,9 +283,7 @@ def derive_arcsinh_parameters(
     clipped = np.clip(image_values, low, high)
     shifted = np.clip(clipped - low, 0.0, None)
     positive = shifted[np.isfinite(shifted) & (shifted > 0.0)]
-    scale = (
-        float(np.nanpercentile(positive, scale_percentile)) if positive.size else 1.0
-    )
+    scale = float(np.nanpercentile(positive, scale_percentile)) if positive.size else 1.0
     scale = max(scale, 1e-12)
 
     display = np.arcsinh(shifted / scale)
@@ -324,7 +328,11 @@ def make_arcsinh_display(
         scale_percentile=scale_percentile,
     )
     display, vmin, vmax = make_arcsinh_display_from_parameters(
-        image_values, low=low, high=high, scale=scale, vmax=vmax,
+        image_values,
+        low=low,
+        high=high,
+        scale=scale,
+        vmax=vmax,
     )
     return display, vmin, vmax, scale
 
@@ -333,9 +341,8 @@ def make_arcsinh_display(
 # Residual computation
 # ---------------------------------------------------------------------------
 
-def compute_fractional_residual_percent(
-    image: np.ndarray, model: np.ndarray
-) -> np.ndarray:
+
+def compute_fractional_residual_percent(image: np.ndarray, model: np.ndarray) -> np.ndarray:
     """Compute residual map as ``100 * (model - data) / data``."""
     residual = np.full(image.shape, np.nan, dtype=float)
     valid = np.isfinite(image) & (np.abs(image) > 0.0)
@@ -346,6 +353,7 @@ def compute_fractional_residual_percent(
 # ---------------------------------------------------------------------------
 # Robust axis-limit helpers
 # ---------------------------------------------------------------------------
+
 
 def robust_limits(
     values: np.ndarray, lower_percentile: float = 5.0, upper_percentile: float = 95.0
@@ -447,6 +455,7 @@ def set_x_limits_with_right_margin(
 # ---------------------------------------------------------------------------
 # Isophote overlay drawing
 # ---------------------------------------------------------------------------
+
 
 def _detect_harmonic_orders(iso: dict) -> list[int]:
     """Return sorted list of harmonic orders present in an isophote dict."""
@@ -594,6 +603,7 @@ def draw_isophote_overlays(
 # Scatter-by-stop-code profile plotting
 # ---------------------------------------------------------------------------
 
+
 def plot_profile_by_stop_code(
     axis,
     x_values: np.ndarray,
@@ -616,9 +626,7 @@ def plot_profile_by_stop_code(
     """
     unique_stop_codes = sorted(
         {int(code) for code in stop_codes[np.isfinite(stop_codes)]},
-        key=lambda code: (
-            (0, 0) if code == 0 else (1, code) if code > 0 else (2, abs(code))
-        ),
+        key=lambda code: (0, 0) if code == 0 else (1, code) if code > 0 else (2, abs(code)),
     )
     for stop_code in unique_stop_codes:
         mask = stop_codes == stop_code
@@ -664,6 +672,7 @@ def plot_profile_by_stop_code(
 # ---------------------------------------------------------------------------
 # Main QA summary figure
 # ---------------------------------------------------------------------------
+
 
 def plot_qa_summary(
     title,
@@ -723,7 +732,7 @@ def plot_qa_summary(
     i_stop = get_arr("stop_code", 0).astype(int)
 
     # Derived columns
-    x_axis = i_sma ** 0.25
+    x_axis = i_sma**0.25
     valid_mask = np.isfinite(x_axis) & (i_sma > 1.0)
 
     i_ba = 1.0 - i_eps
@@ -752,19 +761,30 @@ def plot_qa_summary(
     # --- Figure layout ---------------------------------------------------------
     fig = plt.figure(figsize=(13.6, 11.0))
     outer = gridspec.GridSpec(
-        1, 2, figure=fig, width_ratios=[1.0, 2.01], wspace=0.27,
+        1,
+        2,
+        figure=fig,
+        width_ratios=[1.0, 2.01],
+        wspace=0.27,
     )
 
     # Left column: 3 image rows, each with a colorbar sliver
     left = gridspec.GridSpecFromSubplotSpec(
-        3, 2, subplot_spec=outer[0],
-        width_ratios=[1.0, 0.04], hspace=0.10, wspace=-0.20,
+        3,
+        2,
+        subplot_spec=outer[0],
+        width_ratios=[1.0, 0.04],
+        hspace=0.10,
+        wspace=-0.20,
     )
 
     # Right column: 1-D profile panels
     right = gridspec.GridSpecFromSubplotSpec(
-        n_panels, 1, subplot_spec=outer[1],
-        height_ratios=height_ratios, hspace=0.0,
+        n_panels,
+        1,
+        subplot_spec=outer[1],
+        height_ratios=height_ratios,
+        hspace=0.0,
     )
 
     fig.suptitle(title, fontsize=20, y=0.989)
@@ -776,11 +796,19 @@ def plot_qa_summary(
     # Panel 1: Data + isophotes
     ax_img = fig.add_subplot(left[0, 0])
     img_display, img_vmin, img_vmax = make_arcsinh_display_from_parameters(
-        image, low=ref_low, high=ref_high, scale=ref_scale, vmax=ref_vmax,
+        image,
+        low=ref_low,
+        high=ref_high,
+        scale=ref_scale,
+        vmax=ref_vmax,
     )
     h_img = ax_img.imshow(
-        img_display, origin="lower", cmap="viridis",
-        vmin=img_vmin, vmax=img_vmax, interpolation="none",
+        img_display,
+        origin="lower",
+        cmap="viridis",
+        vmin=img_vmin,
+        vmax=img_vmax,
+        interpolation="none",
     )
     if mask is not None:
         mask_overlay = np.zeros((*image.shape, 4))
@@ -789,13 +817,24 @@ def plot_qa_summary(
 
     overlay_step = max(1, len(isoster_res) // 15)
     draw_isophote_overlays(
-        ax_img, isoster_res, step=overlay_step,
-        line_width=1.2, alpha=0.8, edge_color="orangered",
+        ax_img,
+        isoster_res,
+        step=overlay_step,
+        line_width=1.2,
+        alpha=0.8,
+        edge_color="orangered",
     )
     ax_img.text(
-        0.15, 0.9, "Data", fontsize=18, color="w",
-        transform=ax_img.transAxes, ha="center", va="center",
-        weight="bold", alpha=0.85,
+        0.15,
+        0.9,
+        "Data",
+        fontsize=18,
+        color="w",
+        transform=ax_img.transAxes,
+        ha="center",
+        va="center",
+        weight="bold",
+        alpha=0.85,
     )
 
     ax_img_cb = fig.add_subplot(left[0, 1])
@@ -804,16 +843,31 @@ def plot_qa_summary(
     # Panel 2: Model
     ax_mod = fig.add_subplot(left[1, 0])
     mod_display, mod_vmin, mod_vmax = make_arcsinh_display_from_parameters(
-        isoster_model, low=ref_low, high=ref_high, scale=ref_scale, vmax=ref_vmax,
+        isoster_model,
+        low=ref_low,
+        high=ref_high,
+        scale=ref_scale,
+        vmax=ref_vmax,
     )
     h_mod = ax_mod.imshow(
-        mod_display, origin="lower", cmap="viridis",
-        vmin=mod_vmin, vmax=mod_vmax, interpolation="none",
+        mod_display,
+        origin="lower",
+        cmap="viridis",
+        vmin=mod_vmin,
+        vmax=mod_vmax,
+        interpolation="none",
     )
     ax_mod.text(
-        0.15, 0.9, "Model", fontsize=18, color="w",
-        transform=ax_mod.transAxes, ha="center", va="center",
-        weight="bold", alpha=0.85,
+        0.15,
+        0.9,
+        "Model",
+        fontsize=18,
+        color="w",
+        transform=ax_mod.transAxes,
+        ha="center",
+        va="center",
+        weight="bold",
+        alpha=0.85,
     )
 
     ax_mod_cb = fig.add_subplot(left[1, 1])
@@ -834,13 +888,24 @@ def plot_qa_summary(
     if res_clip_lo is not None:
         res_limit = float(np.clip(res_limit, res_clip_lo, res_clip_hi))
     h_res = ax_res.imshow(
-        residual, origin="lower", cmap="coolwarm",
-        vmin=-res_limit, vmax=res_limit, interpolation="nearest",
+        residual,
+        origin="lower",
+        cmap="coolwarm",
+        vmin=-res_limit,
+        vmax=res_limit,
+        interpolation="nearest",
     )
     ax_res.text(
-        0.18, 0.9, "Residual", fontsize=18, color="k",
-        transform=ax_res.transAxes, ha="center", va="center",
-        weight="bold", alpha=0.85,
+        0.18,
+        0.9,
+        "Residual",
+        fontsize=18,
+        color="k",
+        transform=ax_res.transAxes,
+        ha="center",
+        va="center",
+        weight="bold",
+        alpha=0.85,
     )
 
     ax_res_cb = fig.add_subplot(left[2, 1])
@@ -864,8 +929,13 @@ def plot_qa_summary(
     y_sb_err[sb_valid] = i_intens_err[sb_valid] / (i_intens[sb_valid] * np.log(10))
 
     plot_profile_by_stop_code(
-        ax_sb, x_axis[sb_valid], y_sb[sb_valid], i_stop[sb_valid],
-        y_errors=y_sb_err[sb_valid], marker_face="filled", monochrome=True,
+        ax_sb,
+        x_axis[sb_valid],
+        y_sb[sb_valid],
+        i_stop[sb_valid],
+        y_errors=y_sb_err[sb_valid],
+        marker_face="filled",
+        monochrome=True,
     )
 
     if photutils_res is not None:
@@ -877,7 +947,10 @@ def plot_qa_summary(
     sb_for_limits = y_sb[sb_valid & np.isfinite(y_sb)]
     if sb_for_limits.size > 0:
         set_axis_limits_from_finite_values(
-            ax_sb, sb_for_limits, margin_fraction=0.06, min_margin=0.2,
+            ax_sb,
+            sb_for_limits,
+            margin_fraction=0.06,
+            min_margin=0.2,
         )
     handles, labels = ax_sb.get_legend_handles_labels()
     if handles:
@@ -888,39 +961,55 @@ def plot_qa_summary(
     panel_idx += 1
 
     plot_profile_by_stop_code(
-        ax_cen, x_axis[valid_mask], i_dx[valid_mask], i_stop[valid_mask],
-        y_errors=i_x0_err[valid_mask], marker_face="filled",
-        label_prefix="dx ", monochrome=True,
+        ax_cen,
+        x_axis[valid_mask],
+        i_dx[valid_mask],
+        i_stop[valid_mask],
+        y_errors=i_x0_err[valid_mask],
+        marker_face="filled",
+        label_prefix="dx ",
+        monochrome=True,
     )
     plot_profile_by_stop_code(
-        ax_cen, x_axis[valid_mask], i_dy[valid_mask], i_stop[valid_mask],
-        y_errors=i_y0_err[valid_mask], marker_face="open",
-        label_prefix="dy ", monochrome=True,
+        ax_cen,
+        x_axis[valid_mask],
+        i_dy[valid_mask],
+        i_stop[valid_mask],
+        y_errors=i_y0_err[valid_mask],
+        marker_face="open",
+        label_prefix="dy ",
+        monochrome=True,
     )
     ax_cen.axhline(0.0, color="black", linestyle="--", linewidth=0.8, alpha=0.7)
     ax_cen.set_ylabel("center offset [pix]")
     ax_cen.grid(alpha=0.25)
     centroid_legend = [
-        Line2D([], [], marker="o", linestyle="None", color="black",
-               markerfacecolor="black", markersize=4.8, label="X"),
-        Line2D([], [], marker="o", linestyle="None", color="black",
-               markerfacecolor="none", markersize=4.8, label="Y"),
+        Line2D([], [], marker="o", linestyle="None", color="black", markerfacecolor="black", markersize=4.8, label="X"),
+        Line2D([], [], marker="o", linestyle="None", color="black", markerfacecolor="none", markersize=4.8, label="Y"),
     ]
-    ax_cen.legend(handles=centroid_legend, loc="upper right", frameon=True,
-                  fontsize=14, ncol=2)
+    ax_cen.legend(handles=centroid_legend, loc="upper right", frameon=True, fontsize=14, ncol=2)
 
     # 3. Axis ratio (b/a)
     ax_ba = fig.add_subplot(right[panel_idx], sharex=ax_sb)
     panel_idx += 1
 
     plot_profile_by_stop_code(
-        ax_ba, x_axis[valid_mask], i_ba[valid_mask], i_stop[valid_mask],
-        y_errors=i_eps_err[valid_mask], marker_face="filled", monochrome=True,
+        ax_ba,
+        x_axis[valid_mask],
+        i_ba[valid_mask],
+        i_stop[valid_mask],
+        y_errors=i_eps_err[valid_mask],
+        marker_face="filled",
+        monochrome=True,
     )
     ba_for_limits = i_ba[valid_mask & np.isfinite(i_ba)]
     set_axis_limits_from_finite_values(
-        ax_ba, ba_for_limits, margin_fraction=0.08, min_margin=0.03,
-        lower_clip=0.0, upper_clip=1.0,
+        ax_ba,
+        ba_for_limits,
+        margin_fraction=0.08,
+        min_margin=0.03,
+        lower_clip=0.0,
+        upper_clip=1.0,
     )
     ax_ba.set_ylabel("axis ratio")
     ax_ba.grid(alpha=0.25)
@@ -930,8 +1019,13 @@ def plot_qa_summary(
     panel_idx += 1
 
     plot_profile_by_stop_code(
-        ax_pa, x_axis[valid_mask], i_pa_deg[valid_mask], i_stop[valid_mask],
-        y_errors=i_pa_err_deg[valid_mask], marker_face="filled", monochrome=True,
+        ax_pa,
+        x_axis[valid_mask],
+        i_pa_deg[valid_mask],
+        i_stop[valid_mask],
+        y_errors=i_pa_err_deg[valid_mask],
+        marker_face="filled",
+        monochrome=True,
     )
     pa_for_limits = i_pa_deg[valid_mask & np.isfinite(i_pa_deg) & (i_stop == 0)]
     if pa_for_limits.size > 1:
@@ -948,27 +1042,58 @@ def plot_qa_summary(
         panel_idx += 1
 
         ax_harm.scatter(
-            x_axis[valid_mask], i_a3[valid_mask], s=20, marker="o",
-            facecolors="#1f77b4", edgecolors="#1f77b4", alpha=0.7, label="A3",
+            x_axis[valid_mask],
+            i_a3[valid_mask],
+            s=20,
+            marker="o",
+            facecolors="#1f77b4",
+            edgecolors="#1f77b4",
+            alpha=0.7,
+            label="A3",
         )
         ax_harm.scatter(
-            x_axis[valid_mask], i_b3[valid_mask], s=20, marker="s",
-            facecolors="none", edgecolors="#1f77b4", alpha=0.7, label="B3",
+            x_axis[valid_mask],
+            i_b3[valid_mask],
+            s=20,
+            marker="s",
+            facecolors="none",
+            edgecolors="#1f77b4",
+            alpha=0.7,
+            label="B3",
         )
         ax_harm.scatter(
-            x_axis[valid_mask], i_a4[valid_mask], s=20, marker="^",
-            facecolors="#d62728", edgecolors="#d62728", alpha=0.7, label="A4",
+            x_axis[valid_mask],
+            i_a4[valid_mask],
+            s=20,
+            marker="^",
+            facecolors="#d62728",
+            edgecolors="#d62728",
+            alpha=0.7,
+            label="A4",
         )
         ax_harm.scatter(
-            x_axis[valid_mask], i_b4[valid_mask], s=20, marker="D",
-            facecolors="none", edgecolors="#d62728", alpha=0.7, label="B4",
+            x_axis[valid_mask],
+            i_b4[valid_mask],
+            s=20,
+            marker="D",
+            facecolors="none",
+            edgecolors="#d62728",
+            alpha=0.7,
+            label="B4",
         )
-        harm_values = np.concatenate([
-            i_a3[valid_mask], i_b3[valid_mask],
-            i_a4[valid_mask], i_b4[valid_mask],
-        ])
+        harm_values = np.concatenate(
+            [
+                i_a3[valid_mask],
+                i_b3[valid_mask],
+                i_a4[valid_mask],
+                i_b4[valid_mask],
+            ]
+        )
         set_axis_limits_from_finite_values(
-            ax_harm, harm_values, margin_fraction=0.10, min_margin=0.005,
+            ax_harm,
+            harm_values,
+            margin_fraction=0.10,
+            min_margin=0.005,
         )
         ax_harm.axhline(0.0, color="gray", linestyle=":", linewidth=0.8, alpha=0.6)
         ax_harm.set_ylabel("A/B harmonics")
@@ -983,8 +1108,13 @@ def plot_qa_summary(
 
         cog_values = get_arr("cog")
         plot_profile_by_stop_code(
-            ax_cog, x_axis[valid_mask], cog_values[valid_mask], i_stop[valid_mask],
-            marker_face="filled", label_prefix="fit ", monochrome=True,
+            ax_cog,
+            x_axis[valid_mask],
+            cog_values[valid_mask],
+            i_stop[valid_mask],
+            marker_face="filled",
+            label_prefix="fit ",
+            monochrome=True,
         )
         finite_cog = cog_values[valid_mask & np.isfinite(cog_values) & (cog_values > 0)]
         if finite_cog.size > 0 and np.all(finite_cog > 0):
@@ -1017,6 +1147,7 @@ def plot_qa_summary(
 # ---------------------------------------------------------------------------
 # Extended QA figure with per-order harmonic amplitude panels
 # ---------------------------------------------------------------------------
+
 
 def plot_qa_summary_extended(
     title,
@@ -1102,7 +1233,7 @@ def plot_qa_summary_extended(
     odd_orders = [o for o in harmonic_orders if o % 2 == 1]
     even_orders = [o for o in harmonic_orders if o % 2 == 0]
 
-    x_axis = i_sma ** 0.25
+    x_axis = i_sma**0.25
     valid_mask = np.isfinite(x_axis) & (i_sma > 1.0)
 
     i_ba = 1.0 - i_eps
@@ -1122,15 +1253,26 @@ def plot_qa_summary_extended(
 
     fig = plt.figure(figsize=(13.6, 13.0))
     outer = gridspec.GridSpec(
-        1, 2, figure=fig, width_ratios=[1.0, 2.01], wspace=0.27,
+        1,
+        2,
+        figure=fig,
+        width_ratios=[1.0, 2.01],
+        wspace=0.27,
     )
     left = gridspec.GridSpecFromSubplotSpec(
-        3, 2, subplot_spec=outer[0],
-        width_ratios=[1.0, 0.04], hspace=0.10, wspace=-0.20,
+        3,
+        2,
+        subplot_spec=outer[0],
+        width_ratios=[1.0, 0.04],
+        hspace=0.10,
+        wspace=-0.20,
     )
     right = gridspec.GridSpecFromSubplotSpec(
-        n_panels, 1, subplot_spec=outer[1],
-        height_ratios=height_ratios, hspace=0.0,
+        n_panels,
+        1,
+        subplot_spec=outer[1],
+        height_ratios=height_ratios,
+        hspace=0.0,
     )
     fig.suptitle(title, fontsize=20, y=0.989)
 
@@ -1139,11 +1281,19 @@ def plot_qa_summary_extended(
 
     ax_img = fig.add_subplot(left[0, 0])
     img_display, img_vmin, img_vmax = make_arcsinh_display_from_parameters(
-        image, low=ref_low, high=ref_high, scale=ref_scale, vmax=ref_vmax,
+        image,
+        low=ref_low,
+        high=ref_high,
+        scale=ref_scale,
+        vmax=ref_vmax,
     )
     h_img = ax_img.imshow(
-        img_display, origin="lower", cmap="viridis",
-        vmin=img_vmin, vmax=img_vmax, interpolation="none",
+        img_display,
+        origin="lower",
+        cmap="viridis",
+        vmin=img_vmin,
+        vmax=img_vmax,
+        interpolation="none",
     )
     if mask is not None:
         mask_overlay = np.zeros((*image.shape, 4))
@@ -1151,26 +1301,56 @@ def plot_qa_summary_extended(
         ax_img.imshow(mask_overlay, origin="lower")
     overlay_step = max(1, len(isoster_res) // 15)
     draw_isophote_overlays(
-        ax_img, isoster_res, step=overlay_step,
-        line_width=1.2, alpha=0.8, edge_color="orangered",
+        ax_img,
+        isoster_res,
+        step=overlay_step,
+        line_width=1.2,
+        alpha=0.8,
+        edge_color="orangered",
     )
-    ax_img.text(0.15, 0.9, "Data", fontsize=18, color="w",
-                transform=ax_img.transAxes, ha="center", va="center",
-                weight="bold", alpha=0.85)
+    ax_img.text(
+        0.15,
+        0.9,
+        "Data",
+        fontsize=18,
+        color="w",
+        transform=ax_img.transAxes,
+        ha="center",
+        va="center",
+        weight="bold",
+        alpha=0.85,
+    )
     ax_img_cb = fig.add_subplot(left[0, 1])
     fig.colorbar(h_img, cax=ax_img_cb).set_label(r"arcsinh((data $-$ p0.5) / scale)")
 
     ax_mod = fig.add_subplot(left[1, 0])
     mod_display, mod_vmin, mod_vmax = make_arcsinh_display_from_parameters(
-        isoster_model, low=ref_low, high=ref_high, scale=ref_scale, vmax=ref_vmax,
+        isoster_model,
+        low=ref_low,
+        high=ref_high,
+        scale=ref_scale,
+        vmax=ref_vmax,
     )
     h_mod = ax_mod.imshow(
-        mod_display, origin="lower", cmap="viridis",
-        vmin=mod_vmin, vmax=mod_vmax, interpolation="none",
+        mod_display,
+        origin="lower",
+        cmap="viridis",
+        vmin=mod_vmin,
+        vmax=mod_vmax,
+        interpolation="none",
     )
-    ax_mod.text(0.15, 0.9, "Model", fontsize=18, color="w",
-                transform=ax_mod.transAxes, ha="center", va="center",
-                weight="bold", alpha=0.85)
+    ax_mod.text(
+        0.15,
+        0.9,
+        "Model",
+        fontsize=18,
+        color="w",
+        transform=ax_mod.transAxes,
+        ha="center",
+        va="center",
+        weight="bold",
+        alpha=0.85,
+    )
     ax_mod_cb = fig.add_subplot(left[1, 1])
     fig.colorbar(h_mod, cax=ax_mod_cb).set_label(r"arcsinh((model $-$ p0.5) / scale)")
 
@@ -1184,16 +1364,33 @@ def plot_qa_summary_extended(
         res_label = "data $-$ model"
 
     abs_res = np.abs(residual_map[np.isfinite(residual_map)])
-    res_limit = float(np.clip(
-        np.nanpercentile(abs_res, 99.0) if abs_res.size else 1.0, 0.05, None,
-    ))
-    h_res = ax_res.imshow(
-        residual_map, origin="lower", cmap="coolwarm",
-        vmin=-res_limit, vmax=res_limit, interpolation="nearest",
+    res_limit = float(
+        np.clip(
+            np.nanpercentile(abs_res, 99.0) if abs_res.size else 1.0,
+            0.05,
+            None,
+        )
     )
-    ax_res.text(0.18, 0.9, "Residual", fontsize=18, color="k",
-                transform=ax_res.transAxes, ha="center", va="center",
-                weight="bold", alpha=0.85)
+    h_res = ax_res.imshow(
+        residual_map,
+        origin="lower",
+        cmap="coolwarm",
+        vmin=-res_limit,
+        vmax=res_limit,
+        interpolation="nearest",
+    )
+    ax_res.text(
+        0.18,
+        0.9,
+        "Residual",
+        fontsize=18,
+        color="k",
+        transform=ax_res.transAxes,
+        ha="center",
+        va="center",
+        weight="bold",
+        alpha=0.85,
+    )
     ax_res_cb = fig.add_subplot(left[2, 1])
     fig.colorbar(h_res, cax=ax_res_cb).set_label(res_label)
 
@@ -1213,8 +1410,13 @@ def plot_qa_summary_extended(
     y_sb_err = np.full_like(i_intens_err, np.nan)
     y_sb_err[sb_valid] = i_intens_err[sb_valid] / (i_intens[sb_valid] * np.log(10))
     plot_profile_by_stop_code(
-        ax_sb, x_axis[sb_valid], y_sb[sb_valid], i_stop[sb_valid],
-        y_errors=y_sb_err[sb_valid], marker_face="filled", monochrome=True,
+        ax_sb,
+        x_axis[sb_valid],
+        y_sb[sb_valid],
+        i_stop[sb_valid],
+        y_errors=y_sb_err[sb_valid],
+        marker_face="filled",
+        monochrome=True,
     )
     ax_sb.set_ylabel(r"$\log_{10}(I)$")
     ax_sb.set_title("Surface brightness profile")
@@ -1230,14 +1432,24 @@ def plot_qa_summary_extended(
     ax_cen = fig.add_subplot(right[panel_idx], sharex=ax_sb)
     panel_idx += 1
     plot_profile_by_stop_code(
-        ax_cen, x_axis[valid_mask], i_dx[valid_mask], i_stop[valid_mask],
-        y_errors=i_x0_err[valid_mask], marker_face="filled",
-        label_prefix="dx ", monochrome=True,
+        ax_cen,
+        x_axis[valid_mask],
+        i_dx[valid_mask],
+        i_stop[valid_mask],
+        y_errors=i_x0_err[valid_mask],
+        marker_face="filled",
+        label_prefix="dx ",
+        monochrome=True,
     )
     plot_profile_by_stop_code(
-        ax_cen, x_axis[valid_mask], i_dy[valid_mask], i_stop[valid_mask],
-        y_errors=i_y0_err[valid_mask], marker_face="open",
-        label_prefix="dy ", monochrome=True,
+        ax_cen,
+        x_axis[valid_mask],
+        i_dy[valid_mask],
+        i_stop[valid_mask],
+        y_errors=i_y0_err[valid_mask],
+        marker_face="open",
+        label_prefix="dy ",
+        monochrome=True,
     )
     ax_cen.axhline(0.0, color="black", linestyle="--", linewidth=0.8, alpha=0.7)
     ax_cen.set_ylabel("center [pix]")
@@ -1247,13 +1459,22 @@ def plot_qa_summary_extended(
     ax_ba = fig.add_subplot(right[panel_idx], sharex=ax_sb)
     panel_idx += 1
     plot_profile_by_stop_code(
-        ax_ba, x_axis[valid_mask], i_ba[valid_mask], i_stop[valid_mask],
-        y_errors=i_eps_err[valid_mask], marker_face="filled", monochrome=True,
+        ax_ba,
+        x_axis[valid_mask],
+        i_ba[valid_mask],
+        i_stop[valid_mask],
+        y_errors=i_eps_err[valid_mask],
+        marker_face="filled",
+        monochrome=True,
     )
     ba_for_limits = i_ba[valid_mask & np.isfinite(i_ba)]
     set_axis_limits_from_finite_values(
-        ax_ba, ba_for_limits, margin_fraction=0.08, min_margin=0.03,
-        lower_clip=0.0, upper_clip=1.0,
+        ax_ba,
+        ba_for_limits,
+        margin_fraction=0.08,
+        min_margin=0.03,
+        lower_clip=0.0,
+        upper_clip=1.0,
     )
     ax_ba.set_ylabel("axis ratio")
     ax_ba.grid(alpha=0.25)
@@ -1262,8 +1483,13 @@ def plot_qa_summary_extended(
     ax_pa = fig.add_subplot(right[panel_idx], sharex=ax_sb)
     panel_idx += 1
     plot_profile_by_stop_code(
-        ax_pa, x_axis[valid_mask], i_pa_deg[valid_mask], i_stop[valid_mask],
-        y_errors=i_pa_err_deg[valid_mask], marker_face="filled", monochrome=True,
+        ax_pa,
+        x_axis[valid_mask],
+        i_pa_deg[valid_mask],
+        i_stop[valid_mask],
+        y_errors=i_pa_err_deg[valid_mask],
+        marker_face="filled",
+        monochrome=True,
     )
     pa_for_limits = i_pa_deg[valid_mask & np.isfinite(i_pa_deg) & (i_stop == 0)]
     if pa_for_limits.size > 1:
@@ -1289,19 +1515,21 @@ def plot_qa_summary_extended(
 
             if harmonic_mode == "amplitude":
                 # A_n = sqrt(a_n^2 + b_n^2), optionally normalized by I
-                amplitude = np.sqrt(
-                    np.where(np.isfinite(an), an, 0.0) ** 2
-                    + np.where(np.isfinite(bn), bn, 0.0) ** 2
-                )
+                amplitude = np.sqrt(np.where(np.isfinite(an), an, 0.0) ** 2 + np.where(np.isfinite(bn), bn, 0.0) ** 2)
                 amplitude[~(np.isfinite(an) & np.isfinite(bn))] = np.nan
                 if normalize_harmonics:
                     amplitude = amplitude / safe_intens
                 show = valid_mask & np.isfinite(amplitude)
                 if np.any(show):
                     ax.scatter(
-                        x_axis[show], amplitude[show],
-                        s=18, marker=mrk, facecolors=col, edgecolors=col,
-                        alpha=0.75, label=f"$A_{{{order}}}$",
+                        x_axis[show],
+                        amplitude[show],
+                        s=18,
+                        marker=mrk,
+                        facecolors=col,
+                        edgecolors=col,
+                        alpha=0.75,
+                        label=f"$A_{{{order}}}$",
                     )
                     all_values.append(amplitude[show])
             else:
@@ -1310,16 +1538,27 @@ def plot_qa_summary_extended(
                 show_b = valid_mask & np.isfinite(bn)
                 if np.any(show_a):
                     ax.scatter(
-                        x_axis[show_a], an[show_a],
-                        s=18, marker=mrk, facecolors=col, edgecolors=col,
-                        alpha=0.75, label=f"$a_{{{order}}}$",
+                        x_axis[show_a],
+                        an[show_a],
+                        s=18,
+                        marker=mrk,
+                        facecolors=col,
+                        edgecolors=col,
+                        alpha=0.75,
+                        label=f"$a_{{{order}}}$",
                     )
                     all_values.append(an[show_a])
                 if np.any(show_b):
                     ax.scatter(
-                        x_axis[show_b], bn[show_b],
-                        s=18, marker=mrk, facecolors="none", edgecolors=col,
-                        linewidths=0.9, alpha=0.75, label=f"$b_{{{order}}}$",
+                        x_axis[show_b],
+                        bn[show_b],
+                        s=18,
+                        marker=mrk,
+                        facecolors="none",
+                        edgecolors=col,
+                        linewidths=0.9,
+                        alpha=0.75,
+                        label=f"$b_{{{order}}}$",
                     )
                     all_values.append(bn[show_b])
 
@@ -1327,7 +1566,10 @@ def plot_qa_summary_extended(
         if all_values:
             cat = np.concatenate(all_values)
             set_axis_limits_from_finite_values(
-                ax, cat, margin_fraction=0.12, min_margin=0.001,
+                ax,
+                cat,
+                margin_fraction=0.12,
+                min_margin=0.001,
             )
 
         # Y-axis label
@@ -1348,9 +1590,10 @@ def plot_qa_summary_extended(
     if odd_orders:
         _plot_harmonic_panel(ax_odd, odd_orders, "odd")
     else:
-        ax_odd.set_ylabel(f"$a_n, b_n$ (odd)")
-        ax_odd.text(0.5, 0.5, "no odd orders", color="gray", fontsize=10,
-                    transform=ax_odd.transAxes, ha="center", va="center")
+        ax_odd.set_ylabel("$a_n, b_n$ (odd)")
+        ax_odd.text(
+            0.5, 0.5, "no odd orders", color="gray", fontsize=10, transform=ax_odd.transAxes, ha="center", va="center"
+        )
         ax_odd.grid(alpha=0.25)
 
     # 6. Even harmonics panel
@@ -1359,9 +1602,10 @@ def plot_qa_summary_extended(
     if even_orders:
         _plot_harmonic_panel(ax_even, even_orders, "even")
     else:
-        ax_even.set_ylabel(f"$a_n, b_n$ (even)")
-        ax_even.text(0.5, 0.5, "no even orders", color="gray", fontsize=10,
-                     transform=ax_even.transAxes, ha="center", va="center")
+        ax_even.set_ylabel("$a_n, b_n$ (even)")
+        ax_even.text(
+            0.5, 0.5, "no even orders", color="gray", fontsize=10, transform=ax_even.transAxes, ha="center", va="center"
+        )
         ax_even.grid(alpha=0.25)
 
     # X-axis housekeeping
@@ -1428,16 +1672,32 @@ def _scatter_by_stop_code_in_method_color(
             errs = np.asarray(y_errors[mask], dtype=float)
             errs[errs < 0] = np.nan
             axis.errorbar(
-                x[mask], y[mask], yerr=errs,
-                fmt=marker, color=base_color, mfc=face, mec=base_color,
-                markersize=4.2, capsize=1.5, linewidth=0.6,
-                alpha=0.8, label=code_label, zorder=3,
+                x[mask],
+                y[mask],
+                yerr=errs,
+                fmt=marker,
+                color=base_color,
+                mfc=face,
+                mec=base_color,
+                markersize=4.2,
+                capsize=1.5,
+                linewidth=0.6,
+                alpha=0.8,
+                label=code_label,
+                zorder=3,
             )
         else:
             axis.scatter(
-                x[mask], y[mask], s=marker_size,
-                marker=marker, facecolors=face, edgecolors=base_color,
-                linewidths=0.9, alpha=0.8, label=code_label, zorder=3,
+                x[mask],
+                y[mask],
+                s=marker_size,
+                marker=marker,
+                facecolors=face,
+                edgecolors=base_color,
+                linewidths=0.9,
+                alpha=0.8,
+                label=code_label,
+                zorder=3,
             )
 
 
@@ -1451,11 +1711,7 @@ def _build_isos_for_overlay(prof: dict[str, np.ndarray]) -> list[dict]:
         return []
     n = len(prof["sma"])
     # Detect harmonic keys in the profile dict
-    harm_keys = [
-        k for k in prof
-        if len(k) >= 2 and k[0] in ("a", "b") and k[1:].isdigit()
-        and int(k[1:]) >= 3
-    ]
+    harm_keys = [k for k in prof if len(k) >= 2 and k[0] in ("a", "b") and k[1:].isdigit() and int(k[1:]) >= 3]
     isos = []
     for i in range(n):
         iso = {
@@ -1464,8 +1720,7 @@ def _build_isos_for_overlay(prof: dict[str, np.ndarray]) -> list[dict]:
             "y0": float(prof["y0"][i]),
             "eps": float(prof["eps"][i]),
             "pa": float(prof["pa"][i]),
-            "stop_code": int(prof["stop_codes"][i])
-            if "stop_codes" in prof else 0,
+            "stop_code": int(prof["stop_codes"][i]) if "stop_codes" in prof else 0,
         }
         for k in harm_keys:
             iso[k] = float(prof[k][i])
@@ -1510,30 +1765,49 @@ def _plot_residual_panel(
 ) -> None:
     """Draw a single residual image panel with optional isophote overlays."""
     residual, cbar_label = _compute_residual_map(
-        image, model, relative=relative_residual,
+        image,
+        model,
+        relative=relative_residual,
     )
     abs_vals = np.abs(residual[np.isfinite(residual)])
-    res_limit = float(np.clip(
-        np.nanpercentile(abs_vals, 99.0) if abs_vals.size else 1.0,
-        0.05, 8.0 if relative_residual else None,
-    ))
+    res_limit = float(
+        np.clip(
+            np.nanpercentile(abs_vals, 99.0) if abs_vals.size else 1.0,
+            0.05,
+            8.0 if relative_residual else None,
+        )
+    )
 
     ax = fig.add_subplot(gs_slot)
     handle = ax.imshow(
-        residual, origin="lower", cmap="coolwarm",
-        vmin=-res_limit, vmax=res_limit, interpolation="nearest",
+        residual,
+        origin="lower",
+        cmap="coolwarm",
+        vmin=-res_limit,
+        vmax=res_limit,
+        interpolation="nearest",
     )
     if overlay_isos:
         draw_isophote_overlays(
-            ax, overlay_isos, step=overlay_step,
-            line_width=overlay_width, alpha=0.7,
+            ax,
+            overlay_isos,
+            step=overlay_step,
+            line_width=overlay_width,
+            alpha=0.7,
             edge_color=overlay_color,
         )
     ax.set_xticks([])
     ax.set_yticks([])
     ax.text(
-        0.03, 0.95, panel_title, color="black", fontsize=11,
-        fontweight="bold", transform=ax.transAxes, va="top", ha="left",
+        0.03,
+        0.95,
+        panel_title,
+        color="black",
+        fontsize=11,
+        fontweight="bold",
+        transform=ax.transAxes,
+        va="top",
+        ha="left",
     )
 
     ax_cbar = fig.add_subplot(gs_cbar_slot)
@@ -1629,15 +1903,25 @@ def plot_comparison_qa_figure(
 
     fig = plt.figure(figsize=(15, fig_height), dpi=dpi)
     outer = gridspec.GridSpec(
-        1, 2, figure=fig, width_ratios=[1.0, 1.8], wspace=0.30,
+        1,
+        2,
+        figure=fig,
+        width_ratios=[1.0, 1.8],
+        wspace=0.30,
         top=0.95,
     )
     left = gridspec.GridSpecFromSubplotSpec(
-        n_left_rows, 2, subplot_spec=outer[0],
-        width_ratios=[1.0, 0.04], hspace=0.12, wspace=0.02,
+        n_left_rows,
+        2,
+        subplot_spec=outer[0],
+        width_ratios=[1.0, 0.04],
+        hspace=0.12,
+        wspace=0.02,
     )
     right = gridspec.GridSpecFromSubplotSpec(
-        n_right_rows, 1, subplot_spec=outer[1],
+        n_right_rows,
+        1,
+        subplot_spec=outer[1],
         height_ratios=[2.5, 1.0, 1.0, 1.0, 1.0],
         hspace=0.0,
     )
@@ -1664,10 +1948,18 @@ def plot_comparison_qa_figure(
     ax_img = fig.add_subplot(left[0, 0])
     low, high, scale, vmax_val = derive_arcsinh_parameters(image)
     display, _, disp_vmax = make_arcsinh_display_from_parameters(
-        image, low, high, scale, vmax_val,
+        image,
+        low,
+        high,
+        scale,
+        vmax_val,
     )
     handle_img = ax_img.imshow(
-        display, cmap="viridis", origin="lower", vmin=0, vmax=disp_vmax,
+        display,
+        cmap="viridis",
+        origin="lower",
+        vmin=0,
+        vmax=disp_vmax,
         interpolation="none",
     )
 
@@ -1689,7 +1981,9 @@ def plot_comparison_qa_figure(
             if isos:
                 overlay_step = max(1, len(isos) // 15)
                 draw_isophote_overlays(
-                    ax_img, isos, step=overlay_step,
+                    ax_img,
+                    isos,
+                    step=overlay_step,
                     line_width=style.get("overlay_width", 1.0),
                     alpha=0.8,
                     edge_color=style.get("overlay_color", "white"),
@@ -1698,8 +1992,15 @@ def plot_comparison_qa_figure(
     ax_img.set_xticks([])
     ax_img.set_yticks([])
     ax_img.text(
-        0.03, 0.95, "Data", color="white", fontsize=11, fontweight="bold",
-        transform=ax_img.transAxes, va="top", ha="left",
+        0.03,
+        0.95,
+        "Data",
+        color="white",
+        fontsize=11,
+        fontweight="bold",
+        transform=ax_img.transAxes,
+        va="top",
+        ha="left",
     )
 
     # Scale bar: ~1/10 of image size, rounded up to nearest 10
@@ -1708,13 +2009,20 @@ def plot_comparison_qa_figure(
     bar_x0 = image.shape[1] * 0.05
     bar_y0 = image.shape[0] * 0.05
     ax_img.plot(
-        [bar_x0, bar_x0 + bar_length], [bar_y0, bar_y0],
-        color="white", linewidth=2.5, solid_capstyle="butt",
+        [bar_x0, bar_x0 + bar_length],
+        [bar_y0, bar_y0],
+        color="white",
+        linewidth=2.5,
+        solid_capstyle="butt",
     )
     ax_img.text(
-        bar_x0 + bar_length / 2, bar_y0 + image.shape[0] * 0.03,
-        f"{bar_length} pix", color="white", fontsize=9,
-        ha="center", va="bottom",
+        bar_x0 + bar_length / 2,
+        bar_y0 + image.shape[0] * 0.03,
+        f"{bar_length} pix",
+        color="white",
+        fontsize=9,
+        ha="center",
+        va="bottom",
     )
 
     # --- Left column: mode-dependent panels ---
@@ -1727,26 +2035,43 @@ def plot_comparison_qa_figure(
             # Model panel
             ax_mod = fig.add_subplot(left[1, 0])
             mod_display, _, mod_vmax = make_arcsinh_display_from_parameters(
-                model, low, high, scale, vmax_val,
+                model,
+                low,
+                high,
+                scale,
+                vmax_val,
             )
             h_mod = ax_mod.imshow(
-                mod_display, origin="lower", cmap="viridis",
-                vmin=0, vmax=mod_vmax, interpolation="none",
+                mod_display,
+                origin="lower",
+                cmap="viridis",
+                vmin=0,
+                vmax=mod_vmax,
+                interpolation="none",
             )
             ax_mod.set_xticks([])
             ax_mod.set_yticks([])
             ax_mod.text(
-                0.03, 0.95, "Model", color="white", fontsize=11,
-                fontweight="bold", transform=ax_mod.transAxes,
-                va="top", ha="left",
+                0.03,
+                0.95,
+                "Model",
+                color="white",
+                fontsize=11,
+                fontweight="bold",
+                transform=ax_mod.transAxes,
+                va="top",
+                ha="left",
             )
             ax_mod_cb = fig.add_subplot(left[1, 1])
             fig.colorbar(h_mod, cax=ax_mod_cb)
 
             # Residual panel
             _plot_residual_panel(
-                fig, left[2, 0], left[2, 1],
-                image, model,
+                fig,
+                left[2, 0],
+                left[2, 1],
+                image,
+                model,
                 panel_title="Residual",
                 relative_residual=relative_residual,
             )
@@ -1755,8 +2080,14 @@ def plot_comparison_qa_figure(
             for row_idx in (1, 2):
                 ax_blank = fig.add_subplot(left[row_idx, 0])
                 ax_blank.text(
-                    0.5, 0.5, "no model", color="gray", fontsize=12,
-                    transform=ax_blank.transAxes, ha="center", va="center",
+                    0.5,
+                    0.5,
+                    "no model",
+                    color="gray",
+                    fontsize=12,
+                    transform=ax_blank.transAxes,
+                    ha="center",
+                    va="center",
                 )
                 ax_blank.set_axis_off()
 
@@ -1771,8 +2102,11 @@ def plot_comparison_qa_figure(
 
             if model is not None:
                 _plot_residual_panel(
-                    fig, left[row_idx, 0], left[row_idx, 1],
-                    image, model,
+                    fig,
+                    left[row_idx, 0],
+                    left[row_idx, 1],
+                    image,
+                    model,
                     panel_title=f"{label} residual",
                     relative_residual=relative_residual,
                     overlay_isos=isos,
@@ -1783,9 +2117,14 @@ def plot_comparison_qa_figure(
             else:
                 ax_blank = fig.add_subplot(left[row_idx, 0])
                 ax_blank.text(
-                    0.5, 0.5, f"{label}: no model", color="gray",
-                    fontsize=12, transform=ax_blank.transAxes,
-                    ha="center", va="center",
+                    0.5,
+                    0.5,
+                    f"{label}: no model",
+                    color="gray",
+                    fontsize=12,
+                    transform=ax_blank.transAxes,
+                    ha="center",
+                    va="center",
                 )
                 ax_blank.set_axis_off()
 
@@ -1822,13 +2161,14 @@ def plot_comparison_qa_figure(
         y_err = None
         if "intens_err" in prof:
             y_err = np.full_like(intens, np.nan)
-            y_err[valid] = (
-                prof["intens_err"][valid] / (intens[valid] * np.log(10))
-            )
+            y_err[valid] = prof["intens_err"][valid] / (intens[valid] * np.log(10))
 
         if "stop_codes" in prof:
             _scatter_by_stop_code_in_method_color(
-                ax_sb, x[valid], y[valid], prof["stop_codes"][valid],
+                ax_sb,
+                x[valid],
+                y[valid],
+                prof["stop_codes"][valid],
                 base_color=style["color"],
                 y_errors=y_err[valid] if y_err is not None else None,
                 label=style.get("label", method_name),
@@ -1836,27 +2176,35 @@ def plot_comparison_qa_figure(
                 label_stop_codes=(n_methods <= 1),
             )
         else:
-            mfc = (
-                style["color"]
-                if style.get("marker_face") == "filled"
-                else "none"
-            )
+            mfc = style["color"] if style.get("marker_face") == "filled" else "none"
             if y_err is not None:
                 ax_sb.errorbar(
-                    x[valid], y[valid], yerr=y_err[valid],
-                    fmt=style.get("marker", "o"), color=style["color"],
-                    mfc=mfc, mec=style["color"],
-                    markersize=4.2, capsize=1.5, linewidth=0.6,
-                    alpha=0.7, label=style.get("label", method_name),
+                    x[valid],
+                    y[valid],
+                    yerr=y_err[valid],
+                    fmt=style.get("marker", "o"),
+                    color=style["color"],
+                    mfc=mfc,
+                    mec=style["color"],
+                    markersize=4.2,
+                    capsize=1.5,
+                    linewidth=0.6,
+                    alpha=0.7,
+                    label=style.get("label", method_name),
                     zorder=3,
                 )
             else:
                 ax_sb.scatter(
-                    x[valid], y[valid], color=style["color"],
+                    x[valid],
+                    y[valid],
+                    color=style["color"],
                     marker=style.get("marker", "o"),
-                    facecolors=mfc, edgecolors=style["color"],
-                    s=22, alpha=0.7,
-                    label=style.get("label", method_name), zorder=3,
+                    facecolors=mfc,
+                    edgecolors=style["color"],
+                    s=22,
+                    alpha=0.7,
+                    label=style.get("label", method_name),
+                    zorder=3,
                 )
 
     ax_sb.set_ylabel(r"$\log_{10}$(Intensity)")
@@ -1880,9 +2228,15 @@ def plot_comparison_qa_figure(
         y_pos = 0.04
         for line_text, line_color in _runtime_lines:
             ax_sb.text(
-                0.03, y_pos, line_text, color=line_color, fontsize=9,
-                fontweight="bold", transform=ax_sb.transAxes,
-                va="bottom", ha="left",
+                0.03,
+                y_pos,
+                line_text,
+                color=line_color,
+                fontsize=9,
+                fontweight="bold",
+                transform=ax_sb.transAxes,
+                va="bottom",
+                ha="left",
             )
             y_pos += 0.06
 
@@ -1908,20 +2262,17 @@ def plot_comparison_qa_figure(
             if valid_ref.sum() < 2:
                 continue
             interp_func = interp1d(
-                ref_sma[valid_ref], ref_intens[valid_ref],
-                kind="linear", bounds_error=False, fill_value=np.nan,
+                ref_sma[valid_ref],
+                ref_intens[valid_ref],
+                kind="linear",
+                bounds_error=False,
+                fill_value=np.nan,
             )
             ref_at_method = interp_func(prof["sma"])
             with np.errstate(divide="ignore", invalid="ignore"):
-                rel_diff = 100.0 * (
-                    prof["intens"] - ref_at_method
-                ) / ref_at_method
+                rel_diff = 100.0 * (prof["intens"] - ref_at_method) / ref_at_method
             valid = np.isfinite(rel_diff)
-            mfc = (
-                style["color"]
-                if style.get("marker_face") == "filled"
-                else "none"
-            )
+            mfc = style["color"] if style.get("marker_face") == "filled" else "none"
             base_marker = style.get("marker", "o")
 
             # Split into normal points and outliers (|dI/I| > cap)
@@ -1933,29 +2284,35 @@ def plot_comparison_qa_figure(
 
             # Normal points
             ax_diff.scatter(
-                prof["x_axis"][inlier], rel_diff[inlier],
-                color=style["color"], marker=base_marker,
-                facecolors=mfc, edgecolors=style["color"],
-                s=18, alpha=0.7, label=style.get("label", method_name),
+                prof["x_axis"][inlier],
+                rel_diff[inlier],
+                color=style["color"],
+                marker=base_marker,
+                facecolors=mfc,
+                edgecolors=style["color"],
+                s=18,
+                alpha=0.7,
+                label=style.get("label", method_name),
                 zorder=3,
             )
             # Outlier points: clamp to ±cap, show as triangle markers
             if np.any(outlier):
                 clamped = np.clip(rel_diff[outlier], -_DIFF_CAP, _DIFF_CAP)
                 # Triangle pointing in the direction of the outlier
-                outlier_markers = np.where(
-                    rel_diff[outlier] > 0, "^", "v"
-                )
+                outlier_markers = np.where(rel_diff[outlier] > 0, "^", "v")
                 for om in ["^", "v"]:
                     om_mask = outlier_markers == om
                     if np.any(om_mask):
                         ax_diff.scatter(
                             prof["x_axis"][outlier][om_mask],
                             clamped[om_mask],
-                            color=style["color"], marker=om,
+                            color=style["color"],
+                            marker=om,
                             facecolors=style["color"],
                             edgecolors=style["color"],
-                            s=30, alpha=0.5, zorder=4,
+                            s=30,
+                            alpha=0.5,
+                            zorder=4,
                         )
 
         ax_diff.axhline(0, color="black", linestyle="--", linewidth=0.8)
@@ -1968,8 +2325,14 @@ def plot_comparison_qa_figure(
     else:
         ax_diff.set_ylabel("dI/I [%]")
         ax_diff.text(
-            0.5, 0.5, "single method", color="gray", fontsize=10,
-            transform=ax_diff.transAxes, ha="center", va="center",
+            0.5,
+            0.5,
+            "single method",
+            color="gray",
+            fontsize=10,
+            transform=ax_diff.transAxes,
+            ha="center",
+            va="center",
         )
     ax_diff.grid(alpha=0.25)
     ax_diff.tick_params(labelbottom=False)
@@ -1980,34 +2343,46 @@ def plot_comparison_qa_figure(
         prof = profiles[method_name]
         style = styles.get(method_name, {})
         eps_err = prof.get("eps_err")
-        mfc = (
-            style["color"]
-            if style.get("marker_face") == "filled"
-            else "none"
-        )
+        mfc = style["color"] if style.get("marker_face") == "filled" else "none"
         if eps_err is not None:
             if "stop_codes" in prof:
                 _scatter_by_stop_code_in_method_color(
-                    ax_eps, prof["x_axis"], prof["eps"],
-                    prof["stop_codes"], base_color=style["color"],
-                    y_errors=eps_err, marker_size=18,
+                    ax_eps,
+                    prof["x_axis"],
+                    prof["eps"],
+                    prof["stop_codes"],
+                    base_color=style["color"],
+                    y_errors=eps_err,
+                    marker_size=18,
                     label_stop_codes=False,
                     label=style.get("label", method_name),
                 )
             else:
                 ax_eps.errorbar(
-                    prof["x_axis"], prof["eps"], yerr=eps_err,
-                    fmt=style.get("marker", "o"), color=style["color"],
-                    mfc=mfc, mec=style["color"],
-                    markersize=4.2, capsize=1.5, linewidth=0.6,
-                    alpha=0.7, zorder=3,
+                    prof["x_axis"],
+                    prof["eps"],
+                    yerr=eps_err,
+                    fmt=style.get("marker", "o"),
+                    color=style["color"],
+                    mfc=mfc,
+                    mec=style["color"],
+                    markersize=4.2,
+                    capsize=1.5,
+                    linewidth=0.6,
+                    alpha=0.7,
+                    zorder=3,
                 )
         else:
             ax_eps.scatter(
-                prof["x_axis"], prof["eps"],
-                color=style["color"], marker=style.get("marker", "o"),
-                facecolors=mfc, edgecolors=style["color"],
-                s=18, alpha=0.7, zorder=3,
+                prof["x_axis"],
+                prof["eps"],
+                color=style["color"],
+                marker=style.get("marker", "o"),
+                facecolors=mfc,
+                edgecolors=style["color"],
+                s=18,
+                alpha=0.7,
+                zorder=3,
             )
     ax_eps.set_ylabel("Ellipticity")
     ax_eps.grid(alpha=0.25)
@@ -2015,8 +2390,12 @@ def plot_comparison_qa_figure(
     # Data-driven Y-axis: limits from data values only, not error bars
     all_eps = np.concatenate([profiles[m]["eps"] for m in available])
     set_axis_limits_from_finite_values(
-        ax_eps, all_eps, margin_fraction=0.08, min_margin=0.03,
-        lower_clip=0.0, upper_clip=1.0,
+        ax_eps,
+        all_eps,
+        margin_fraction=0.08,
+        min_margin=0.03,
+        lower_clip=0.0,
+        upper_clip=1.0,
     )
 
     # Panel 3: PA (normalized with cross-method anchoring, with error bars)
@@ -2041,34 +2420,46 @@ def plot_comparison_qa_figure(
         if "pa_err" in prof:
             pa_err_deg = np.degrees(prof["pa_err"])
 
-        mfc = (
-            style["color"]
-            if style.get("marker_face") == "filled"
-            else "none"
-        )
+        mfc = style["color"] if style.get("marker_face") == "filled" else "none"
         if pa_err_deg is not None:
             if "stop_codes" in prof:
                 _scatter_by_stop_code_in_method_color(
-                    ax_pa, prof["x_axis"], pa_norm,
-                    prof["stop_codes"], base_color=style["color"],
-                    y_errors=pa_err_deg, marker_size=18,
+                    ax_pa,
+                    prof["x_axis"],
+                    pa_norm,
+                    prof["stop_codes"],
+                    base_color=style["color"],
+                    y_errors=pa_err_deg,
+                    marker_size=18,
                     label_stop_codes=False,
                     label=style.get("label", method_name),
                 )
             else:
                 ax_pa.errorbar(
-                    prof["x_axis"], pa_norm, yerr=pa_err_deg,
-                    fmt=style.get("marker", "o"), color=style["color"],
-                    mfc=mfc, mec=style["color"],
-                    markersize=4.2, capsize=1.5, linewidth=0.6,
-                    alpha=0.7, zorder=3,
+                    prof["x_axis"],
+                    pa_norm,
+                    yerr=pa_err_deg,
+                    fmt=style.get("marker", "o"),
+                    color=style["color"],
+                    mfc=mfc,
+                    mec=style["color"],
+                    markersize=4.2,
+                    capsize=1.5,
+                    linewidth=0.6,
+                    alpha=0.7,
+                    zorder=3,
                 )
         else:
             ax_pa.scatter(
-                prof["x_axis"], pa_norm,
-                color=style["color"], marker=style.get("marker", "o"),
-                facecolors=mfc, edgecolors=style["color"],
-                s=18, alpha=0.7, zorder=3,
+                prof["x_axis"],
+                pa_norm,
+                color=style["color"],
+                marker=style.get("marker", "o"),
+                facecolors=mfc,
+                edgecolors=style["color"],
+                s=18,
+                alpha=0.7,
+                zorder=3,
             )
     ax_pa.set_ylabel("PA (deg)")
     ax_pa.grid(alpha=0.25)
@@ -2132,9 +2523,7 @@ def plot_comparison_qa_figure(
         else:
             cx = np.nanmedian(prof["x0"])
             cy = np.nanmedian(prof["y0"])
-        offset = np.sqrt(
-            (prof["x0"] - cx) ** 2 + (prof["y0"] - cy) ** 2
-        )
+        offset = np.sqrt((prof["x0"] - cx) ** 2 + (prof["y0"] - cy) ** 2)
         all_offsets.append(offset)
 
         # Propagate center errors to offset error:
@@ -2144,46 +2533,52 @@ def plot_comparison_qa_figure(
             safe_offset = np.where(offset > 0, offset, 1.0)
             dx = prof["x0"] - cx
             dy = prof["y0"] - cy
-            offset_err = np.sqrt(
-                (dx / safe_offset * prof["x0_err"]) ** 2
-                + (dy / safe_offset * prof["y0_err"]) ** 2
-            )
+            offset_err = np.sqrt((dx / safe_offset * prof["x0_err"]) ** 2 + (dy / safe_offset * prof["y0_err"]) ** 2)
             # Where offset is ~0, use simple quadrature
             near_zero = offset < 1e-6
             if np.any(near_zero):
-                offset_err[near_zero] = np.sqrt(
-                    prof["x0_err"][near_zero] ** 2
-                    + prof["y0_err"][near_zero] ** 2
-                )
+                offset_err[near_zero] = np.sqrt(prof["x0_err"][near_zero] ** 2 + prof["y0_err"][near_zero] ** 2)
 
-        mfc = (
-            style["color"]
-            if style.get("marker_face") == "filled"
-            else "none"
-        )
+        mfc = style["color"] if style.get("marker_face") == "filled" else "none"
         if offset_err is not None:
             if "stop_codes" in prof:
                 _scatter_by_stop_code_in_method_color(
-                    ax_cen, prof["x_axis"], offset,
-                    prof["stop_codes"], base_color=style["color"],
-                    y_errors=offset_err, marker_size=18,
+                    ax_cen,
+                    prof["x_axis"],
+                    offset,
+                    prof["stop_codes"],
+                    base_color=style["color"],
+                    y_errors=offset_err,
+                    marker_size=18,
                     label_stop_codes=False,
                     label=style.get("label", method_name),
                 )
             else:
                 ax_cen.errorbar(
-                    prof["x_axis"], offset, yerr=offset_err,
-                    fmt=style.get("marker", "o"), color=style["color"],
-                    mfc=mfc, mec=style["color"],
-                    markersize=4.2, capsize=1.5, linewidth=0.6,
-                    alpha=0.7, zorder=3,
+                    prof["x_axis"],
+                    offset,
+                    yerr=offset_err,
+                    fmt=style.get("marker", "o"),
+                    color=style["color"],
+                    mfc=mfc,
+                    mec=style["color"],
+                    markersize=4.2,
+                    capsize=1.5,
+                    linewidth=0.6,
+                    alpha=0.7,
+                    zorder=3,
                 )
         else:
             ax_cen.scatter(
-                prof["x_axis"], offset,
-                color=style["color"], marker=style.get("marker", "o"),
-                facecolors=mfc, edgecolors=style["color"],
-                s=18, alpha=0.7, zorder=3,
+                prof["x_axis"],
+                offset,
+                color=style["color"],
+                marker=style.get("marker", "o"),
+                facecolors=mfc,
+                edgecolors=style["color"],
+                s=18,
+                alpha=0.7,
+                zorder=3,
             )
     ax_cen.set_ylabel(r"$\delta$ Cen (pix)")
     ax_cen.set_xlabel(r"SMA$^{0.25}$ (pix$^{0.25}$)")
@@ -2192,7 +2587,10 @@ def plot_comparison_qa_figure(
     if all_offsets:
         all_off = np.concatenate(all_offsets)
         set_axis_limits_from_finite_values(
-            ax_cen, all_off, margin_fraction=0.08, min_margin=0.05,
+            ax_cen,
+            all_off,
+            margin_fraction=0.08,
+            min_margin=0.05,
             lower_clip=0.0,
         )
 
@@ -2214,8 +2612,16 @@ def _overlay_photutils_sb(ax, photutils_res):
     p_yerr = p_intens_err[p_mask] / (p_intens[p_mask] * np.log(10))
 
     ax.errorbar(
-        p_x, p_y, yerr=p_yerr,
-        fmt="o", mfc="none", mec="black", color="black",
-        markersize=4, capsize=1.8, linewidth=0.7, alpha=0.8,
+        p_x,
+        p_y,
+        yerr=p_yerr,
+        fmt="o",
+        mfc="none",
+        mec="black",
+        color="black",
+        markersize=4,
+        capsize=1.8,
+        linewidth=0.7,
+        alpha=0.8,
         label="photutils",
     )

@@ -25,9 +25,7 @@ def create_gaussian_test_image(shape: tuple[int, int] = (120, 120)) -> np.ndarra
     y0 = shape[0] / 2.0
     sigma_major = 18.0
     sigma_minor = 13.5
-    image = 2000.0 * np.exp(
-        -0.5 * (((x_index - x0) / sigma_major) ** 2 + ((y_index - y0) / sigma_minor) ** 2)
-    )
+    image = 2000.0 * np.exp(-0.5 * (((x_index - x0) / sigma_major) ** 2 + ((y_index - y0) / sigma_minor) ** 2))
     return image
 
 
@@ -179,8 +177,7 @@ def test_build_ellipse_model_deprecated_alias_behavior() -> None:
         warnings.simplefilter("always", DeprecationWarning)
         legacy_model = build_ellipse_model(shape, isophotes)
     assert any(
-        isinstance(item.message, DeprecationWarning)
-        and "build_ellipse_model() is deprecated" in str(item.message)
+        isinstance(item.message, DeprecationWarning) and "build_ellipse_model() is deprecated" in str(item.message)
         for item in caught_warnings
     )
 

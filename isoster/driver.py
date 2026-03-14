@@ -2,12 +2,13 @@ import warnings
 from pathlib import Path
 
 import numpy as np
-from .fitting import fit_isophote
+
 from .config import IsosterConfig
+from .fitting import fit_isophote
 
 ACCEPTABLE_STOP_CODES = {0, 1, 2}
 
-_TEMPLATE_REQUIRED_KEYS = {'sma', 'x0', 'y0', 'eps', 'pa'}
+_TEMPLATE_REQUIRED_KEYS = {"sma", "x0", "y0", "eps", "pa"}
 
 
 def _is_acceptable_stop_code(stop_code):
@@ -17,7 +18,7 @@ def _is_acceptable_stop_code(stop_code):
 
 def _is_error_field(field_name):
     """Return True when the field represents an uncertainty/error quantity."""
-    return field_name.endswith('_err') or field_name.endswith('_error')
+    return field_name.endswith("_err") or field_name.endswith("_error")
 
 
 def _validate_non_negative_error_fields(isophotes):
@@ -25,13 +26,7 @@ def _validate_non_negative_error_fields(isophotes):
     if not isophotes:
         return
 
-    error_fields = {
-        key
-        for iso in isophotes
-        if isinstance(iso, dict)
-        for key in iso.keys()
-        if _is_error_field(key)
-    }
+    error_fields = {key for iso in isophotes if isinstance(iso, dict) for key in iso.keys() if _is_error_field(key)}
     if not error_fields:
         return
 
@@ -55,7 +50,7 @@ def _validate_non_negative_error_fields(isophotes):
 def _build_fit_result(isophotes, config):
     """Package fit results with mandatory post-run sanity validation."""
     _validate_non_negative_error_fields(isophotes)
-    return {'isophotes': isophotes, 'config': config}
+    return {"isophotes": isophotes, "config": config}
 
 
 def _resolve_template(template):
@@ -77,24 +72,21 @@ def _resolve_template(template):
         TypeError: If template is not a recognized type.
         ValueError: If template is empty or any dict is missing required keys.
     """
-    from .utils import isophote_results_from_fits, isophote_results_from_asdf
+    from .utils import isophote_results_from_asdf, isophote_results_from_fits
 
     # str/Path → load from file (dispatch on extension)
     if isinstance(template, (str, Path)):
         path_str = str(template)
-        if path_str.endswith('.asdf'):
+        if path_str.endswith(".asdf"):
             loaded = isophote_results_from_asdf(path_str)
         else:
             loaded = isophote_results_from_fits(path_str)
-        iso_list = loaded['isophotes']
+        iso_list = loaded["isophotes"]
     # dict with 'isophotes' key → extract the list
     elif isinstance(template, dict):
-        if 'isophotes' not in template:
-            raise ValueError(
-                "template dict must contain an 'isophotes' key; "
-                f"got keys: {sorted(template.keys())}"
-            )
-        iso_list = template['isophotes']
+        if "isophotes" not in template:
+            raise ValueError(f"template dict must contain an 'isophotes' key; got keys: {sorted(template.keys())}")
+        iso_list = template["isophotes"]
     # list → use directly
     elif isinstance(template, list):
         iso_list = template
@@ -111,12 +103,9 @@ def _resolve_template(template):
     for i, iso in enumerate(iso_list):
         missing = _TEMPLATE_REQUIRED_KEYS - set(iso.keys())
         if missing:
-            raise ValueError(
-                f"template isophote at index {i} missing required keys: "
-                f"{sorted(missing)}"
-            )
+            raise ValueError(f"template isophote at index {i} missing required keys: {sorted(missing)}")
 
-    return sorted(iso_list, key=lambda x: x['sma'])
+    return sorted(iso_list, key=lambda x: x["sma"])
 
 
 def fit_central_pixel(image, mask, x0, y0, debug=False):
@@ -147,22 +136,42 @@ def fit_central_pixel(image, mask, x0, y0, debug=False):
         valid = True
         if mask is not None and mask[iy, ix]:
             valid = False
-            
+
     result = {
-        'x0': x0, 'y0': y0, 'eps': 0.0, 'pa': 0.0, 'sma': 0.0,
-        'intens': val if valid else np.nan,
-        'rms': 0.0, 'intens_err': 0.0,
-        'x0_err': 0.0, 'y0_err': 0.0, 'eps_err': 0.0, 'pa_err': 0.0,
-        'a3': 0.0, 'b3': 0.0, 'a3_err': 0.0, 'b3_err': 0.0,
-        'a4': 0.0, 'b4': 0.0, 'a4_err': 0.0, 'b4_err': 0.0,
-        'tflux_e': np.nan, 'tflux_c': np.nan, 'npix_e': 0, 'npix_c': 0,
-        'stop_code': 0 if valid else -1,
-        'niter': 0, 'valid': valid
+        "x0": x0,
+        "y0": y0,
+        "eps": 0.0,
+        "pa": 0.0,
+        "sma": 0.0,
+        "intens": val if valid else np.nan,
+        "rms": 0.0,
+        "intens_err": 0.0,
+        "x0_err": 0.0,
+        "y0_err": 0.0,
+        "eps_err": 0.0,
+        "pa_err": 0.0,
+        "a3": 0.0,
+        "b3": 0.0,
+        "a3_err": 0.0,
+        "b3_err": 0.0,
+        "a4": 0.0,
+        "b4": 0.0,
+        "a4_err": 0.0,
+        "b4_err": 0.0,
+        "tflux_e": np.nan,
+        "tflux_c": np.nan,
+        "npix_e": 0,
+        "npix_c": 0,
+        "stop_code": 0 if valid else -1,
+        "niter": 0,
+        "valid": valid,
     }
     if debug:
-        result.update({'ndata': 1 if valid else 0, 'nflag': 0,
-                       'grad': np.nan, 'grad_error': np.nan, 'grad_r_error': np.nan})
+        result.update(
+            {"ndata": 1 if valid else 0, "nflag": 0, "grad": np.nan, "grad_error": np.nan, "grad_r_error": np.nan}
+        )
     return result
+
 
 def fit_image(image, mask=None, config=None, template=None, template_isophotes=None, variance_map=None):
     """
@@ -226,19 +235,16 @@ def fit_image(image, mask=None, config=None, template=None, template_isophotes=N
     # Backward compatibility: template_isophotes → template with deprecation warning
     if template_isophotes is not None:
         warnings.warn(
-            "template_isophotes is deprecated; use template= instead. "
-            "Will be removed in a future version.",
-            FutureWarning, stacklevel=2
+            "template_isophotes is deprecated; use template= instead. Will be removed in a future version.",
+            FutureWarning,
+            stacklevel=2,
         )
         template = template_isophotes
 
     # Validate and sanitize variance_map
     if variance_map is not None:
         if variance_map.shape != image.shape:
-            raise ValueError(
-                f"variance_map shape {variance_map.shape} does not match "
-                f"image shape {image.shape}"
-            )
+            raise ValueError(f"variance_map shape {variance_map.shape} does not match image shape {image.shape}")
 
         # Work on a copy to avoid mutating the caller's array
         variance_map = variance_map.copy()
@@ -249,9 +255,9 @@ def fit_image(image, mask=None, config=None, template=None, template_isophotes=N
         if n_nan > 0:
             variance_map[np.isnan(variance_map)] = _VARIANCE_SENTINEL
             warnings.warn(
-                f"variance_map contains {n_nan} NaN values; "
-                f"replaced with {_VARIANCE_SENTINEL:.0e} (near-zero weight).",
-                RuntimeWarning, stacklevel=2,
+                f"variance_map contains {n_nan} NaN values; replaced with {_VARIANCE_SENTINEL:.0e} (near-zero weight).",
+                RuntimeWarning,
+                stacklevel=2,
             )
 
         # Replace inf with large sentinel (effectively zero weight)
@@ -261,7 +267,8 @@ def fit_image(image, mask=None, config=None, template=None, template_isophotes=N
             warnings.warn(
                 f"variance_map contains {n_inf} infinite values; "
                 f"replaced with {_VARIANCE_SENTINEL:.0e} (near-zero weight).",
-                RuntimeWarning, stacklevel=2,
+                RuntimeWarning,
+                stacklevel=2,
             )
 
         # Warn on non-positive values (zeros or negatives produce infinite weights)
@@ -271,7 +278,8 @@ def fit_image(image, mask=None, config=None, template=None, template_isophotes=N
                 f"variance_map contains {n_non_pos} non-positive values; "
                 f"these will be clamped to 1e-30 (near-infinite weight). "
                 f"Consider masking these pixels instead.",
-                RuntimeWarning, stacklevel=2,
+                RuntimeWarning,
+                stacklevel=2,
             )
 
         # Clamp minimum variance to prevent numerical overflow in 1/variance
@@ -280,12 +288,11 @@ def fit_image(image, mask=None, config=None, template=None, template_isophotes=N
     # Handle template-based forced mode
     if template is not None:
         resolved = _resolve_template(template)
-        return _fit_image_template_forced(image, mask, cfg, resolved,
-                                          variance_map=variance_map)
+        return _fit_image_template_forced(image, mask, cfg, resolved, variance_map=variance_map)
 
     # Regular fitting mode
     h, w = image.shape
-    
+
     # Initial Parameters
     x0 = cfg.x0 if cfg.x0 is not None else w / 2.0
     y0 = cfg.y0 if cfg.y0 is not None else h / 2.0
@@ -294,80 +301,79 @@ def fit_image(image, mask=None, config=None, template=None, template_isophotes=N
     maxsma = cfg.maxsma if cfg.maxsma is not None else max(h, w) / 2.0
     astep = cfg.astep
     linear_growth = cfg.linear_growth
-    
+
     # 1. Fit Central Pixel (Approximation)
     central_result = fit_central_pixel(image, mask, x0, y0, debug=cfg.debug)
-    
+
     # 2. Fit First Isophote at SMA0
-    start_geometry = {
-        'x0': x0, 'y0': y0, 
-        'eps': cfg.eps, 'pa': cfg.pa
-    }
-    
+    start_geometry = {"x0": x0, "y0": y0, "eps": cfg.eps, "pa": cfg.pa}
+
     # Pass cfg object to fit_isophote
     first_iso = fit_isophote(image, mask, sma0, start_geometry, cfg, variance_map=variance_map)
-    
+
     # 3. Grow Outwards
     outwards_results = []
-    if _is_acceptable_stop_code(first_iso['stop_code']):
+    if _is_acceptable_stop_code(first_iso["stop_code"]):
         outwards_results.append(first_iso)
         current_iso = first_iso
-        current_sma = first_iso['sma']
-        
+        current_sma = first_iso["sma"]
+
         while True:
             if linear_growth:
                 next_sma = current_sma + astep
             else:
                 next_sma = current_sma * (1.0 + astep)
-                
+
             if next_sma > maxsma:
                 break
-            
+
             # Update sma tracking
             current_sma = next_sma
-                
+
             next_iso = fit_isophote(
-                image, mask, next_sma, current_iso, cfg,
-                previous_geometry=current_iso,
-                variance_map=variance_map
+                image, mask, next_sma, current_iso, cfg, previous_geometry=current_iso, variance_map=variance_map
             )
             outwards_results.append(next_iso)
 
             # If good fit, update geometry for next step
             # In permissive mode, always update to prevent cascading failures
-            if _is_acceptable_stop_code(next_iso['stop_code']) or cfg.permissive_geometry:
+            if _is_acceptable_stop_code(next_iso["stop_code"]) or cfg.permissive_geometry:
                 current_iso = next_iso
-                
+
     # 4. Grow Inwards
     inwards_results = []
-    if minsma < sma0 and _is_acceptable_stop_code(first_iso['stop_code']):
+    if minsma < sma0 and _is_acceptable_stop_code(first_iso["stop_code"]):
         current_iso = first_iso
-        current_sma = first_iso['sma']
-        
+        current_sma = first_iso["sma"]
+
         while True:
             if linear_growth:
                 next_sma = current_sma - astep
             else:
                 next_sma = current_sma / (1.0 + astep)
-            
+
             # Stop if smaller than minsma or effectively too small (e.g. 0.5 pixel)
-            limit_sma = max(minsma, 0.5) 
+            limit_sma = max(minsma, 0.5)
             if next_sma < limit_sma:
                 break
-            
+
             current_sma = next_sma
-            
+
             # Use going_inwards=True flag
             next_iso = fit_isophote(
-                image, mask, next_sma, current_iso, cfg,
+                image,
+                mask,
+                next_sma,
+                current_iso,
+                cfg,
                 going_inwards=True,
                 previous_geometry=current_iso,
-                variance_map=variance_map
+                variance_map=variance_map,
             )
             inwards_results.append(next_iso)
 
             # In permissive mode, always update to prevent cascading failures
-            if _is_acceptable_stop_code(next_iso['stop_code']) or cfg.permissive_geometry:
+            if _is_acceptable_stop_code(next_iso["stop_code"]) or cfg.permissive_geometry:
                 current_iso = next_iso
 
     # Combine results
@@ -377,27 +383,24 @@ def fit_image(image, mask=None, config=None, template=None, template_isophotes=N
         final_list = [central_result] + inwards_results[::-1] + outwards_results
     else:
         final_list = inwards_results[::-1] + outwards_results
-    
+
     # Compute Curve-of-Growth if requested
     if cfg.compute_cog:
-        from .cog import compute_cog, add_cog_to_isophotes
-        
+        from .cog import add_cog_to_isophotes, compute_cog
+
         # Determine if geometry was fixed
         fix_geometry = cfg.fix_center and cfg.fix_pa and cfg.fix_eps
-        
-        cog_results = compute_cog(final_list, 
-                                  fix_center=cfg.fix_center, 
-                                  fix_geometry=fix_geometry)
-        
+
+        cog_results = compute_cog(final_list, fix_center=cfg.fix_center, fix_geometry=fix_geometry)
+
         # Add CoG data to isophotes
         add_cog_to_isophotes(final_list, cog_results)
-            
+
     # Return as dict matching legacy structure + config object
     return _build_fit_result(final_list, cfg)
 
 
-def _fit_image_template_forced(image, mask, config, template_isophotes,
-                               variance_map=None):
+def _fit_image_template_forced(image, mask, config, template_isophotes, variance_map=None):
     """
     Extract forced photometry using geometry from template isophotes.
 
@@ -435,26 +438,26 @@ def _fit_image_template_forced(image, mask, config, template_isophotes,
 
     isophotes = []
     for template_iso in template_isophotes:
-        sma = template_iso['sma']
+        sma = template_iso["sma"]
 
         # Handle central pixel (sma=0) specially
         if sma == 0:
-            iso = fit_central_pixel(
-                image, mask, template_iso['x0'], template_iso['y0'],
-                debug=config.debug
-            )
+            iso = fit_central_pixel(image, mask, template_iso["x0"], template_iso["y0"], debug=config.debug)
         else:
             iso = extract_forced_photometry(
-                image, mask,
-                template_iso['x0'], template_iso['y0'],
+                image,
+                mask,
+                template_iso["x0"],
+                template_iso["y0"],
                 sma,
-                template_iso['eps'], template_iso['pa'],
+                template_iso["eps"],
+                template_iso["pa"],
                 integrator=config.integrator,
                 sclip=config.sclip,
                 nclip=config.nclip,
                 use_eccentric_anomaly=config.use_eccentric_anomaly,
                 config=config,
-                variance_map=variance_map
+                variance_map=variance_map,
             )
         isophotes.append(iso)
 

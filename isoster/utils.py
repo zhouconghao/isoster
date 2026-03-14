@@ -2,8 +2,8 @@ import json
 import logging
 
 import numpy as np
-from astropy.table import Table
 from astropy.io import fits
+from astropy.table import Table
 
 logger = logging.getLogger(__name__)
 
@@ -31,13 +31,13 @@ def _config_to_dict(config):
     """
     if config is None:
         return {}
-    if hasattr(config, 'model_dump'):
+    if hasattr(config, "model_dump"):
         return config.model_dump()
-    if hasattr(config, 'dict'):
+    if hasattr(config, "dict"):
         return config.dict()
     if isinstance(config, dict):
         return config
-    return getattr(config, '__dict__', {})
+    return getattr(config, "__dict__", {})
 
 
 def _build_config_hdu(results):
@@ -47,7 +47,7 @@ def _build_config_hdu(results):
     Each value is JSON-serialized so that lists, dicts, bools, and None
     round-trip faithfully without FITS header length or HIERARCH issues.
     """
-    config = results.get('config', None) if isinstance(results, dict) else None
+    config = results.get("config", None) if isinstance(results, dict) else None
     config_dict = _config_to_dict(config)
 
     params = []
@@ -57,11 +57,11 @@ def _build_config_hdu(results):
         values.append(json.dumps(value, cls=_NumpyEncoder))
 
     config_tbl = Table()
-    config_tbl['PARAM'] = params if params else np.array([], dtype='U1')
-    config_tbl['VALUE'] = values if values else np.array([], dtype='U1')
+    config_tbl["PARAM"] = params if params else np.array([], dtype="U1")
+    config_tbl["VALUE"] = values if values else np.array([], dtype="U1")
 
     config_hdu = fits.table_to_hdu(config_tbl)
-    config_hdu.name = 'CONFIG'
+    config_hdu.name = "CONFIG"
     return config_hdu
 
 
@@ -80,9 +80,9 @@ def _parse_config_hdu(hdu):
 
     parsed = {}
     for row in config_tbl:
-        key = str(row['PARAM'])
+        key = str(row["PARAM"])
         try:
-            parsed[key] = json.loads(row['VALUE'])
+            parsed[key] = json.loads(row["VALUE"])
         except (json.JSONDecodeError, TypeError):
             logger.warning("Skipping unparseable config key '%s'", key)
             continue
@@ -124,7 +124,7 @@ def isophote_results_to_astropy_tables(results):
     if isinstance(results, list):
         isophotes = results
     else:
-        isophotes = results.get('isophotes', [])
+        isophotes = results.get("isophotes", [])
 
     if not isophotes:
         return Table()
@@ -133,7 +133,7 @@ def isophote_results_to_astropy_tables(results):
     tbl = Table(rows=isophotes)
 
     # Reorder columns for better readability
-    common_cols = ['sma', 'intens', 'intens_err', 'eps', 'pa', 'x0', 'y0', 'rms', 'stop_code', 'niter']
+    common_cols = ["sma", "intens", "intens_err", "eps", "pa", "x0", "y0", "rms", "stop_code", "niter"]
     all_cols = tbl.colnames
     new_order = [c for c in common_cols if c in all_cols] + [c for c in all_cols if c not in common_cols]
     tbl = tbl[new_order]
@@ -165,7 +165,7 @@ def isophote_results_to_fits(results, filename, overwrite=True):
     tbl = isophote_results_to_astropy_tables(results)
 
     isophote_hdu = fits.table_to_hdu(tbl)
-    isophote_hdu.name = 'ISOPHOTES'
+    isophote_hdu.name = "ISOPHOTES"
 
     config_hdu = _build_config_hdu(results)
 
@@ -207,14 +207,14 @@ def isophote_results_from_fits(filename):
     with fits.open(filename) as hdulist:
         # Read isophotes: try named HDU first, fall back to index 1
         try:
-            iso_tbl = Table.read(hdulist['ISOPHOTES'])
+            iso_tbl = Table.read(hdulist["ISOPHOTES"])
         except KeyError:
             iso_tbl = Table.read(hdulist[1])
 
         # Read config from CONFIG HDU (new format); None for legacy files
         config = None
-        if 'CONFIG' in hdulist:
-            config = _parse_config_hdu(hdulist['CONFIG'])
+        if "CONFIG" in hdulist:
+            config = _parse_config_hdu(hdulist["CONFIG"])
 
     # Convert table rows to list of dicts
     isophotes = []
@@ -232,12 +232,13 @@ def isophote_results_from_fits(filename):
             iso_dict[colname] = value
         isophotes.append(iso_dict)
 
-    return {'isophotes': isophotes, 'config': config}
+    return {"isophotes": isophotes, "config": config}
 
 
 # ---------------------------------------------------------------------------
 # ASDF support (optional dependency)
 # ---------------------------------------------------------------------------
+
 
 def isophote_results_to_asdf(results, filename):
     """
@@ -270,13 +271,13 @@ def isophote_results_to_asdf(results, filename):
         isophotes = results
         config_dict = {}
     else:
-        isophotes = results.get('isophotes', [])
-        config_dict = _config_to_dict(results.get('config', None))
+        isophotes = results.get("isophotes", [])
+        config_dict = _config_to_dict(results.get("config", None))
 
     tree = {
-        'format_version': 1,
-        'isophotes': isophotes,
-        'config': config_dict,
+        "format_version": 1,
+        "isophotes": isophotes,
+        "config": config_dict,
     }
 
     af = asdf.AsdfFile(tree)
@@ -315,8 +316,8 @@ def isophote_results_from_asdf(filename):
     from .config import IsosterConfig
 
     with asdf.open(filename) as af:
-        isophotes = list(af.tree.get('isophotes', []))
-        config_dict = dict(af.tree.get('config', {}))
+        isophotes = list(af.tree.get("isophotes", []))
+        config_dict = dict(af.tree.get("config", {}))
 
     # Convert isophote values from numpy to native Python types
     clean_isophotes = []
@@ -341,4 +342,4 @@ def isophote_results_from_asdf(filename):
         except Exception:
             logger.warning("Could not reconstruct IsosterConfig from ASDF; returning None")
 
-    return {'isophotes': clean_isophotes, 'config': config}
+    return {"isophotes": clean_isophotes, "config": config}

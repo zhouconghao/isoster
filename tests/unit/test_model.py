@@ -1,5 +1,7 @@
-import numpy as np
 import unittest
+
+import numpy as np
+
 from isoster.model import build_isoster_model
 
 
@@ -8,15 +10,12 @@ class TestModel(unittest.TestCase):
         """Test basic model building with single isophote."""
         shape = (100, 100)
         # Create a single isophote
-        iso = {
-            'x0': 50.0, 'y0': 50.0, 'sma': 10.0, 'eps': 0.0, 'pa': 0.0,
-            'intens': 100.0
-        }
+        iso = {"x0": 50.0, "y0": 50.0, "sma": 10.0, "eps": 0.0, "pa": 0.0, "intens": 100.0}
 
         model = build_isoster_model(shape, [iso])
 
         # At sma=10, intensity should be 100
-        r = np.sqrt((np.arange(100) - 50.0)**2 + (50.0 - 50.0)**2)
+        r = np.sqrt((np.arange(100) - 50.0) ** 2 + (50.0 - 50.0) ** 2)
         idx_at_sma = np.argmin(np.abs(r - 10.0))  # Find pixel closest to sma=10
         self.assertAlmostEqual(model[50, idx_at_sma], 100.0, places=1)
 
@@ -28,8 +27,8 @@ class TestModel(unittest.TestCase):
         """Test radial interpolation between isophotes."""
         shape = (100, 100)
         isos = [
-            {'x0': 50.0, 'y0': 50.0, 'sma': 10.0, 'eps': 0.0, 'pa': 0.0, 'intens': 100.0},
-            {'x0': 50.0, 'y0': 50.0, 'sma': 20.0, 'eps': 0.0, 'pa': 0.0, 'intens': 50.0}
+            {"x0": 50.0, "y0": 50.0, "sma": 10.0, "eps": 0.0, "pa": 0.0, "intens": 100.0},
+            {"x0": 50.0, "y0": 50.0, "sma": 20.0, "eps": 0.0, "pa": 0.0, "intens": 50.0},
         ]
 
         model = build_isoster_model(shape, isos)
@@ -43,12 +42,11 @@ class TestModel(unittest.TestCase):
         # At sma=15 (halfway), intensity should be interpolated (~75 for linear)
         val_mid = model[50, 65]  # r=15
         self.assertGreater(val_mid, 50.0)  # Should be > 50
-        self.assertLess(val_mid, 100.0)    # Should be < 100
+        self.assertLess(val_mid, 100.0)  # Should be < 100
         self.assertAlmostEqual(val_mid, 75.0, delta=5.0)  # ~75 for linear interp
 
         # Outside sma=20, should be fill value
         self.assertEqual(model[50, 80], 0.0)
-
 
     def test_pa_interpolation_wrap_boundary(self):
         """Regression test for I5: PA interpolation across 0/180 boundary.
@@ -60,12 +58,9 @@ class TestModel(unittest.TestCase):
         shape = (100, 100)
         # Three isophotes with PA wrapping: 170 -> 175 -> 5 degrees (in radians)
         isos = [
-            {'x0': 50.0, 'y0': 50.0, 'sma': 10.0, 'eps': 0.3,
-             'pa': np.radians(170.0), 'intens': 100.0},
-            {'x0': 50.0, 'y0': 50.0, 'sma': 20.0, 'eps': 0.3,
-             'pa': np.radians(175.0), 'intens': 80.0},
-            {'x0': 50.0, 'y0': 50.0, 'sma': 30.0, 'eps': 0.3,
-             'pa': np.radians(5.0), 'intens': 60.0},
+            {"x0": 50.0, "y0": 50.0, "sma": 10.0, "eps": 0.3, "pa": np.radians(170.0), "intens": 100.0},
+            {"x0": 50.0, "y0": 50.0, "sma": 20.0, "eps": 0.3, "pa": np.radians(175.0), "intens": 80.0},
+            {"x0": 50.0, "y0": 50.0, "sma": 30.0, "eps": 0.3, "pa": np.radians(5.0), "intens": 60.0},
         ]
 
         model = build_isoster_model(shape, isos)
@@ -86,8 +81,7 @@ class TestModel(unittest.TestCase):
         # noticeably higher than val_along_minor because eps=0.3 means the ellipse
         # is elongated along the PA direction.
         # With buggy interpolation (~90 deg), the roles reverse.
-        self.assertGreater(val_along_major, val_along_minor,
-                           "PA interpolation should go through 180/0, not through 90")
+        self.assertGreater(val_along_major, val_along_minor, "PA interpolation should go through 180/0, not through 90")
 
     def test_nan_isophotes_filtered_before_interpolation(self):
         """Regression test for I4: NaN intensities should be filtered out.
@@ -97,9 +91,9 @@ class TestModel(unittest.TestCase):
         """
         shape = (100, 100)
         isos = [
-            {'x0': 50.0, 'y0': 50.0, 'sma': 10.0, 'eps': 0.0, 'pa': 0.0, 'intens': 100.0},
-            {'x0': 50.0, 'y0': 50.0, 'sma': 20.0, 'eps': 0.0, 'pa': 0.0, 'intens': np.nan},
-            {'x0': 50.0, 'y0': 50.0, 'sma': 30.0, 'eps': 0.0, 'pa': 0.0, 'intens': 60.0},
+            {"x0": 50.0, "y0": 50.0, "sma": 10.0, "eps": 0.0, "pa": 0.0, "intens": 100.0},
+            {"x0": 50.0, "y0": 50.0, "sma": 20.0, "eps": 0.0, "pa": 0.0, "intens": np.nan},
+            {"x0": 50.0, "y0": 50.0, "sma": 30.0, "eps": 0.0, "pa": 0.0, "intens": 60.0},
         ]
 
         model = build_isoster_model(shape, isos)
@@ -115,9 +109,9 @@ class TestModel(unittest.TestCase):
         """Isophotes with NaN geometry columns should be excluded."""
         shape = (100, 100)
         isos = [
-            {'x0': 50.0, 'y0': 50.0, 'sma': 10.0, 'eps': 0.0, 'pa': 0.0, 'intens': 100.0},
-            {'x0': np.nan, 'y0': 50.0, 'sma': 20.0, 'eps': 0.0, 'pa': 0.0, 'intens': 80.0},
-            {'x0': 50.0, 'y0': 50.0, 'sma': 30.0, 'eps': 0.0, 'pa': 0.0, 'intens': 60.0},
+            {"x0": 50.0, "y0": 50.0, "sma": 10.0, "eps": 0.0, "pa": 0.0, "intens": 100.0},
+            {"x0": np.nan, "y0": 50.0, "sma": 20.0, "eps": 0.0, "pa": 0.0, "intens": 80.0},
+            {"x0": 50.0, "y0": 50.0, "sma": 30.0, "eps": 0.0, "pa": 0.0, "intens": 60.0},
         ]
 
         model = build_isoster_model(shape, isos)
@@ -129,20 +123,49 @@ class TestModel(unittest.TestCase):
         """NaN harmonic coefficients should be replaced with 0, not poison the model."""
         shape = (100, 100)
         isos = [
-            {'x0': 50.0, 'y0': 50.0, 'sma': 10.0, 'eps': 0.0, 'pa': 0.0,
-             'intens': 100.0, 'a3': 0.01, 'b3': 0.01, 'a4': 0.01, 'b4': 0.01},
-            {'x0': 50.0, 'y0': 50.0, 'sma': 20.0, 'eps': 0.0, 'pa': 0.0,
-             'intens': 80.0, 'a3': np.nan, 'b3': np.inf, 'a4': 0.01, 'b4': 0.01},
-            {'x0': 50.0, 'y0': 50.0, 'sma': 30.0, 'eps': 0.0, 'pa': 0.0,
-             'intens': 60.0, 'a3': 0.01, 'b3': 0.01, 'a4': 0.01, 'b4': 0.01},
+            {
+                "x0": 50.0,
+                "y0": 50.0,
+                "sma": 10.0,
+                "eps": 0.0,
+                "pa": 0.0,
+                "intens": 100.0,
+                "a3": 0.01,
+                "b3": 0.01,
+                "a4": 0.01,
+                "b4": 0.01,
+            },
+            {
+                "x0": 50.0,
+                "y0": 50.0,
+                "sma": 20.0,
+                "eps": 0.0,
+                "pa": 0.0,
+                "intens": 80.0,
+                "a3": np.nan,
+                "b3": np.inf,
+                "a4": 0.01,
+                "b4": 0.01,
+            },
+            {
+                "x0": 50.0,
+                "y0": 50.0,
+                "sma": 30.0,
+                "eps": 0.0,
+                "pa": 0.0,
+                "intens": 60.0,
+                "a3": 0.01,
+                "b3": 0.01,
+                "a4": 0.01,
+                "b4": 0.01,
+            },
         ]
 
         model = build_isoster_model(shape, isos, use_harmonics=True, harmonic_orders=[3, 4])
 
         # Model should be entirely finite despite NaN/Inf harmonic coefficients
         n_nonfinite = np.sum(~np.isfinite(model))
-        self.assertEqual(n_nonfinite, 0,
-                         f"Model has {n_nonfinite} non-finite pixels from NaN harmonics")
+        self.assertEqual(n_nonfinite, 0, f"Model has {n_nonfinite} non-finite pixels from NaN harmonics")
 
     # ------------------------------------------------------------------
     # Issue 1: Auto-detect harmonic orders from isophote keys
@@ -153,28 +176,48 @@ class TestModel(unittest.TestCase):
         shape = (100, 100)
         # Isophotes with orders 3, 4, 5, 6 present
         isos = [
-            {'x0': 50.0, 'y0': 50.0, 'sma': 10.0, 'eps': 0.0, 'pa': 0.0,
-             'intens': 100.0,
-             'a3': 0.02, 'b3': 0.01, 'a4': 0.03, 'b4': -0.02,
-             'a5': 0.01, 'b5': 0.005, 'a6': 0.008, 'b6': -0.003},
-            {'x0': 50.0, 'y0': 50.0, 'sma': 30.0, 'eps': 0.0, 'pa': 0.0,
-             'intens': 50.0,
-             'a3': 0.02, 'b3': 0.01, 'a4': 0.03, 'b4': -0.02,
-             'a5': 0.01, 'b5': 0.005, 'a6': 0.008, 'b6': -0.003},
+            {
+                "x0": 50.0,
+                "y0": 50.0,
+                "sma": 10.0,
+                "eps": 0.0,
+                "pa": 0.0,
+                "intens": 100.0,
+                "a3": 0.02,
+                "b3": 0.01,
+                "a4": 0.03,
+                "b4": -0.02,
+                "a5": 0.01,
+                "b5": 0.005,
+                "a6": 0.008,
+                "b6": -0.003,
+            },
+            {
+                "x0": 50.0,
+                "y0": 50.0,
+                "sma": 30.0,
+                "eps": 0.0,
+                "pa": 0.0,
+                "intens": 50.0,
+                "a3": 0.02,
+                "b3": 0.01,
+                "a4": 0.03,
+                "b4": -0.02,
+                "a5": 0.01,
+                "b5": 0.005,
+                "a6": 0.008,
+                "b6": -0.003,
+            },
         ]
 
         # With harmonic_orders=None (default), all available orders should be used
-        model_auto = build_isoster_model(shape, isos, use_harmonics=True,
-                                         harmonic_orders=None)
+        model_auto = build_isoster_model(shape, isos, use_harmonics=True, harmonic_orders=None)
         # With explicit all orders
-        model_explicit = build_isoster_model(shape, isos, use_harmonics=True,
-                                             harmonic_orders=[3, 4, 5, 6])
+        model_explicit = build_isoster_model(shape, isos, use_harmonics=True, harmonic_orders=[3, 4, 5, 6])
 
         # These should be identical
         np.testing.assert_array_almost_equal(
-            model_auto, model_explicit,
-            decimal=10,
-            err_msg="Auto-detected orders should match explicit [3,4,5,6]"
+            model_auto, model_explicit, decimal=10, err_msg="Auto-detected orders should match explicit [3,4,5,6]"
         )
 
     def test_auto_detect_does_not_silently_drop_higher_orders(self):
@@ -182,40 +225,55 @@ class TestModel(unittest.TestCase):
         shape = (100, 100)
         # Isophotes with strong a5 signal — dropping it changes the model
         isos = [
-            {'x0': 50.0, 'y0': 50.0, 'sma': 10.0, 'eps': 0.0, 'pa': 0.0,
-             'intens': 100.0,
-             'a3': 0.0, 'b3': 0.0, 'a4': 0.0, 'b4': 0.0,
-             'a5': 0.1, 'b5': 0.0},
-            {'x0': 50.0, 'y0': 50.0, 'sma': 30.0, 'eps': 0.0, 'pa': 0.0,
-             'intens': 50.0,
-             'a3': 0.0, 'b3': 0.0, 'a4': 0.0, 'b4': 0.0,
-             'a5': 0.1, 'b5': 0.0},
+            {
+                "x0": 50.0,
+                "y0": 50.0,
+                "sma": 10.0,
+                "eps": 0.0,
+                "pa": 0.0,
+                "intens": 100.0,
+                "a3": 0.0,
+                "b3": 0.0,
+                "a4": 0.0,
+                "b4": 0.0,
+                "a5": 0.1,
+                "b5": 0.0,
+            },
+            {
+                "x0": 50.0,
+                "y0": 50.0,
+                "sma": 30.0,
+                "eps": 0.0,
+                "pa": 0.0,
+                "intens": 50.0,
+                "a3": 0.0,
+                "b3": 0.0,
+                "a4": 0.0,
+                "b4": 0.0,
+                "a5": 0.1,
+                "b5": 0.0,
+            },
         ]
 
         # Default (harmonic_orders=None) should include a5
         model_default = build_isoster_model(shape, isos, use_harmonics=True)
         # Model with only [3,4] would miss a5 entirely
-        model_34_only = build_isoster_model(shape, isos, use_harmonics=True,
-                                            harmonic_orders=[3, 4])
+        model_34_only = build_isoster_model(shape, isos, use_harmonics=True, harmonic_orders=[3, 4])
 
         # They must differ because a5=0.1 is significant
         max_diff = np.max(np.abs(model_default - model_34_only))
-        self.assertGreater(max_diff, 0.1,
-                           "Default should include a5, producing different model than [3,4] only")
+        self.assertGreater(max_diff, 0.1, "Default should include a5, producing different model than [3,4] only")
 
     def test_auto_detect_with_no_harmonics_present(self):
         """When no harmonic keys present, auto-detect should gracefully use no harmonics."""
         shape = (100, 100)
         isos = [
-            {'x0': 50.0, 'y0': 50.0, 'sma': 10.0, 'eps': 0.0, 'pa': 0.0,
-             'intens': 100.0},
-            {'x0': 50.0, 'y0': 50.0, 'sma': 30.0, 'eps': 0.0, 'pa': 0.0,
-             'intens': 50.0},
+            {"x0": 50.0, "y0": 50.0, "sma": 10.0, "eps": 0.0, "pa": 0.0, "intens": 100.0},
+            {"x0": 50.0, "y0": 50.0, "sma": 30.0, "eps": 0.0, "pa": 0.0, "intens": 50.0},
         ]
 
         # Should not raise, should produce same result as use_harmonics=False
-        model_auto = build_isoster_model(shape, isos, use_harmonics=True,
-                                         harmonic_orders=None)
+        model_auto = build_isoster_model(shape, isos, use_harmonics=True, harmonic_orders=None)
         model_no_harm = build_isoster_model(shape, isos, use_harmonics=False)
 
         np.testing.assert_array_almost_equal(model_auto, model_no_harm, decimal=10)
@@ -235,12 +293,9 @@ class TestModel(unittest.TestCase):
         shape = (100, 100)
         # First row has NO a3/b3; later rows do.
         isos = [
-            {'x0': 50.0, 'y0': 50.0, 'sma': 10.0, 'eps': 0.0, 'pa': 0.0,
-             'intens': 100.0},
-            {'x0': 50.0, 'y0': 50.0, 'sma': 20.0, 'eps': 0.0, 'pa': 0.0,
-             'intens': 80.0, 'a3': 0.1, 'b3': 0.05},
-            {'x0': 50.0, 'y0': 50.0, 'sma': 30.0, 'eps': 0.0, 'pa': 0.0,
-             'intens': 60.0, 'a3': 0.1, 'b3': 0.05},
+            {"x0": 50.0, "y0": 50.0, "sma": 10.0, "eps": 0.0, "pa": 0.0, "intens": 100.0},
+            {"x0": 50.0, "y0": 50.0, "sma": 20.0, "eps": 0.0, "pa": 0.0, "intens": 80.0, "a3": 0.1, "b3": 0.05},
+            {"x0": 50.0, "y0": 50.0, "sma": 30.0, "eps": 0.0, "pa": 0.0, "intens": 60.0, "a3": 0.1, "b3": 0.05},
         ]
 
         # Build with harmonics enabled (auto-detect should find a3/b3)
@@ -250,31 +305,22 @@ class TestModel(unittest.TestCase):
 
         # The harmonic coefficients are large (a3=0.1), so the models must differ
         max_diff = np.max(np.abs(model_with_harm - model_no_harm))
-        self.assertGreater(
-            max_diff, 0.01,
-            "Harmonics present only in later rows should still affect the model"
-        )
+        self.assertGreater(max_diff, 0.01, "Harmonics present only in later rows should still affect the model")
 
     def test_harmonic_works_when_all_rows_have_key(self):
         """Harmonics present in every row should still work correctly."""
         shape = (100, 100)
         isos = [
-            {'x0': 50.0, 'y0': 50.0, 'sma': 10.0, 'eps': 0.0, 'pa': 0.0,
-             'intens': 100.0, 'a3': 0.1, 'b3': 0.05},
-            {'x0': 50.0, 'y0': 50.0, 'sma': 20.0, 'eps': 0.0, 'pa': 0.0,
-             'intens': 80.0, 'a3': 0.1, 'b3': 0.05},
-            {'x0': 50.0, 'y0': 50.0, 'sma': 30.0, 'eps': 0.0, 'pa': 0.0,
-             'intens': 60.0, 'a3': 0.1, 'b3': 0.05},
+            {"x0": 50.0, "y0": 50.0, "sma": 10.0, "eps": 0.0, "pa": 0.0, "intens": 100.0, "a3": 0.1, "b3": 0.05},
+            {"x0": 50.0, "y0": 50.0, "sma": 20.0, "eps": 0.0, "pa": 0.0, "intens": 80.0, "a3": 0.1, "b3": 0.05},
+            {"x0": 50.0, "y0": 50.0, "sma": 30.0, "eps": 0.0, "pa": 0.0, "intens": 60.0, "a3": 0.1, "b3": 0.05},
         ]
 
         model_with_harm = build_isoster_model(shape, isos, use_harmonics=True)
         model_no_harm = build_isoster_model(shape, isos, use_harmonics=False)
 
         max_diff = np.max(np.abs(model_with_harm - model_no_harm))
-        self.assertGreater(
-            max_diff, 0.01,
-            "Harmonics present in all rows should affect the model"
-        )
+        self.assertGreater(max_diff, 0.01, "Harmonics present in all rows should affect the model")
 
     # ------------------------------------------------------------------
     # Issue 2: EA mode angle space mismatch
@@ -293,28 +339,41 @@ class TestModel(unittest.TestCase):
 
         # Create isophotes with strong b4 (boxy/disky) signal, marked as EA mode
         isos = [
-            {'x0': 100.0, 'y0': 100.0, 'sma': 20.0, 'eps': eps, 'pa': 0.0,
-             'intens': 100.0, 'a4': 0.0, 'b4': 0.08,
-             'use_eccentric_anomaly': True},
-            {'x0': 100.0, 'y0': 100.0, 'sma': 60.0, 'eps': eps, 'pa': 0.0,
-             'intens': 50.0, 'a4': 0.0, 'b4': 0.08,
-             'use_eccentric_anomaly': True},
+            {
+                "x0": 100.0,
+                "y0": 100.0,
+                "sma": 20.0,
+                "eps": eps,
+                "pa": 0.0,
+                "intens": 100.0,
+                "a4": 0.0,
+                "b4": 0.08,
+                "use_eccentric_anomaly": True,
+            },
+            {
+                "x0": 100.0,
+                "y0": 100.0,
+                "sma": 60.0,
+                "eps": eps,
+                "pa": 0.0,
+                "intens": 50.0,
+                "a4": 0.0,
+                "b4": 0.08,
+                "use_eccentric_anomaly": True,
+            },
         ]
 
         # Build model with EA-aware angle computation
-        model_ea = build_isoster_model(shape, isos, use_harmonics=True,
-                                       harmonic_orders=[4])
+        model_ea = build_isoster_model(shape, isos, use_harmonics=True, harmonic_orders=[4])
 
         # Build model forcing φ-space (wrong for EA-fitted data)
         isos_phi = [dict(iso, use_eccentric_anomaly=False) for iso in isos]
-        model_phi = build_isoster_model(shape, isos_phi, use_harmonics=True,
-                                        harmonic_orders=[4])
+        model_phi = build_isoster_model(shape, isos_phi, use_harmonics=True, harmonic_orders=[4])
 
         # At eps=0.6, ψ and φ differ significantly along minor axis.
         # The two models should differ meaningfully.
         max_diff = np.max(np.abs(model_ea - model_phi))
-        self.assertGreater(max_diff, 0.1,
-                           f"EA vs φ models should differ at eps={eps}, got max_diff={max_diff:.4f}")
+        self.assertGreater(max_diff, 0.1, f"EA vs φ models should differ at eps={eps}, got max_diff={max_diff:.4f}")
 
     def test_ea_mode_explicit_parameter_override(self):
         """Explicit use_eccentric_anomaly parameter overrides isophote-stored flag."""
@@ -322,29 +381,46 @@ class TestModel(unittest.TestCase):
         eps = 0.6
 
         isos = [
-            {'x0': 100.0, 'y0': 100.0, 'sma': 20.0, 'eps': eps, 'pa': 0.0,
-             'intens': 100.0, 'a4': 0.0, 'b4': 0.08,
-             'use_eccentric_anomaly': True},
-            {'x0': 100.0, 'y0': 100.0, 'sma': 60.0, 'eps': eps, 'pa': 0.0,
-             'intens': 50.0, 'a4': 0.0, 'b4': 0.08,
-             'use_eccentric_anomaly': True},
+            {
+                "x0": 100.0,
+                "y0": 100.0,
+                "sma": 20.0,
+                "eps": eps,
+                "pa": 0.0,
+                "intens": 100.0,
+                "a4": 0.0,
+                "b4": 0.08,
+                "use_eccentric_anomaly": True,
+            },
+            {
+                "x0": 100.0,
+                "y0": 100.0,
+                "sma": 60.0,
+                "eps": eps,
+                "pa": 0.0,
+                "intens": 50.0,
+                "a4": 0.0,
+                "b4": 0.08,
+                "use_eccentric_anomaly": True,
+            },
         ]
 
         # Explicit override to False should use φ-space despite isophote flag
-        model_override = build_isoster_model(shape, isos, use_harmonics=True,
-                                             harmonic_orders=[4],
-                                             use_eccentric_anomaly=False)
+        model_override = build_isoster_model(
+            shape, isos, use_harmonics=True, harmonic_orders=[4], use_eccentric_anomaly=False
+        )
 
         # This should match φ-space model
         isos_phi = [dict(iso, use_eccentric_anomaly=False) for iso in isos]
-        model_phi = build_isoster_model(shape, isos_phi, use_harmonics=True,
-                                        harmonic_orders=[4])
+        model_phi = build_isoster_model(shape, isos_phi, use_harmonics=True, harmonic_orders=[4])
 
         np.testing.assert_array_almost_equal(
-            model_override, model_phi, decimal=10,
-            err_msg="Explicit use_eccentric_anomaly=False should override isophote flag"
+            model_override,
+            model_phi,
+            decimal=10,
+            err_msg="Explicit use_eccentric_anomaly=False should override isophote flag",
         )
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     unittest.main()

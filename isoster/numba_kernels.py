@@ -27,9 +27,10 @@ from numpy.typing import NDArray
 # Also check NUMBA_DISABLE_JIT environment variable
 try:
     from numba import njit
+
     # Check if JIT is disabled via environment variable
     # When disabled, use numpy fallbacks for better performance than interpreted numba loops
-    NUMBA_AVAILABLE = os.environ.get('NUMBA_DISABLE_JIT', '0') != '1'
+    NUMBA_AVAILABLE = os.environ.get("NUMBA_DISABLE_JIT", "0") != "1"
 except ImportError:
     NUMBA_AVAILABLE = False
 
@@ -38,6 +39,7 @@ if not NUMBA_AVAILABLE:
     def njit(*args, **kwargs):
         def decorator(func):
             return func
+
         if len(args) == 1 and callable(args[0]):
             return args[0]
         return decorator
@@ -46,6 +48,7 @@ if not NUMBA_AVAILABLE:
 # =============================================================================
 # Harmonic Model Evaluation
 # =============================================================================
+
 
 @njit(cache=True)
 def _harmonic_model_numba(phi, coeffs):
@@ -79,21 +82,20 @@ def _harmonic_model_numpy(phi, coeffs):
 
     This is the fallback implementation when numba is not available.
     """
-    return (coeffs[0] +
-            coeffs[1] * np.sin(phi) +
-            coeffs[2] * np.cos(phi) +
-            coeffs[3] * np.sin(2.0 * phi) +
-            coeffs[4] * np.cos(2.0 * phi))
+    return (
+        coeffs[0]
+        + coeffs[1] * np.sin(phi)
+        + coeffs[2] * np.cos(phi)
+        + coeffs[3] * np.sin(2.0 * phi)
+        + coeffs[4] * np.cos(2.0 * phi)
+    )
 
 
 # Select implementation based on numba availability
 _harmonic_model_impl = _harmonic_model_numba if NUMBA_AVAILABLE else _harmonic_model_numpy
 
 
-def harmonic_model(
-    phi: NDArray[np.floating],
-    coeffs: NDArray[np.floating]
-) -> NDArray[np.floating]:
+def harmonic_model(phi: NDArray[np.floating], coeffs: NDArray[np.floating]) -> NDArray[np.floating]:
     """
     Evaluate harmonic model at given angles.
 
@@ -117,6 +119,7 @@ def harmonic_model(
 # =============================================================================
 # Eccentric Anomaly to Position Angle Conversion
 # =============================================================================
+
 
 @njit(cache=True)
 def _ea_to_pa_numba(psi, eps):
@@ -161,10 +164,7 @@ def _ea_to_pa_numpy(psi, eps):
 _ea_to_pa_impl = _ea_to_pa_numba if NUMBA_AVAILABLE else _ea_to_pa_numpy
 
 
-def ea_to_pa(
-    psi: NDArray[np.floating],
-    eps: float
-) -> NDArray[np.floating]:
+def ea_to_pa(psi: NDArray[np.floating], eps: float) -> NDArray[np.floating]:
     """
     Convert eccentric anomaly to position angle.
 
@@ -189,6 +189,7 @@ def ea_to_pa(
 # =============================================================================
 # Ellipse Coordinate Computation
 # =============================================================================
+
 
 @njit(cache=True)
 def _compute_ellipse_coords_numba(n_samples, sma, eps, pa, x0, y0, use_ea):
@@ -251,7 +252,7 @@ def _compute_ellipse_coords_numba(n_samples, sma, eps, pa, x0, y0, use_ea):
         sin_phi = np.sin(phi_i)
 
         # Ellipse equation in polar coordinates
-        denom = np.sqrt((one_minus_eps * cos_phi)**2 + sin_phi**2)
+        denom = np.sqrt((one_minus_eps * cos_phi) ** 2 + sin_phi**2)
         r = sma * one_minus_eps / denom
 
         # Cartesian in rotated frame
@@ -283,7 +284,7 @@ def _compute_ellipse_coords_numpy(n_samples, sma, eps, pa, x0, y0, use_ea):
     cos_phi = np.cos(phi)
     sin_phi = np.sin(phi)
 
-    denom = np.sqrt(((1.0 - eps) * cos_phi)**2 + sin_phi**2)
+    denom = np.sqrt(((1.0 - eps) * cos_phi) ** 2 + sin_phi**2)
     r = sma * (1.0 - eps) / denom
 
     x_rot = r * cos_phi
@@ -303,13 +304,7 @@ _compute_ellipse_coords_impl = _compute_ellipse_coords_numba if NUMBA_AVAILABLE 
 
 
 def compute_ellipse_coords(
-    n_samples: int,
-    sma: float,
-    eps: float,
-    pa: float,
-    x0: float,
-    y0: float,
-    use_ea: bool
+    n_samples: int, sma: float, eps: float, pa: float, x0: float, y0: float, use_ea: bool
 ) -> Tuple[NDArray[np.floating], NDArray[np.floating], NDArray[np.floating], NDArray[np.floating]]:
     """
     Compute ellipse sampling coordinates.
@@ -344,6 +339,7 @@ def compute_ellipse_coords(
 # =============================================================================
 # Harmonic Design Matrix Construction
 # =============================================================================
+
 
 @njit(cache=True)
 def _build_harmonic_matrix_numba(phi):
@@ -418,6 +414,7 @@ def build_harmonic_matrix(phi: NDArray[np.floating]) -> NDArray[np.floating]:
 # Sigma Clipping (kept as numpy - profiling shows negligible time)
 # =============================================================================
 
+
 def sigma_clip_fast(phi, intens, sclip_low, sclip_high, nclip):
     """
     Perform iterative sigma clipping.
@@ -469,6 +466,7 @@ def sigma_clip_fast(phi, intens, sclip_low, sclip_high, nclip):
 # Utility Functions
 # =============================================================================
 
+
 def check_numba_available():
     """Check if numba is available and working."""
     return NUMBA_AVAILABLE
@@ -485,7 +483,7 @@ def warmup_numba():
         return
 
     # Small test arrays
-    phi = np.linspace(0, 2*np.pi, 64)
+    phi = np.linspace(0, 2 * np.pi, 64)
     coeffs = np.array([1.0, 0.1, 0.1, 0.05, 0.05])
 
     # Trigger compilation
@@ -499,12 +497,12 @@ def warmup_numba():
 # Module Initialization
 # =============================================================================
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     # Test the implementations
     print(f"Numba available: {NUMBA_AVAILABLE}")
 
     # Test data
-    phi = np.linspace(0, 2*np.pi, 100)
+    phi = np.linspace(0, 2 * np.pi, 100)
     coeffs = np.array([100.0, 1.0, 2.0, 0.5, 0.3])
     eps = 0.4
 

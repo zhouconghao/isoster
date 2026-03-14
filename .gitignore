@@ -6,14 +6,14 @@
 .github/agents/
 AGENTS.md
 
-# Internal development docs (kept on disk, not tracked)
-docs/journal/
-docs/review/
-docs/plans/
-docs/archive/
-docs/todo.md
-docs/todo-archive-*.md
-docs/lessons.md
+# Agent-internal development docs (kept on disk, not tracked)
+docs/agent/
+
+# Generated site (mkdocs build output)
+site/
+
+# Dropbox conflicted copies
+*conflicted copy*
 
 # QA reference figures (binary, legacy location)
 qa/reference_figures/

@@ -6,15 +6,15 @@ for generating synthetic test images.
 """
 
 from .sersic_factory import (
-    create_sersic_model,
     SersicFactory,
     compute_bn,
+    create_sersic_model,
     sersic_1d,
 )
 
 __all__ = [
-    'create_sersic_model',
-    'SersicFactory',
-    'compute_bn',
-    'sersic_1d',
+    "create_sersic_model",
+    "SersicFactory",
+    "compute_bn",
+    "sersic_1d",
 ]

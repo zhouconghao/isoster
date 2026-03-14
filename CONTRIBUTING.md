@@ -56,7 +56,7 @@ uv run pytest tests/ -v
 uv run pytest tests/real_data -m real_data -v -s
 ```
 
-Tests and benchmarks should be quantitative, with explicit statistics. See `docs/testing.md` for detailed benchmark and mock-validation conventions.
+Tests and benchmarks should be quantitative, with explicit statistics. See `docs/05-testing.md` for detailed benchmark and mock-validation conventions.
 
 ## Reporting Issues
 

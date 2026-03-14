@@ -5,7 +5,6 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-
 OUTPUT_ROOT_ENV_VAR = "ISOSTER_OUTPUT_ROOT"
 
 

@@ -10,14 +10,13 @@ theme:
     - content.code.copy
 
 nav:
-  - Home: index.md
-  - Spec: spec.md
-  - User Guide: user-guide.md
-  - Configuration: configuration-reference.md
-  - Algorithm: algorithm.md
-  - Testing: testing.md
-  - QA Figures: qa-figures.md
-  - Future: future.md
+  - Home: 00-index.md
+  - User Guide: 01-user-guide.md
+  - Configuration: 02-configuration-reference.md
+  - Algorithm: 03-algorithm.md
+  - Architecture: 04-architecture.md
+  - Testing: 05-testing.md
+  - QA Functions: 06-qa-functions.md
 
 markdown_extensions:
   - admonition

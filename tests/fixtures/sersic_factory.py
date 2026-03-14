@@ -49,6 +49,7 @@ def sersic_1d(r: np.ndarray, R_e: float, n: float, I_e: float) -> np.ndarray:
 @dataclass
 class SersicModelResult:
     """Result container for Sersic model generation."""
+
     image: np.ndarray
     true_profile: Callable[[np.ndarray], np.ndarray]
     params: dict
@@ -104,14 +105,14 @@ def create_sersic_model(
         # Create oversampled grid with proper pixel centering
         y_hr = np.linspace(0, shape[0], shape[0] * oversample, endpoint=False) + 0.5 / oversample
         x_hr = np.linspace(0, shape[1], shape[1] * oversample, endpoint=False) + 0.5 / oversample
-        yy_hr, xx_hr = np.meshgrid(y_hr, x_hr, indexing='ij')
+        yy_hr, xx_hr = np.meshgrid(y_hr, x_hr, indexing="ij")
 
         # Compute elliptical radius in rotated frame
         dx_hr = xx_hr - x0
         dy_hr = yy_hr - y0
         x_rot_hr = dx_hr * np.cos(pa) + dy_hr * np.sin(pa)
         y_rot_hr = -dx_hr * np.sin(pa) + dy_hr * np.cos(pa)
-        r_ell_hr = np.sqrt(x_rot_hr**2 + (y_rot_hr / (1 - eps))**2)
+        r_ell_hr = np.sqrt(x_rot_hr**2 + (y_rot_hr / (1 - eps)) ** 2)
 
         # Compute Sersic profile on oversampled grid
         image_hr = I_e * np.exp(-b_n * ((r_ell_hr / R_e) ** (1.0 / n) - 1.0))
@@ -120,12 +121,12 @@ def create_sersic_model(
         image = image_hr.reshape(shape[0], oversample, shape[1], oversample).mean(axis=(1, 3))
     else:
         # Standard resolution
-        y, x = np.mgrid[:shape[0], :shape[1]].astype(np.float64)
+        y, x = np.mgrid[: shape[0], : shape[1]].astype(np.float64)
         dx = x - x0
         dy = y - y0
         x_rot = dx * np.cos(pa) + dy * np.sin(pa)
         y_rot = -dx * np.sin(pa) + dy * np.cos(pa)
-        r_ell = np.sqrt(x_rot**2 + (y_rot / (1 - eps))**2)
+        r_ell = np.sqrt(x_rot**2 + (y_rot / (1 - eps)) ** 2)
 
         image = I_e * np.exp(-b_n * ((r_ell / R_e) ** (1.0 / n) - 1.0))
 
@@ -142,17 +143,17 @@ def create_sersic_model(
 
     # Collect all parameters
     params = {
-        'R_e': R_e,
-        'n': n,
-        'I_e': I_e,
-        'eps': eps,
-        'pa': pa,
-        'b_n': b_n,
-        'x0': x0,
-        'y0': y0,
-        'shape': shape,
-        'oversample': oversample,
-        'noise_snr': noise_snr,
+        "R_e": R_e,
+        "n": n,
+        "I_e": I_e,
+        "eps": eps,
+        "pa": pa,
+        "b_n": b_n,
+        "x0": x0,
+        "y0": y0,
+        "shape": shape,
+        "oversample": oversample,
+        "noise_snr": noise_snr,
     }
 
     return image, true_profile, params
@@ -203,14 +204,14 @@ class SersicFactory:
             min_half_size: Minimum half-size in pixels
         """
         self.defaults = {
-            'R_e': R_e,
-            'n': n,
-            'I_e': I_e,
-            'eps': eps,
-            'pa': pa,
-            'oversample': oversample,
-            'size_factor': size_factor,
-            'min_half_size': min_half_size,
+            "R_e": R_e,
+            "n": n,
+            "I_e": I_e,
+            "eps": eps,
+            "pa": pa,
+            "oversample": oversample,
+            "size_factor": size_factor,
+            "min_half_size": min_half_size,
         }
 
     def create(self, **kwargs) -> Tuple[np.ndarray, Callable, dict]:
@@ -234,16 +235,11 @@ class SersicFactory:
         self,
         eps: float = 0.4,
         pa: float = 0.785,  # π/4
-        **kwargs
+        **kwargs,
     ) -> Tuple[np.ndarray, Callable, dict]:
         """Create an elliptical Sersic model with given geometry."""
         return self.create(eps=eps, pa=pa, **kwargs)
 
-    def create_noisy(
-        self,
-        noise_snr: float = 100.0,
-        seed: int = 42,
-        **kwargs
-    ) -> Tuple[np.ndarray, Callable, dict]:
+    def create_noisy(self, noise_snr: float = 100.0, seed: int = 42, **kwargs) -> Tuple[np.ndarray, Callable, dict]:
         """Create a Sersic model with Gaussian noise."""
         return self.create(noise_snr=noise_snr, seed=seed, **kwargs)
