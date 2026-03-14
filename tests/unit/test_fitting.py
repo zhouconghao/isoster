@@ -1662,3 +1662,72 @@ def test_simultaneous_mode_with_elliptical_galaxy():
     pa_diff = abs(result["pa"] - true_pa)
     pa_diff = min(pa_diff, np.pi - pa_diff)
     assert pa_diff < 0.1, f"PA recovery: expected ~{true_pa:.3f}, got {result['pa']:.4f}"
+
+
+class TestStopCodes:
+    """Dedicated tests for each stop code value."""
+
+    @staticmethod
+    def _make_sersic(shape=(201, 201), x0=100, y0=100, re=30.0, eps=0.3, pa=0.5, ie=1000.0, n=2.0):
+        from scipy.special import gammaincinv
+
+        bn = gammaincinv(2 * n, 0.5)
+        yy, xx = np.mgrid[: shape[0], : shape[1]]
+        dx = xx - x0
+        dy = yy - y0
+        cos_pa, sin_pa = np.cos(pa), np.sin(pa)
+        x_rot = dx * cos_pa + dy * sin_pa
+        y_rot = -dx * sin_pa + dy * cos_pa
+        r_ellip = np.sqrt(x_rot**2 + (y_rot / (1 - eps)) ** 2)
+        return ie * np.exp(-bn * ((r_ellip / re) ** (1.0 / n) - 1))
+
+    def test_stop_code_0_converged(self):
+        """Standard Sersic at moderate SMA should converge (stop_code=0)."""
+        image = self._make_sersic()
+        mask = np.zeros_like(image, dtype=bool)
+        start = {"x0": 100.0, "y0": 100.0, "eps": 0.3, "pa": 0.5}
+
+        cfg = IsosterConfig(maxit=50, conver=0.05, convergence_scaling="none")
+        result = fit_isophote(image, mask, 30.0, start, cfg)
+
+        assert result["stop_code"] == 0, f"Expected converged (0), got {result['stop_code']}"
+        assert np.isfinite(result["intens"])
+
+    def test_stop_code_2_maxit_exhaustion(self):
+        """maxit=3 on a complex image should produce stop_code=2."""
+        image = self._make_sersic()
+        mask = np.zeros_like(image, dtype=bool)
+        start = {"x0": 100.0, "y0": 100.0, "eps": 0.3, "pa": 0.5}
+
+        cfg = IsosterConfig(conver=0.001, maxit=3, minit=1, convergence_scaling="none")
+        result = fit_isophote(image, mask, 30.0, start, cfg)
+
+        assert result["stop_code"] == 2, f"Expected maxit exhaustion (2), got {result['stop_code']}"
+        assert np.isfinite(result["intens"])
+        assert result["intens"] > 0
+
+    def test_stop_code_3_too_few_points(self):
+        """SMA larger than image or heavy masking should produce stop_code=3."""
+        image = self._make_sersic(shape=(51, 51), x0=25, y0=25)
+        mask = np.zeros_like(image, dtype=bool)
+        # Mask most of the image, leaving only a small corner
+        mask[10:, :] = True
+        mask[:, 10:] = True
+        start = {"x0": 25.0, "y0": 25.0, "eps": 0.3, "pa": 0.5}
+
+        cfg = IsosterConfig(maxit=30, fflag=0.3)
+        result = fit_isophote(image, mask, 20.0, start, cfg)
+
+        assert result["stop_code"] == 3, f"Expected too-few-points (3), got {result['stop_code']}"
+
+    def test_stop_code_neg1_gradient_error(self):
+        """Flat/uniform image region should produce gradient error (stop_code=-1)."""
+        # Uniform image → zero gradient → gradient error
+        image = np.ones((101, 101)) * 100.0
+        mask = np.zeros_like(image, dtype=bool)
+        start = {"x0": 50.0, "y0": 50.0, "eps": 0.0, "pa": 0.0}
+
+        cfg = IsosterConfig(maxit=30, maxgerr=0.5, convergence_scaling="none")
+        result = fit_isophote(image, mask, 20.0, start, cfg)
+
+        assert result["stop_code"] == -1, f"Expected gradient error (-1), got {result['stop_code']}"

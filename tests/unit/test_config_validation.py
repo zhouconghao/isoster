@@ -1,4 +1,9 @@
-"""Tests for config validation warnings and errors (Phase 23, V1-V11)."""
+"""Tests for config validation warnings and errors (Phase 23, V1-V11).
+
+Unit-level tests: validate Pydantic model constraints directly.
+Integration-level config validation via fit_image() is in
+tests/integration/test_edge_cases.py::TestConfigValidation.
+"""
 
 import warnings
 

@@ -135,7 +135,9 @@ class TestWLSCorrectness:
         phi = np.linspace(0, 2 * np.pi, 200, endpoint=False)
         true_coeffs = np.array([100.0, 3.0, -2.0, 1.5, -1.0])
 
-        # Heteroscedastic noise: first half quiet, second half noisy
+        # Heteroscedastic noise: split at index 100, 10x sigma ratio.
+        # This makes the first half 100x more informative (in variance),
+        # so WLS should weight the first half heavily and recover truth better.
         sigma = np.where(np.arange(200) < 100, 1.0, 10.0)
         noise = rng.normal(0, sigma)
         variances = sigma**2
@@ -152,11 +154,14 @@ class TestWLSCorrectness:
         assert wls_error < ols_error, f"WLS error ({wls_error:.4f}) should be less than OLS ({ols_error:.4f})"
 
     def test_fit_all_harmonics_wls(self):
-        """fit_all_harmonics WLS path runs without error."""
+        """fit_all_harmonics WLS path runs without error with heteroscedastic variance."""
         rng = np.random.default_rng(42)
         phi = np.linspace(0, 2 * np.pi, 100, endpoint=False)
-        intens = 100.0 + 2.0 * np.sin(3 * phi) + rng.normal(0, 2, 100)
-        variances = np.full(100, 4.0)
+        # Heteroscedastic noise: first half quiet, second half noisy (10x ratio)
+        # to ensure WLS weighting is meaningfully different from OLS
+        sigma = np.where(np.arange(100) < 50, 1.0, 10.0)
+        intens = 100.0 + 2.0 * np.sin(3 * phi) + rng.normal(0, sigma)
+        variances = sigma**2
 
         coeffs, cov = fit_all_harmonics(phi, intens, [3, 4], variances=variances)
         assert coeffs is not None
