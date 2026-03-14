@@ -241,7 +241,7 @@ def build_isoster_model(image_shape, isophote_results, fill=0.0, interp_kind='li
             harm_interps = {}
             for n in harmonic_orders:
                 an_key, bn_key = f'a{n}', f'b{n}'
-                if an_key in sorted_isos[0]:
+                if any(an_key in iso for iso in sorted_isos):
                     an_values = np.array([iso.get(an_key, 0.0) for iso in sorted_isos])
                     bn_values = np.array([iso.get(bn_key, 0.0) for iso in sorted_isos])
                     an_values = np.where(np.isfinite(an_values), an_values, 0.0)
