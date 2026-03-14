@@ -730,7 +730,8 @@ class TestIsophoteResultsFromFits:
 
         assert 'isophotes' in loaded
         assert 'config' in loaded
-        assert loaded['config'] is None
+        # New 3-HDU format recovers config as IsosterConfig
+        assert isinstance(loaded['config'], IsosterConfig)
 
         assert len(loaded['isophotes']) == len(results['isophotes'])
 

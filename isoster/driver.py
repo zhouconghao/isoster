@@ -63,7 +63,7 @@ def _resolve_template(template):
     Normalize template input into a validated, SMA-sorted list of isophote dicts.
 
     Accepted input forms:
-    - ``str`` or ``Path``: path to a FITS file saved by ``isophote_results_to_fits()``
+    - ``str`` or ``Path``: path to a FITS or ASDF file (dispatched by extension)
     - ``dict`` with an ``'isophotes'`` key: a results dict (e.g. from ``fit_image()``)
     - ``list`` of dicts: isophote dicts directly
 
@@ -77,11 +77,15 @@ def _resolve_template(template):
         TypeError: If template is not a recognized type.
         ValueError: If template is empty or any dict is missing required keys.
     """
-    from .utils import isophote_results_from_fits
+    from .utils import isophote_results_from_fits, isophote_results_from_asdf
 
-    # str/Path → load from FITS
+    # str/Path → load from file (dispatch on extension)
     if isinstance(template, (str, Path)):
-        loaded = isophote_results_from_fits(str(template))
+        path_str = str(template)
+        if path_str.endswith('.asdf'):
+            loaded = isophote_results_from_asdf(path_str)
+        else:
+            loaded = isophote_results_from_fits(path_str)
         iso_list = loaded['isophotes']
     # dict with 'isophotes' key → extract the list
     elif isinstance(template, dict):

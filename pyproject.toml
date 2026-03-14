@@ -19,12 +19,16 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+asdf = [
+    "asdf>=3.0",
+]
 dev = [
     "pytest>=8.0",
     "photutils>=1.10; python_version >= '3.9'",
     "numba>=0.60; python_version >= '3.9'",
     "ruff>=0.6; python_version >= '3.9'",
     "pre-commit>=3.8; python_version >= '3.9'",
+    "asdf>=3.0",
 ]
 docs = [
     "mkdocs>=1.6",

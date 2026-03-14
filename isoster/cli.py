@@ -38,7 +38,11 @@ import numpy as np
 from astropy.io import fits
 from astropy.table import Table
 from .driver import fit_image
-from .utils import isophote_results_to_fits, isophote_results_to_astropy_tables
+from .utils import (
+    isophote_results_to_fits,
+    isophote_results_to_asdf,
+    isophote_results_to_astropy_tables,
+)
 
 def load_config(config_file):
     with open(config_file, 'r') as f:
@@ -99,6 +103,8 @@ def main():
     # Save results
     if args.output.endswith('.fits'):
         isophote_results_to_fits(results, args.output)
+    elif args.output.endswith('.asdf'):
+        isophote_results_to_asdf(results, args.output)
     else:
         tbl = isophote_results_to_astropy_tables(results)
         tbl.write(args.output, overwrite=True)
