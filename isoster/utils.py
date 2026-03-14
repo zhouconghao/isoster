@@ -1,16 +1,112 @@
+import json
+import logging
+
 import numpy as np
 from astropy.table import Table
 from astropy.io import fits
 
+logger = logging.getLogger(__name__)
+
+
+class _NumpyEncoder(json.JSONEncoder):
+    """JSON encoder that handles numpy scalar types."""
+
+    def default(self, obj):
+        if isinstance(obj, np.integer):
+            return int(obj)
+        if isinstance(obj, np.floating):
+            return float(obj)
+        if isinstance(obj, np.bool_):
+            return bool(obj)
+        if isinstance(obj, np.ndarray):
+            return obj.tolist()
+        return super().default(obj)
+
+
+def _config_to_dict(config):
+    """
+    Convert a config object (Pydantic model, dict, or generic object) to a plain dict.
+
+    Returns an empty dict if config is None.
+    """
+    if config is None:
+        return {}
+    if hasattr(config, 'model_dump'):
+        return config.model_dump()
+    if hasattr(config, 'dict'):
+        return config.dict()
+    if isinstance(config, dict):
+        return config
+    return getattr(config, '__dict__', {})
+
+
+def _build_config_hdu(results):
+    """
+    Build a BinTableHDU containing config parameters as PARAM/VALUE columns.
+
+    Each value is JSON-serialized so that lists, dicts, bools, and None
+    round-trip faithfully without FITS header length or HIERARCH issues.
+    """
+    config = results.get('config', None) if isinstance(results, dict) else None
+    config_dict = _config_to_dict(config)
+
+    params = []
+    values = []
+    for key, value in config_dict.items():
+        params.append(key)
+        values.append(json.dumps(value, cls=_NumpyEncoder))
+
+    config_tbl = Table()
+    config_tbl['PARAM'] = params if params else np.array([], dtype='U1')
+    config_tbl['VALUE'] = values if values else np.array([], dtype='U1')
+
+    config_hdu = fits.table_to_hdu(config_tbl)
+    config_hdu.name = 'CONFIG'
+    return config_hdu
+
+
+def _parse_config_hdu(hdu):
+    """
+    Reconstruct an IsosterConfig from a CONFIG BinTableHDU.
+
+    Returns the config object, or None if reconstruction fails
+    (e.g. unknown fields from a newer version of isoster).
+    """
+    from .config import IsosterConfig
+
+    config_tbl = Table.read(hdu)
+    if len(config_tbl) == 0:
+        return None
+
+    parsed = {}
+    for row in config_tbl:
+        key = str(row['PARAM'])
+        try:
+            parsed[key] = json.loads(row['VALUE'])
+        except (json.JSONDecodeError, TypeError):
+            logger.warning("Skipping unparseable config key '%s'", key)
+            continue
+
+    # Filter to known fields only (forward compatibility)
+    known_fields = set(IsosterConfig.model_fields.keys())
+    filtered = {k: v for k, v in parsed.items() if k in known_fields}
+
+    try:
+        return IsosterConfig(**filtered)
+    except Exception:
+        logger.warning("Could not reconstruct IsosterConfig from FITS; returning None")
+        return None
+
+
 def isophote_results_to_astropy_tables(results):
     """
     Convert isophote results to an Astropy Table.
-    
+
     Parameters
     ----------
     results : dict
         The dictionary returned by fit_image(), containing 'isophotes' and 'config'.
-        
+
     Returns
     -------
     table : astropy.table.Table
@@ -29,31 +125,34 @@ def isophote_results_to_astropy_tables(results):
         isophotes = results
     else:
         isophotes = results.get('isophotes', [])
-    
+
     if not isophotes:
         return Table()
-        
+
     # Create table from list of dicts
     tbl = Table(rows=isophotes)
-    
+
     # Reorder columns for better readability
-    # Common columns first
     common_cols = ['sma', 'intens', 'intens_err', 'eps', 'pa', 'x0', 'y0', 'rms', 'stop_code', 'niter']
-    
-    # Get all columns present
     all_cols = tbl.colnames
-    
-    # Create new order
     new_order = [c for c in common_cols if c in all_cols] + [c for c in all_cols if c not in common_cols]
-    
     tbl = tbl[new_order]
-    
+
     return tbl
+
 
 def isophote_results_to_fits(results, filename, overwrite=True):
     """
-    Save isophote results to a FITS table, including configuration parameters as header keywords.
-    
+    Save isophote results to a multi-HDU FITS file.
+
+    The output layout is:
+    - HDU 0: PrimaryHDU (empty)
+    - HDU 1: BinTableHDU 'ISOPHOTES' (isophote data columns)
+    - HDU 2: BinTableHDU 'CONFIG' (two columns: PARAM, VALUE with JSON-serialized config)
+
+    Config is stored in a dedicated table extension rather than as header
+    keywords, avoiding HIERARCH promotion warnings for long parameter names.
+
     Parameters
     ----------
     results : dict
@@ -64,36 +163,14 @@ def isophote_results_to_fits(results, filename, overwrite=True):
         Whether to overwrite existing file.
     """
     tbl = isophote_results_to_astropy_tables(results)
-    
-    # Add config to header
-    # We can add them to the table's meta, which writes to the primary header or table header
-    if isinstance(results, dict):
-        config = results.get('config', {})
-        
-        # Convert config object to dict if needed
-        if hasattr(config, 'model_dump'):
-            config_dict = config.model_dump()
-        elif hasattr(config, 'dict'):
-            config_dict = config.dict()
-        elif isinstance(config, dict):
-            config_dict = config
-        else:
-            config_dict = getattr(config, '__dict__', {})
 
-        for key, value in config_dict.items():
-            # FITS keywords should be short. We'll use the key as is, astropy handles it.
-            # We filter out None values as they can't be written to FITS header easily
-            if value is None:
-                continue
-                
-            # Check value type
-            if isinstance(value, (str, int, float, bool, np.number)):
-                tbl.meta[key] = value
-            else:
-                # Convert to string if complex (e.g. list)
-                tbl.meta[key] = str(value)
-            
-    tbl.write(filename, format='fits', overwrite=overwrite)
+    isophote_hdu = fits.table_to_hdu(tbl)
+    isophote_hdu.name = 'ISOPHOTES'
+
+    config_hdu = _build_config_hdu(results)
+
+    hdulist = fits.HDUList([fits.PrimaryHDU(), isophote_hdu, config_hdu])
+    hdulist.writeto(filename, overwrite=overwrite)
 
 
 def isophote_results_from_fits(filename):
@@ -105,6 +182,10 @@ def isophote_results_from_fits(filename):
     forced photometry workflows where geometry from one band is applied
     to other bands.
 
+    Supports both the new 3-HDU layout (with CONFIG extension) and legacy
+    files where config was stored as header keywords (returns config=None
+    for legacy files).
+
     Parameters
     ----------
     filename : str
@@ -115,30 +196,31 @@ def isophote_results_from_fits(filename):
     results : dict
         Dictionary with:
         - 'isophotes': list of dicts, each containing isophote data
-        - 'config': None (config reconstruction not fully supported)
-
-    Notes
-    -----
-    The returned isophotes contain all columns saved in the FITS table.
-    Config parameters stored in the header are not reconstructed into
-    an IsosterConfig object to avoid potential validation issues with
-    partial config data.
+        - 'config': IsosterConfig if CONFIG HDU is present, else None
 
     Examples
     --------
-    >>> # Load previously saved isophotes
     >>> template = isophote_results_from_fits('galaxy_gband.fits')
-    >>> # Use as template for forced photometry
     >>> results_r = fit_image(image_r, mask_r, config,
     ...                       template_isophotes=template['isophotes'])
     """
-    tbl = Table.read(filename, format='fits')
+    with fits.open(filename) as hdulist:
+        # Read isophotes: try named HDU first, fall back to index 1
+        try:
+            iso_tbl = Table.read(hdulist['ISOPHOTES'])
+        except KeyError:
+            iso_tbl = Table.read(hdulist[1])
+
+        # Read config from CONFIG HDU (new format); None for legacy files
+        config = None
+        if 'CONFIG' in hdulist:
+            config = _parse_config_hdu(hdulist['CONFIG'])
 
     # Convert table rows to list of dicts
     isophotes = []
-    for row in tbl:
+    for row in iso_tbl:
         iso_dict = {}
-        for colname in tbl.colnames:
+        for colname in iso_tbl.colnames:
             value = row[colname]
             # Convert numpy types to Python types for consistency
             if isinstance(value, np.integer):
@@ -150,6 +232,113 @@ def isophote_results_from_fits(filename):
             iso_dict[colname] = value
         isophotes.append(iso_dict)
 
-    # Note: We don't attempt to reconstruct config from header metadata
-    # as this could cause validation issues with partial data
-    return {'isophotes': isophotes, 'config': None}
+    return {'isophotes': isophotes, 'config': config}
+
+
+# ---------------------------------------------------------------------------
+# ASDF support (optional dependency)
+# ---------------------------------------------------------------------------
+
+def isophote_results_to_asdf(results, filename):
+    """
+    Save isophote results to an ASDF file.
+
+    ASDF natively supports nested dicts, lists, and numpy arrays, so
+    config parameters are stored without any serialization workarounds.
+
+    Parameters
+    ----------
+    results : dict
+        The dictionary returned by fit_image().
+    filename : str
+        Output filename (conventionally ending in .asdf).
+
+    Raises
+    ------
+    ImportError
+        If the ``asdf`` package is not installed.
+    """
+    try:
+        import asdf
+    except ImportError:
+        raise ImportError(
+            "The 'asdf' package is required for ASDF I/O. "
+            "Install it with: pip install 'asdf>=3.0'  or  uv pip install 'asdf>=3.0'"
+        )
+
+    if isinstance(results, list):
+        isophotes = results
+        config_dict = {}
+    else:
+        isophotes = results.get('isophotes', [])
+        config_dict = _config_to_dict(results.get('config', None))
+
+    tree = {
+        'format_version': 1,
+        'isophotes': isophotes,
+        'config': config_dict,
+    }
+
+    af = asdf.AsdfFile(tree)
+    af.write_to(filename)
+
+
+def isophote_results_from_asdf(filename):
+    """
+    Load isophote results from an ASDF file.
+
+    Parameters
+    ----------
+    filename : str
+        Path to ASDF file.
+
+    Returns
+    -------
+    results : dict
+        Dictionary with:
+        - 'isophotes': list of dicts
+        - 'config': IsosterConfig if config data is present, else None
+
+    Raises
+    ------
+    ImportError
+        If the ``asdf`` package is not installed.
+    """
+    try:
+        import asdf
+    except ImportError:
+        raise ImportError(
+            "The 'asdf' package is required for ASDF I/O. "
+            "Install it with: pip install 'asdf>=3.0'  or  uv pip install 'asdf>=3.0'"
+        )
+
+    from .config import IsosterConfig
+
+    with asdf.open(filename) as af:
+        isophotes = list(af.tree.get('isophotes', []))
+        config_dict = dict(af.tree.get('config', {}))
+
+    # Convert isophote values from numpy to native Python types
+    clean_isophotes = []
+    for iso in isophotes:
+        clean = {}
+        for k, v in iso.items():
+            if isinstance(v, np.integer):
+                v = int(v)
+            elif isinstance(v, np.floating):
+                v = float(v)
+            elif isinstance(v, np.bool_):
+                v = bool(v)
+            clean[k] = v
+        clean_isophotes.append(clean)
+
+    config = None
+    if config_dict:
+        known_fields = set(IsosterConfig.model_fields.keys())
+        filtered = {k: v for k, v in config_dict.items() if k in known_fields}
+        try:
+            config = IsosterConfig(**filtered)
+        except Exception:
+            logger.warning("Could not reconstruct IsosterConfig from ASDF; returning None")
+
+    return {'isophotes': clean_isophotes, 'config': config}

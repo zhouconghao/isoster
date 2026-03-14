@@ -75,6 +75,20 @@ Canonical user-facing stop-code documentation lives in `docs/user-guide.md`.
 - `results['isophotes']`: list of dict rows, one per sampled/fitted SMA.
 - `results['config']`: the resolved `IsosterConfig` object.
 
+### FITS Output Layout
+
+`isophote_results_to_fits` writes a 3-HDU FITS file:
+
+| HDU | Type | Name | Contents |
+|-----|------|------|----------|
+| 0 | `PrimaryHDU` | — | Empty (no data, minimal header) |
+| 1 | `BinTableHDU` | `ISOPHOTES` | One row per isophote; columns match the isophote dict keys |
+| 2 | `BinTableHDU` | `CONFIG` | Two columns: `PARAM` (string) and `VALUE` (JSON-serialized string), one row per config field |
+
+This replaces the previous approach of writing config fields as FITS header keywords, which triggered `HIERARCH` warnings for long keyword names.
+
+Backward compatibility: `isophote_results_from_fits` detects whether an `ISOPHOTES` extension is present. Legacy single-table files (config in header keywords) are still readable; the `CONFIG` HDU is simply absent and config is reconstructed from header keywords instead.
+
 Each isophote row includes geometry/intensity fields and optional blocks depending on config:
 
 - Harmonic deviations: `a{n}`, `b{n}`, `a{n}_err`, `b{n}_err` for requested `harmonic_orders`.

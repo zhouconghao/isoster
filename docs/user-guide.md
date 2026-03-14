@@ -146,8 +146,53 @@ model = build_isoster_model(
 
 ## Serialization Helpers
 
-- FITS save/load: `isophote_results_to_fits`, `isophote_results_from_fits`
-- Astropy table export: `isophote_results_to_astropy_tables`
+### FITS
+
+`isophote_results_to_fits` writes a 3-HDU FITS file:
+
+- **HDU 0** — `PrimaryHDU`: empty, no data.
+- **HDU 1** — `BinTableHDU` named `ISOPHOTES`: one row per fitted isophote, columns matching the isophote dict keys.
+- **HDU 2** — `BinTableHDU` named `CONFIG`: two columns (`PARAM`, `VALUE`) with the full `IsosterConfig` serialized as JSON strings, one row per field.
+
+This layout avoids `HIERARCH` warnings that occurred when config was written as FITS header keywords. Files written by older versions (config in header keywords, no `CONFIG` extension) are still readable — the reader detects the missing `CONFIG` HDU and falls back to header-keyword reconstruction automatically.
+
+```python
+from isoster import isophote_results_to_fits, isophote_results_from_fits
+
+# Save
+isophote_results_to_fits(results, "outputs/galaxy_isophotes.fits")
+
+# Load
+loaded = isophote_results_from_fits("outputs/galaxy_isophotes.fits")
+```
+
+### ASDF
+
+ASDF (Advanced Scientific Data Format) is supported as an optional alternative. It preserves Python types natively and avoids FITS column-type limitations.
+
+Install the optional dependency:
+
+```bash
+pip install 'isoster[asdf]'
+# or with uv:
+uv add 'isoster[asdf]'
+```
+
+Usage:
+
+```python
+from isoster import isophote_results_to_asdf, isophote_results_from_asdf
+
+# Save to ASDF (requires: pip install 'asdf>=3.0')
+isophote_results_to_asdf(results, 'galaxy.asdf')
+
+# Load from ASDF
+loaded = isophote_results_from_asdf('galaxy.asdf')
+```
+
+### Astropy table export
+
+- `isophote_results_to_astropy_tables`: returns the isophote list as one or more `astropy.table.Table` objects for downstream analysis without writing to disk.
 
 ## Troubleshooting
 
