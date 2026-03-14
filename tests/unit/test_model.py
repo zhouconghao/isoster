@@ -221,6 +221,62 @@ class TestModel(unittest.TestCase):
         np.testing.assert_array_almost_equal(model_auto, model_no_harm, decimal=10)
 
     # ------------------------------------------------------------------
+    # Issue 3: Harmonic detection uses only first isophote row
+    # ------------------------------------------------------------------
+
+    def test_harmonic_detected_when_only_later_rows_have_key(self):
+        """Harmonics present in later rows but absent from the first must not be dropped.
+
+        Regression test: build_isoster_model() previously checked only
+        ``sorted_isos[0]`` to decide whether to create harmonic interpolators.
+        If the first valid isophote lacked an ``a{n}`` key, that order was
+        silently excluded even when later rows carried it.
+        """
+        shape = (100, 100)
+        # First row has NO a3/b3; later rows do.
+        isos = [
+            {'x0': 50.0, 'y0': 50.0, 'sma': 10.0, 'eps': 0.0, 'pa': 0.0,
+             'intens': 100.0},
+            {'x0': 50.0, 'y0': 50.0, 'sma': 20.0, 'eps': 0.0, 'pa': 0.0,
+             'intens': 80.0, 'a3': 0.1, 'b3': 0.05},
+            {'x0': 50.0, 'y0': 50.0, 'sma': 30.0, 'eps': 0.0, 'pa': 0.0,
+             'intens': 60.0, 'a3': 0.1, 'b3': 0.05},
+        ]
+
+        # Build with harmonics enabled (auto-detect should find a3/b3)
+        model_with_harm = build_isoster_model(shape, isos, use_harmonics=True)
+        # Build without harmonics for comparison
+        model_no_harm = build_isoster_model(shape, isos, use_harmonics=False)
+
+        # The harmonic coefficients are large (a3=0.1), so the models must differ
+        max_diff = np.max(np.abs(model_with_harm - model_no_harm))
+        self.assertGreater(
+            max_diff, 0.01,
+            "Harmonics present only in later rows should still affect the model"
+        )
+
+    def test_harmonic_works_when_all_rows_have_key(self):
+        """Harmonics present in every row should still work correctly."""
+        shape = (100, 100)
+        isos = [
+            {'x0': 50.0, 'y0': 50.0, 'sma': 10.0, 'eps': 0.0, 'pa': 0.0,
+             'intens': 100.0, 'a3': 0.1, 'b3': 0.05},
+            {'x0': 50.0, 'y0': 50.0, 'sma': 20.0, 'eps': 0.0, 'pa': 0.0,
+             'intens': 80.0, 'a3': 0.1, 'b3': 0.05},
+            {'x0': 50.0, 'y0': 50.0, 'sma': 30.0, 'eps': 0.0, 'pa': 0.0,
+             'intens': 60.0, 'a3': 0.1, 'b3': 0.05},
+        ]
+
+        model_with_harm = build_isoster_model(shape, isos, use_harmonics=True)
+        model_no_harm = build_isoster_model(shape, isos, use_harmonics=False)
+
+        max_diff = np.max(np.abs(model_with_harm - model_no_harm))
+        self.assertGreater(
+            max_diff, 0.01,
+            "Harmonics present in all rows should affect the model"
+        )
+
+    # ------------------------------------------------------------------
     # Issue 2: EA mode angle space mismatch
     # ------------------------------------------------------------------
 
