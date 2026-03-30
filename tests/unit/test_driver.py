@@ -2,6 +2,8 @@
 Tests for isoster.driver module.
 """
 
+import warnings
+
 import numpy as np
 import pytest
 
@@ -246,7 +248,12 @@ def test_fit_image_passes_previous_geometry_to_growth_calls(monkeypatch):
 
 
 def test_fit_image_skips_inward_growth_when_first_isophote_fails(monkeypatch):
-    """Inward pass should not start unless first isophote passes quality gating."""
+    """Inward pass should not start unless first isophote passes quality gating.
+
+    With first_isophote_fail_count=3 (default), the driver probes up to 2 extra
+    growth steps after the first isophote fails. All probes here return stop_code=3,
+    so no growth happens.
+    """
     image = np.ones((40, 40), dtype=float)
     config = IsosterConfig(
         x0=20.0,
@@ -264,16 +271,18 @@ def test_fit_image_skips_inward_growth_when_first_isophote_fails(monkeypatch):
         image_arg, mask_arg, sma, start_geometry, cfg_arg, going_inwards=False, previous_geometry=None, **kwargs
     ):
         call_count["n"] += 1
-        if call_count["n"] > 1:
-            pytest.fail("fit_isophote should only run once when first isophote is unacceptable")
         return _build_mock_isophote(sma=sma, stop_code=3)
 
     monkeypatch.setattr("isoster.driver.fit_isophote", fake_fit_isophote)
 
-    results = fit_image(image, mask=None, config=config)
+    with warnings.catch_warnings(record=True):
+        warnings.simplefilter("always")
+        results = fit_image(image, mask=None, config=config)
 
-    assert call_count["n"] == 1
+    # 1 first iso + 2 probes (sma=12, sma=14) = 3 calls
+    assert call_count["n"] == 3
     assert [iso["sma"] for iso in results["isophotes"]] == [0.0]
+    assert results.get("first_isophote_failure") is True
 
 
 def test_fit_image_treats_stop_code_2_as_acceptable(monkeypatch):

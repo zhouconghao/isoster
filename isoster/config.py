@@ -223,6 +223,24 @@ class IsosterConfig(BaseModel):
         "'convergence-required' default behavior.",
     )
 
+    # First Isophote Robustness
+    max_retry_first_isophote: int = Field(
+        default=0,
+        ge=0,
+        le=20,
+        description="Maximum number of retry attempts for the first isophote when it fails "
+        "(stop_code not in {0, 1, 2}). Each attempt perturbs sma0 and/or initial "
+        "geometry (eps, pa). 0 = disabled (default, backward compatible).",
+    )
+    first_isophote_fail_count: int = Field(
+        default=3,
+        ge=1,
+        le=10,
+        description="Number of consecutive initial isophotes that must all fail before "
+        "declaring FIRST_FEW_ISOPHOTE_FAILURE. Default 3 means the first isophote "
+        "at sma0 plus the next 2 growth steps must all have unacceptable stop codes.",
+    )
+
     @model_validator(mode="after")
     def check_config_consistency(self):
         """Validate config consistency and emit warnings for likely misconfigurations."""

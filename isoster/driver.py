@@ -16,6 +16,48 @@ def _is_acceptable_stop_code(stop_code):
     return stop_code in ACCEPTABLE_STOP_CODES
 
 
+def _first_isophote_perturbations(sma0, eps, pa, max_retries):
+    """Generate perturbed (sma0, eps, pa) tuples for first-isophote retry.
+
+    The schedule alternates between smaller/larger sma0 and progressively
+    introduces geometry perturbations (near-circular eps, rotated PA).
+    All sma0 values are clamped to >= 1.0 pixel.
+
+    Args:
+        sma0: Original starting semi-major axis.
+        eps: Original ellipticity.
+        pa: Original position angle in radians.
+        max_retries: Number of perturbations to generate.
+
+    Returns:
+        List of (sma0_new, eps_new, pa_new) tuples.
+    """
+    # Fixed schedule for first 5 attempts
+    schedule = [
+        (0.8, eps, pa),              # Slightly smaller radius
+        (1.3, eps, pa),              # Slightly larger radius
+        (0.6, 0.05, pa),            # Smaller + near-circular
+        (1.5, eps, pa + np.pi / 4),  # Larger + rotated PA
+        (0.5, 0.05, pa + np.pi / 2), # Small + circular + orthogonal
+    ]
+
+    # Extended schedule: cycle through factors with alternating geometry
+    extended_factors = [0.4, 0.7, 1.1, 1.6, 2.0]
+    for i, factor in enumerate(extended_factors):
+        ext_eps = 0.05 if i % 2 == 0 else eps
+        ext_pa = pa + (i + 1) * np.pi / 6
+        schedule.append((factor, ext_eps, ext_pa))
+
+    result = []
+    for i in range(min(max_retries, len(schedule))):
+        sma_factor, eps_new, pa_new = schedule[i]
+        sma_new = max(1.0, sma0 * sma_factor)
+        eps_new = min(max(0.0, eps_new), 0.99)
+        result.append((sma_new, eps_new, pa_new))
+
+    return result
+
+
 def _is_error_field(field_name):
     """Return True when the field represents an uncertainty/error quantity."""
     return field_name.endswith("_err") or field_name.endswith("_error")
@@ -305,18 +347,78 @@ def fit_image(image, mask=None, config=None, template=None, template_isophotes=N
     # 1. Fit Central Pixel (Approximation)
     central_result = fit_central_pixel(image, mask, x0, y0, debug=cfg.debug)
 
-    # 2. Fit First Isophote at SMA0
+    # 2. Fit First Isophote at SMA0 (with optional retry)
     start_geometry = {"x0": x0, "y0": y0, "eps": cfg.eps, "pa": cfg.pa}
-
-    # Pass cfg object to fit_isophote
     first_iso = fit_isophote(image, mask, sma0, start_geometry, cfg, variance_map=variance_map)
+
+    # Retry with perturbed parameters if first isophote failed
+    retry_log = []
+    if not _is_acceptable_stop_code(first_iso["stop_code"]) and cfg.max_retry_first_isophote > 0:
+        perturbations = _first_isophote_perturbations(sma0, cfg.eps, cfg.pa, cfg.max_retry_first_isophote)
+        for attempt_idx, (sma0_try, eps_try, pa_try) in enumerate(perturbations, start=1):
+            retry_geometry = {"x0": x0, "y0": y0, "eps": eps_try, "pa": pa_try}
+            candidate = fit_isophote(
+                image, mask, sma0_try, retry_geometry, cfg, variance_map=variance_map
+            )
+            retry_log.append({
+                "attempt": attempt_idx,
+                "sma0": sma0_try,
+                "eps": eps_try,
+                "pa": pa_try,
+                "stop_code": candidate["stop_code"],
+            })
+            if _is_acceptable_stop_code(candidate["stop_code"]):
+                first_iso = candidate
+                sma0 = sma0_try
+                break
+
+    # Determine anchor isophote for growth propagation
+    anchor_iso = None
+    first_isophote_failure = False
+
+    if _is_acceptable_stop_code(first_iso["stop_code"]):
+        anchor_iso = first_iso
+    else:
+        # First iso failed (even after retries). Probe next growth steps
+        # to see if any succeed before declaring failure.
+        failed_initial = [first_iso]
+        probe_sma = sma0
+        n_extra_probes = cfg.first_isophote_fail_count - 1
+
+        for _ in range(n_extra_probes):
+            if linear_growth:
+                probe_sma = probe_sma + astep
+            else:
+                probe_sma = probe_sma * (1.0 + astep)
+            if probe_sma > maxsma:
+                break
+            probe_iso = fit_isophote(
+                image, mask, probe_sma, start_geometry, cfg, variance_map=variance_map
+            )
+            failed_initial.append(probe_iso)
+            if _is_acceptable_stop_code(probe_iso["stop_code"]):
+                anchor_iso = probe_iso
+                sma0 = probe_sma
+                break
+
+        if anchor_iso is None:
+            first_isophote_failure = True
+            stop_codes = [iso["stop_code"] for iso in failed_initial]
+            warnings.warn(
+                f"FIRST_FEW_ISOPHOTE_FAILURE: the first {len(failed_initial)} isophotes "
+                f"(starting sma0={cfg.sma0:.2f}) all failed with stop codes {stop_codes}. "
+                f"Consider adjusting sma0, initial geometry (eps/pa), or enabling "
+                f"max_retry_first_isophote.",
+                RuntimeWarning,
+                stacklevel=2,
+            )
 
     # 3. Grow Outwards
     outwards_results = []
-    if _is_acceptable_stop_code(first_iso["stop_code"]):
-        outwards_results.append(first_iso)
-        current_iso = first_iso
-        current_sma = first_iso["sma"]
+    if anchor_iso is not None:
+        outwards_results.append(anchor_iso)
+        current_iso = anchor_iso
+        current_sma = anchor_iso["sma"]
 
         while True:
             if linear_growth:
@@ -342,9 +444,9 @@ def fit_image(image, mask=None, config=None, template=None, template_isophotes=N
 
     # 4. Grow Inwards
     inwards_results = []
-    if minsma < sma0 and _is_acceptable_stop_code(first_iso["stop_code"]):
-        current_iso = first_iso
-        current_sma = first_iso["sma"]
+    if minsma < sma0 and anchor_iso is not None:
+        current_iso = anchor_iso
+        current_sma = anchor_iso["sma"]
 
         while True:
             if linear_growth:
@@ -397,7 +499,12 @@ def fit_image(image, mask=None, config=None, template=None, template_isophotes=N
         add_cog_to_isophotes(final_list, cog_results)
 
     # Return as dict matching legacy structure + config object
-    return _build_fit_result(final_list, cfg)
+    result = _build_fit_result(final_list, cfg)
+    if first_isophote_failure:
+        result["first_isophote_failure"] = True
+    if retry_log:
+        result["first_isophote_retry_log"] = retry_log
+    return result
 
 
 def _fit_image_template_forced(image, mask, config, template_isophotes, variance_map=None):

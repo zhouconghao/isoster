@@ -121,6 +121,29 @@ Compatibility:
 - `harmonic_orders=[3, 4, ...]`: harmonic orders to compute.
 - `simultaneous_harmonics=True`: true ISOFIT (Ciambur 2015) — fits higher-order harmonics jointly with geometry harmonics inside the iteration loop via a single extended design matrix. Accounts for cross-correlations and produces cleaner RMS estimates. Falls back to 5-param fit when insufficient sample points for the full design matrix.
 
+### First Isophote Robustness
+
+When the first isophote at `sma0` fails, the entire fitting silently returns only the central pixel.
+Two config options improve this:
+
+- `max_retry_first_isophote` (default `0`, disabled): number of retry attempts with perturbed `sma0`
+  and initial geometry (`eps`, `pa`). Each attempt tries a different combination to find an
+  acceptable starting isophote. Set to `5` for robust batch processing.
+- `first_isophote_fail_count` (default `3`): how many consecutive initial isophotes must all fail
+  before a `FIRST_FEW_ISOPHOTE_FAILURE` warning is emitted.
+
+When a failure is detected, the result dict contains:
+- `result["first_isophote_failure"]` = `True`
+- `result["first_isophote_retry_log"]` (list of attempt dicts, only when retries were attempted)
+
+```python
+config = IsosterConfig(sma0=10.0, max_retry_first_isophote=5)
+result = fit_image(image, mask=None, config=config)
+
+if result.get("first_isophote_failure"):
+    print("First isophote fitting failed — check sma0 and initial geometry")
+```
+
 ### Photometry Outputs
 
 - `full_photometry=True`: adds `tflux_e`, `tflux_c`, `npix_e`, `npix_c`.
