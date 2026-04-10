@@ -217,6 +217,108 @@ loaded = isophote_results_from_asdf('galaxy.asdf')
 
 - `isophote_results_to_astropy_tables`: returns the isophote list as one or more `astropy.table.Table` objects for downstream analysis without writing to disk.
 
+## Output Reference
+
+`fit_image()` returns a result dict with two mandatory keys and optional metadata keys. Each entry in `results["isophotes"]` is a dict with the fields described below.
+
+### Top-Level Result Dict
+
+| Key | Type | Always Present | Description |
+|-----|------|----------------|-------------|
+| `isophotes` | list[dict] | Yes | Per-isophote results, sorted by ascending SMA |
+| `config` | `IsosterConfig` | Yes | The configuration object used for the fit |
+| `first_isophote_failure` | bool | Only when `True` | First N isophotes all failed (see [First Isophote Robustness](#first-isophote-robustness)) |
+| `first_isophote_retry_log` | list[dict] | Only when retries ran | Detailed log of retry attempts when `max_retry_first_isophote > 0` |
+
+### Per-Isophote Fields: Always Present
+
+These fields are included in every isophote dict regardless of configuration.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `sma` | float | Semi-major axis length (pixels) |
+| `x0` | float | Center x-coordinate (pixels) |
+| `y0` | float | Center y-coordinate (pixels) |
+| `eps` | float | Ellipticity (0 ≤ eps < 1) |
+| `pa` | float | Position angle (radians, 0 ≤ pa < π) |
+| `intens` | float | Mean (or median) intensity along the ellipse |
+| `rms` | float | RMS scatter of intensity residuals |
+| `intens_err` | float | Intensity uncertainty (rms/√N, or WLS propagated error) |
+| `x0_err` | float | Center x uncertainty (0.0 when `compute_errors=False`) |
+| `y0_err` | float | Center y uncertainty (0.0 when `compute_errors=False`) |
+| `eps_err` | float | Ellipticity uncertainty (0.0 when `compute_errors=False`) |
+| `pa_err` | float | Position angle uncertainty (0.0 when `compute_errors=False`) |
+| `tflux_e` | float | Total flux within elliptical aperture (NaN unless `full_photometry=True` or `debug=True`) |
+| `tflux_c` | float | Total flux within circular aperture (NaN unless `full_photometry=True` or `debug=True`) |
+| `npix_e` | int | Pixel count in elliptical aperture (0 unless `full_photometry=True` or `debug=True`) |
+| `npix_c` | int | Pixel count in circular aperture (0 unless `full_photometry=True` or `debug=True`) |
+| `stop_code` | int | Fitting termination status (see [Stop Codes](#stop-codes-canonical-reference)) |
+| `niter` | int | Number of iterations performed |
+| `use_eccentric_anomaly` | bool | Whether eccentric anomaly sampling was used |
+
+The central pixel (sma=0) additionally includes:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `valid` | bool | Whether the center pixel is unmasked and within image bounds |
+
+### Per-Isophote Fields: Higher-Order Harmonics
+
+Present when `compute_deviations=True` or `simultaneous_harmonics=True`. For each order *n* in `harmonic_orders` (default `[3, 4]`):
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `a{n}` | float | Sine harmonic coefficient (normalized by sma × gradient) |
+| `b{n}` | float | Cosine harmonic coefficient (normalized by sma × gradient) |
+| `a{n}_err` | float | Uncertainty in `a{n}` |
+| `b{n}_err` | float | Uncertainty in `b{n}` |
+
+With the default `harmonic_orders=[3, 4]`, this produces: `a3`, `b3`, `a3_err`, `b3_err`, `a4`, `b4`, `a4_err`, `b4_err`.
+
+### Per-Isophote Fields: Curve of Growth
+
+Present only when `compute_cog=True` (regular fitting mode only).
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `cog` | float | Cumulative flux from center to this SMA |
+| `cog_annulus` | float | Flux in the annulus between previous and current SMA |
+| `area_annulus` | float | Area of the annulus (corrected for negative areas) |
+| `flag_cross` | bool | Ellipse crossing detected at this isophote |
+| `flag_negative_area` | bool | Negative annular area (geometry divergence indicator) |
+
+### Per-Isophote Fields: Debug Diagnostics
+
+Present only when `debug=True`. Enabling debug mode also populates the `tflux_*`/`npix_*` aperture photometry fields (equivalent to `full_photometry=True`).
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `ndata` | int | Number of valid (unmasked, unclipped) sample points |
+| `nflag` | int | Number of flagged (masked or clipped) sample points |
+| `grad` | float | Radial intensity gradient dI/da |
+| `grad_error` | float | Gradient uncertainty |
+| `grad_r_error` | float | Relative gradient error (grad_error / |grad|) |
+
+### Config Flags and Output Control
+
+| Config Flag | Effect on Output |
+|-------------|-----------------|
+| `compute_errors` | When `False`, `*_err` fields are set to 0.0 instead of computed values |
+| `compute_deviations` | When `True`, adds `a{n}`, `b{n}`, `a{n}_err`, `b{n}_err` fields |
+| `simultaneous_harmonics` | When `True`, also adds harmonic fields (fitted jointly during iteration) |
+| `full_photometry` | When `True`, populates `tflux_e`, `tflux_c`, `npix_e`, `npix_c` with computed values |
+| `compute_cog` | When `True`, adds CoG fields (regular fitting mode only) |
+| `debug` | When `True`, adds diagnostic fields and implicitly enables `full_photometry` |
+| `harmonic_orders` | Controls which harmonic orders produce `a{n}`/`b{n}` fields (default `[3, 4]`) |
+
+### Filtering by Stop Code
+
+```python
+good = [iso for iso in results["isophotes"] if iso["stop_code"] == 0]
+usable = [iso for iso in results["isophotes"] if iso["stop_code"] in {0, 1, 2}]
+failed = [iso for iso in results["isophotes"] if iso["stop_code"] < 0]
+```
+
 ## Troubleshooting
 
 - Too many `stop_code=1`: inspect masks and clipping settings (`fflag`, `sclip`, `nclip`).
