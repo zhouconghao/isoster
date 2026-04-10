@@ -89,11 +89,12 @@ This replaces the previous approach of writing config fields as FITS header keyw
 
 Backward compatibility: `isophote_results_from_fits` detects whether an `ISOPHOTES` extension is present. Legacy single-table files (config in header keywords) are still readable; the `CONFIG` HDU is simply absent and config is reconstructed from header keywords instead.
 
-Each isophote row includes geometry/intensity fields and optional blocks depending on config:
+Each isophote row includes geometry/intensity fields and optional blocks depending on config. See `docs/01-user-guide.md` (Output Reference) for the complete per-field reference. Summary of optional blocks:
 
-- Harmonic deviations: `a{n}`, `b{n}`, `a{n}_err`, `b{n}_err` for requested `harmonic_orders`.
-- Full aperture photometry (`full_photometry`): `tflux_e`, `tflux_c`, `npix_e`, `npix_c`.
+- Harmonic deviations (`compute_deviations` or `simultaneous_harmonics`): `a{n}`, `b{n}`, `a{n}_err`, `b{n}_err` for requested `harmonic_orders`.
+- Full aperture photometry (`full_photometry` or `debug`): `tflux_e`, `tflux_c`, `npix_e`, `npix_c`.
 - CoG (`compute_cog` in regular mode): `cog`, `cog_annulus`, `area_annulus`, `flag_cross`, `flag_negative_area`.
+- Debug diagnostics (`debug`): `ndata`, `nflag`, `grad`, `grad_error`, `grad_r_error`.
 
 ## Known Behavior Notes
 
