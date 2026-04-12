@@ -66,3 +66,8 @@ ignore = ["E501", "E701"]
 "isoster/__init__.py" = ["F401"]
 "examples/**" = ["E", "F", "W"]
 "tests/**" = ["F841", "E402", "E712"]
+
+[dependency-groups]
+dev = [
+    "h5py>=3.14.0",
+]
