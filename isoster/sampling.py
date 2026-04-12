@@ -144,8 +144,12 @@ def extract_isophote_data(image, mask, x0, y0, sma, eps, pa, use_eccentric_anoma
     intens = map_coordinates(image, coords, order=1, mode="constant", cval=np.nan)
 
     # MASKING
+    # The mask must be a float array for map_coordinates. Callers should
+    # pre-convert with _prepare_mask_float() to avoid repeated allocation;
+    # the guard here handles any remaining bool/int arrays.
     if mask is not None:
-        mask_vals = map_coordinates(mask.astype(float), coords, order=0, mode="constant", cval=1.0)
+        mask_f = mask if mask.dtype.kind == "f" else mask.astype(np.float64)
+        mask_vals = map_coordinates(mask_f, coords, order=0, mode="constant", cval=1.0)
         valid = mask_vals < 0.5
     else:
         valid = np.ones_like(intens, dtype=bool)

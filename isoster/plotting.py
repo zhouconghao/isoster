@@ -683,6 +683,7 @@ def plot_qa_summary(
     mask=None,
     filename="qa_summary.png",
     relative_residual=False,
+    sb_zeropoint=None,
 ):
     """Generate a QA figure following the Huang2013 campaign baseline style.
 
@@ -822,7 +823,6 @@ def plot_qa_summary(
         step=overlay_step,
         line_width=1.2,
         alpha=0.8,
-        edge_color="orangered",
     )
     ax_img.text(
         0.15,
@@ -918,15 +918,22 @@ def plot_qa_summary(
     # --- Right column: 1-D profiles -------------------------------------------
     panel_idx = 0
 
-    # 1. Surface brightness (log10 I)
+    # 1. Surface brightness
     ax_sb = fig.add_subplot(right[panel_idx])
     panel_idx += 1
 
     sb_valid = valid_mask & np.isfinite(i_intens) & (i_intens > 0)
     y_sb = np.full_like(i_intens, np.nan)
-    y_sb[sb_valid] = np.log10(i_intens[sb_valid])
     y_sb_err = np.full_like(i_intens_err, np.nan)
-    y_sb_err[sb_valid] = i_intens_err[sb_valid] / (i_intens[sb_valid] * np.log(10))
+    if sb_zeropoint is not None:
+        # Surface brightness: μ = -2.5 * log10(I) + zp
+        y_sb[sb_valid] = -2.5 * np.log10(i_intens[sb_valid]) + sb_zeropoint
+        y_sb_err[sb_valid] = 2.5 * i_intens_err[sb_valid] / (i_intens[sb_valid] * np.log(10))
+        sb_ylabel = r"$\mu$ [mag/arcsec$^2$]"
+    else:
+        y_sb[sb_valid] = np.log10(i_intens[sb_valid])
+        y_sb_err[sb_valid] = i_intens_err[sb_valid] / (i_intens[sb_valid] * np.log(10))
+        sb_ylabel = r"$\log_{10}(I)$"
 
     plot_profile_by_stop_code(
         ax_sb,
@@ -941,9 +948,11 @@ def plot_qa_summary(
     if photutils_res is not None:
         _overlay_photutils_sb(ax_sb, photutils_res)
 
-    ax_sb.set_ylabel(r"$\log_{10}(I)$")
+    ax_sb.set_ylabel(sb_ylabel)
     ax_sb.set_title("Surface brightness profile")
     ax_sb.grid(alpha=0.25)
+    if sb_zeropoint is not None:
+        ax_sb.invert_yaxis()
     sb_for_limits = y_sb[sb_valid & np.isfinite(y_sb)]
     if sb_for_limits.size > 0:
         set_axis_limits_from_finite_values(
@@ -951,6 +960,7 @@ def plot_qa_summary(
             sb_for_limits,
             margin_fraction=0.06,
             min_margin=0.2,
+            invert=sb_zeropoint is not None,
         )
     handles, labels = ax_sb.get_legend_handles_labels()
     if handles:
@@ -988,6 +998,9 @@ def plot_qa_summary(
         Line2D([], [], marker="o", linestyle="None", color="black", markerfacecolor="none", markersize=4.8, label="Y"),
     ]
     ax_cen.legend(handles=centroid_legend, loc="upper right", frameon=True, fontsize=14, ncol=2)
+    # Y-limits from data values only (exclude errorbars to preserve detail)
+    cen_vals = np.concatenate([i_dx[valid_mask], i_dy[valid_mask]])
+    set_axis_limits_from_finite_values(ax_cen, cen_vals, margin_fraction=0.08, min_margin=0.3)
 
     # 3. Axis ratio (b/a)
     ax_ba = fig.add_subplot(right[panel_idx], sharex=ax_sb)
@@ -1161,6 +1174,7 @@ def plot_qa_summary_extended(
     relative_residual: bool = False,
     mask=None,
     filename="qa_summary_extended.png",
+    sb_zeropoint=None,
 ):
     """QA figure with extended harmonic visualization panels.
 
@@ -1306,7 +1320,6 @@ def plot_qa_summary_extended(
         step=overlay_step,
         line_width=1.2,
         alpha=0.8,
-        edge_color="orangered",
     )
     ax_img.text(
         0.15,
@@ -1406,9 +1419,15 @@ def plot_qa_summary_extended(
     panel_idx += 1
     sb_valid = valid_mask & np.isfinite(i_intens) & (i_intens > 0)
     y_sb = np.full_like(i_intens, np.nan)
-    y_sb[sb_valid] = np.log10(i_intens[sb_valid])
     y_sb_err = np.full_like(i_intens_err, np.nan)
-    y_sb_err[sb_valid] = i_intens_err[sb_valid] / (i_intens[sb_valid] * np.log(10))
+    if sb_zeropoint is not None:
+        y_sb[sb_valid] = -2.5 * np.log10(i_intens[sb_valid]) + sb_zeropoint
+        y_sb_err[sb_valid] = 2.5 * i_intens_err[sb_valid] / (i_intens[sb_valid] * np.log(10))
+        sb_ylabel = r"$\mu$ [mag/arcsec$^2$]"
+    else:
+        y_sb[sb_valid] = np.log10(i_intens[sb_valid])
+        y_sb_err[sb_valid] = i_intens_err[sb_valid] / (i_intens[sb_valid] * np.log(10))
+        sb_ylabel = r"$\log_{10}(I)$"
     plot_profile_by_stop_code(
         ax_sb,
         x_axis[sb_valid],
@@ -1418,12 +1437,17 @@ def plot_qa_summary_extended(
         marker_face="filled",
         monochrome=True,
     )
-    ax_sb.set_ylabel(r"$\log_{10}(I)$")
+    ax_sb.set_ylabel(sb_ylabel)
     ax_sb.set_title("Surface brightness profile")
     ax_sb.grid(alpha=0.25)
+    if sb_zeropoint is not None:
+        ax_sb.invert_yaxis()
     sb_for_limits = y_sb[sb_valid & np.isfinite(y_sb)]
     if sb_for_limits.size > 0:
-        set_axis_limits_from_finite_values(ax_sb, sb_for_limits, margin_fraction=0.06, min_margin=0.2)
+        set_axis_limits_from_finite_values(
+            ax_sb, sb_for_limits, margin_fraction=0.06, min_margin=0.2,
+            invert=sb_zeropoint is not None,
+        )
     handles, labels = ax_sb.get_legend_handles_labels()
     if handles:
         ax_sb.legend(handles[:8], labels[:8], loc="upper right", fontsize=12, ncol=1)
@@ -1454,6 +1478,9 @@ def plot_qa_summary_extended(
     ax_cen.axhline(0.0, color="black", linestyle="--", linewidth=0.8, alpha=0.7)
     ax_cen.set_ylabel("center [pix]")
     ax_cen.grid(alpha=0.25)
+    # Y-limits from data values only (exclude errorbars to preserve detail)
+    cen_vals = np.concatenate([i_dx[valid_mask], i_dy[valid_mask]])
+    set_axis_limits_from_finite_values(ax_cen, cen_vals, margin_fraction=0.08, min_margin=0.3)
 
     # 3. Axis ratio
     ax_ba = fig.add_subplot(right[panel_idx], sharex=ax_sb)

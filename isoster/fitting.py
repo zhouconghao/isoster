@@ -10,6 +10,24 @@ from .numba_kernels import build_harmonic_matrix, harmonic_model
 from .sampling import extract_isophote_data
 
 
+def _prepare_mask_float(mask):
+    """Convert a boolean/integer mask to float64 once for map_coordinates.
+
+    ``scipy.ndimage.map_coordinates`` requires a floating-point array.
+    Converting a large boolean mask on every call is the dominant cost
+    when a mask is supplied.  Pre-converting here avoids repeated
+    allocation inside the per-iteration sampling loop.
+
+    Returns None when the input is None so callers can pass it through
+    unchanged.
+    """
+    if mask is None:
+        return None
+    if mask.dtype.kind == "f":
+        return mask
+    return mask.astype(np.float64)
+
+
 def compute_central_regularization_penalty(current_geom, previous_geom, sma, config):
     """
     Compute regularization penalty for geometry changes in central region.
@@ -102,6 +120,9 @@ def extract_forced_photometry(
     Returns:
         dict: Isophote structure with intensity from the target image.
     """
+    # Pre-convert mask to float64 once (avoids repeated allocation in map_coordinates)
+    mask = _prepare_mask_float(mask)
+
     # Determine whether to include harmonic keys and which orders
     if config is not None:
         include_harmonics = config.compute_deviations or config.simultaneous_harmonics
@@ -1019,6 +1040,11 @@ def fit_isophote(
     Returns:
         dict: The best fitted geometry and metadata for this isophote.
     """
+    # Pre-convert mask to float64 once for map_coordinates sampling.
+    # Keep the original bool mask for aperture photometry (_attach_full_photometry).
+    mask_bool = mask
+    mask = _prepare_mask_float(mask)
+
     # Normalize configuration
     if isinstance(config, IsosterConfig):
         cfg = config
@@ -1415,7 +1441,7 @@ def fit_isophote(
 
             # 6. FULL PHOTOMETRY (If requested)
             if full_photometry:
-                _attach_full_photometry(best_geometry, image, mask)
+                _attach_full_photometry(best_geometry, image, mask_bool)
             break
 
         # Update geometry (apply damping to reduce oscillations at large SMA)
@@ -1535,7 +1561,7 @@ def fit_isophote(
                         best_variances=best_variances,
                     )
                 if full_photometry:
-                    _attach_full_photometry(best_geometry, image, mask)
+                    _attach_full_photometry(best_geometry, image, mask_bool)
                 break
 
         prev_geom = (x0, y0, eps, pa)
@@ -1590,7 +1616,7 @@ def fit_isophote(
                 best_variances=best_variances,
             )
         if full_photometry:
-            _attach_full_photometry(best_geometry, image, mask)
+            _attach_full_photometry(best_geometry, image, mask_bool)
 
     best_geometry["stop_code"], best_geometry["niter"] = stop_code, niter
     return best_geometry
