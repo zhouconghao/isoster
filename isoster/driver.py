@@ -58,6 +58,115 @@ def _first_isophote_perturbations(sma0, eps, pa, max_retries):
     return result
 
 
+def _is_lsb_isophote(iso, maxgerr_thresh):
+    """Return True when an outward isophote indicates the LSB regime.
+
+    Uses the gradient diagnostics populated when debug=True. A gradient of
+    None / non-finite / zero-error is treated as "cannot assess" and returns
+    False so the detector does not trigger on transient numerical glitches —
+    the next isophote will supply another chance.
+    """
+    if iso.get("stop_code") == -1:
+        return True
+    grad = iso.get("grad")
+    grad_err = iso.get("grad_error")
+    if grad is None or grad_err is None:
+        return False
+    try:
+        grad_f = float(grad)
+        grad_err_f = float(grad_err)
+    except (TypeError, ValueError):
+        return False
+    if not np.isfinite(grad_f) or not np.isfinite(grad_err_f) or grad_err_f == 0.0:
+        return False
+    if grad_f >= 0.0:
+        return True
+    return abs(grad_err_f / grad_f) > maxgerr_thresh
+
+
+def _build_locked_cfg(cfg, anchor_iso, locked_integrator):
+    """Clone cfg and freeze geometry to a clean anchor isophote."""
+    locked = cfg.model_copy(deep=True)
+    locked.x0 = float(anchor_iso["x0"])
+    locked.y0 = float(anchor_iso["y0"])
+    locked.eps = float(anchor_iso["eps"])
+    locked.pa = float(anchor_iso["pa"])
+    locked.fix_center = True
+    locked.fix_pa = True
+    locked.fix_eps = True
+    locked.integrator = locked_integrator
+    # Adaptive integrator settings would collide with the explicit lock;
+    # disable them on the clone.
+    locked.lsb_sma_threshold = None
+    # The auto-lock has already committed on the parent fit; the clone
+    # should not try to re-detect on its own isophotes.
+    locked.lsb_auto_lock = False
+    return locked
+
+
+def _mark_lsb_lock_state(iso, locked, is_anchor=False):
+    """Attach the LSB auto-lock state keys to an isophote dict.
+
+    Centralized so future loop reorders cannot accidentally mutate an
+    isophote before the correct flag is known. Writes ``lsb_locked`` and,
+    for the committing trigger isophote, ``lsb_auto_lock_anchor=True``.
+    """
+    iso["lsb_locked"] = bool(locked)
+    if is_anchor:
+        iso["lsb_auto_lock_anchor"] = True
+
+
+def _build_outer_center_reference(inwards_results, anchor_iso, cfg):
+    """Compute a frozen (x0_ref, y0_ref) for outer center regularization.
+
+    Uses a flux-weighted mean of inward isophotes with acceptable stop codes
+    and sma <= anchor_iso['sma'] * cfg.outer_reg_ref_sma_factor. Falls back
+    to (anchor_iso['x0'], anchor_iso['y0']) when no inward isophotes qualify,
+    which also covers the case where the inward loop produced nothing
+    (e.g. minsma >= sma0).
+
+    The anchor isophote itself is always folded into the weighted mean so the
+    reference is well-defined even when only a handful of inward isophotes exist.
+
+    Args:
+        inwards_results (list[dict]): Inward isophote results (ascending sma
+            inside the list is not assumed; filtering is on `sma` directly).
+        anchor_iso (dict): The successful anchor isophote at sma0.
+        cfg (IsosterConfig): Full config, read for outer_reg_ref_sma_factor.
+
+    Returns:
+        tuple[float, float]: The flux-weighted reference (x0_ref, y0_ref).
+    """
+    sma_hi = float(anchor_iso["sma"]) * cfg.outer_reg_ref_sma_factor
+
+    candidates = [anchor_iso]
+    for iso in inwards_results:
+        if not _is_acceptable_stop_code(iso.get("stop_code")):
+            continue
+        sma = iso.get("sma")
+        intens = iso.get("intens")
+        if sma is None or not np.isfinite(sma):
+            continue
+        if intens is None or not np.isfinite(intens):
+            continue
+        if sma > sma_hi:
+            continue
+        candidates.append(iso)
+
+    # Flux-weight (clamp to strictly positive so a negative-background iso
+    # does not dominate); fall back to unweighted mean if total weight vanishes.
+    x0s = np.array([float(iso["x0"]) for iso in candidates])
+    y0s = np.array([float(iso["y0"]) for iso in candidates])
+    weights = np.array([max(float(iso["intens"]), 1e-6) for iso in candidates])
+    if weights.sum() <= 0.0 or not np.all(np.isfinite(weights)):
+        return float(anchor_iso["x0"]), float(anchor_iso["y0"])
+    x0_ref = float(np.average(x0s, weights=weights))
+    y0_ref = float(np.average(y0s, weights=weights))
+    if not (np.isfinite(x0_ref) and np.isfinite(y0_ref)):
+        return float(anchor_iso["x0"]), float(anchor_iso["y0"])
+    return x0_ref, y0_ref
+
+
 def _is_error_field(field_name):
     """Return True when the field represents an uncertainty/error quantity."""
     return field_name.endswith("_err") or field_name.endswith("_error")
@@ -267,6 +376,13 @@ def fit_image(image, mask=None, config=None, template=None, template_isophotes=N
     else:
         cfg = config
 
+    # The LSB auto-lock detector needs grad / grad_error populated on each
+    # outward isophote dict, which only happens when debug=True. The config
+    # validator has already emitted a UserWarning; transparently promote a
+    # working clone here so the user does not have to flip both flags.
+    if cfg.lsb_auto_lock and not cfg.debug:
+        cfg = cfg.model_copy(update={"debug": True})
+
     # Validate mutually exclusive template arguments
     if template is not None and template_isophotes is not None:
         raise ValueError(
@@ -329,6 +445,28 @@ def fit_image(image, mask=None, config=None, template=None, template_isophotes=N
 
     # Handle template-based forced mode
     if template is not None:
+        # Neither the LSB auto-lock nor the outer center regularization is
+        # wired into the forced-photometry path (extract_forced_photometry
+        # does not call fit_isophote). Warn loudly when either knob is on so
+        # a stray True from a copy-pasted config is surfaced instead of
+        # silently ignored.
+        if cfg.lsb_auto_lock:
+            warnings.warn(
+                "lsb_auto_lock=True is ignored in forced photometry mode "
+                "(template provided): the feature requires free outward "
+                "growth and is not applied by extract_forced_photometry.",
+                UserWarning,
+                stacklevel=2,
+            )
+        if cfg.use_outer_center_regularization:
+            warnings.warn(
+                "use_outer_center_regularization=True is ignored in forced "
+                "photometry mode (template provided): the feature requires "
+                "free outward growth and is not applied by "
+                "extract_forced_photometry.",
+                UserWarning,
+                stacklevel=2,
+            )
         resolved = _resolve_template(template)
         return _fit_image_template_forced(image, mask, cfg, resolved, variance_map=variance_map)
 
@@ -413,36 +551,12 @@ def fit_image(image, mask=None, config=None, template=None, template_isophotes=N
                 stacklevel=2,
             )
 
-    # 3. Grow Outwards
-    outwards_results = []
-    if anchor_iso is not None:
-        outwards_results.append(anchor_iso)
-        current_iso = anchor_iso
-        current_sma = anchor_iso["sma"]
-
-        while True:
-            if linear_growth:
-                next_sma = current_sma + astep
-            else:
-                next_sma = current_sma * (1.0 + astep)
-
-            if next_sma > maxsma:
-                break
-
-            # Update sma tracking
-            current_sma = next_sma
-
-            next_iso = fit_isophote(
-                image, mask, next_sma, current_iso, cfg, previous_geometry=current_iso, variance_map=variance_map
-            )
-            outwards_results.append(next_iso)
-
-            # If good fit, update geometry for next step
-            # In permissive mode, always update to prevent cascading failures
-            if _is_acceptable_stop_code(next_iso["stop_code"]) or cfg.permissive_geometry:
-                current_iso = next_iso
-
-    # 4. Grow Inwards
+    # 3. Grow Inwards FIRST. This ordering enables the outer center
+    # regularization feature to build a stable inner reference from the
+    # inward isophote centers before outward growth begins. It is also
+    # output-equivalent under all settings when the feature is off: the
+    # inward loop does not depend on outward results, and the combined
+    # isophote list is reassembled in ascending-sma order below.
     inwards_results = []
     if minsma < sma0 and anchor_iso is not None:
         current_iso = anchor_iso
@@ -478,6 +592,102 @@ def fit_image(image, mask=None, config=None, template=None, template_isophotes=N
             if _is_acceptable_stop_code(next_iso["stop_code"]) or cfg.permissive_geometry:
                 current_iso = next_iso
 
+    # 3b. Build the frozen outer reference centroid once, if the feature is
+    # enabled and we have an anchor. The reference is a flux-weighted mean of
+    # inward isophote centers (plus the anchor itself) within a sma window.
+    # Only x0/y0 are threaded into the penalty — the reference does not carry
+    # eps or pa because outer-region regularization is center-only.
+    outer_ref_geom = None
+    outer_ref_x0 = None
+    outer_ref_y0 = None
+    if cfg.use_outer_center_regularization and anchor_iso is not None:
+        outer_ref_x0, outer_ref_y0 = _build_outer_center_reference(
+            inwards_results, anchor_iso, cfg
+        )
+        outer_ref_geom = {"x0": outer_ref_x0, "y0": outer_ref_y0}
+
+    # 4. Grow Outwards
+    outwards_results = []
+    # LSB auto-lock state. Only mutated when cfg.lsb_auto_lock=True, but
+    # the dict is always initialized so the post-loop metadata block below
+    # stays uniform.
+    lsb_state = {
+        "locked": False,
+        "consec": 0,
+        "transition_sma": None,
+        "anchor_index": None,
+    }
+    active_cfg = cfg
+
+    if anchor_iso is not None:
+        if cfg.lsb_auto_lock:
+            _mark_lsb_lock_state(anchor_iso, locked=False)
+        outwards_results.append(anchor_iso)
+        current_iso = anchor_iso
+        current_sma = anchor_iso["sma"]
+
+        while True:
+            if linear_growth:
+                next_sma = current_sma + astep
+            else:
+                next_sma = current_sma * (1.0 + astep)
+
+            if next_sma > maxsma:
+                break
+
+            # Update sma tracking
+            current_sma = next_sma
+
+            next_iso = fit_isophote(
+                image,
+                mask,
+                next_sma,
+                current_iso,
+                active_cfg,
+                previous_geometry=current_iso,
+                variance_map=variance_map,
+                outer_reference_geom=outer_ref_geom,
+            )
+            if cfg.lsb_auto_lock:
+                _mark_lsb_lock_state(next_iso, locked=lsb_state["locked"])
+            outwards_results.append(next_iso)
+
+            # If good fit, update geometry for next step
+            # In permissive mode, always update to prevent cascading failures
+            if _is_acceptable_stop_code(next_iso["stop_code"]) or active_cfg.permissive_geometry:
+                current_iso = next_iso
+
+            # LSB auto-lock detector: free-mode only. Once locked, the mode
+            # stays locked for the rest of outward growth (one-way state
+            # machine).
+            if cfg.lsb_auto_lock and not lsb_state["locked"]:
+                triggered = _is_lsb_isophote(next_iso, cfg.lsb_auto_lock_maxgerr)
+                if triggered:
+                    lsb_state["consec"] += 1
+                    if lsb_state["consec"] >= cfg.lsb_auto_lock_debounce:
+                        # Anchor = isophote immediately before the streak, NOT
+                        # the trigger isophote itself. The trigger isophotes
+                        # are already partially in LSB and their geometries
+                        # may have begun drifting.
+                        anchor_local_idx = (
+                            len(outwards_results) - 1 - cfg.lsb_auto_lock_debounce
+                        )
+                        anchor_local_idx = max(0, anchor_local_idx)
+                        lock_anchor = outwards_results[anchor_local_idx]
+                        active_cfg = _build_locked_cfg(
+                            cfg, lock_anchor, cfg.lsb_auto_lock_integrator
+                        )
+                        lsb_state["locked"] = True
+                        lsb_state["transition_sma"] = float(next_iso["sma"])
+                        lsb_state["anchor_index"] = anchor_local_idx
+                        _mark_lsb_lock_state(next_iso, locked=True, is_anchor=True)
+                        # Restart the geometry carry-forward from the clean
+                        # anchor so the next isophote is seeded by it, not by
+                        # the (degraded) trigger isophote.
+                        current_iso = lock_anchor
+                else:
+                    lsb_state["consec"] = 0
+
     # Combine results
     # Inwards list needs to be reversed so SMAs are ascending
     if minsma <= 0.0:
@@ -504,6 +714,16 @@ def fit_image(image, mask=None, config=None, template=None, template_isophotes=N
         result["first_isophote_failure"] = True
     if retry_log:
         result["first_isophote_retry_log"] = retry_log
+    if cfg.lsb_auto_lock:
+        result["lsb_auto_lock"] = True
+        result["lsb_auto_lock_sma"] = lsb_state["transition_sma"]
+        result["lsb_auto_lock_count"] = sum(
+            1 for iso in final_list if iso.get("lsb_locked", False)
+        )
+    if cfg.use_outer_center_regularization and outer_ref_x0 is not None:
+        result["use_outer_center_regularization"] = True
+        result["outer_reg_x0_ref"] = outer_ref_x0
+        result["outer_reg_y0_ref"] = outer_ref_y0
     return result
 
 

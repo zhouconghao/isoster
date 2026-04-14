@@ -213,6 +213,45 @@ class IsosterConfig(BaseModel):
         "Dict with keys: 'eps', 'pa', 'center'.",
     )
 
+    # Outer Region Center Regularization
+    use_outer_center_regularization: bool = Field(
+        False,
+        description="Enable soft center-only regularization in the outer (LSB) region. "
+        "When True, the outward fit is softly pulled toward a frozen inner reference "
+        "center (x0_ref, y0_ref) built from the inward isophotes. Unlike lsb_auto_lock, "
+        "this does NOT freeze geometry - it adds a best-iteration penalty that damps "
+        "artificial drift but still lets a genuine lopsided outer center bleed through. "
+        "Requires running inward growth before outward growth. Disabled by default; "
+        "recommended when fitting into the LSB regime on real-data edge cases.",
+    )
+    outer_reg_sma_onset: float = Field(
+        50.0,
+        gt=0.0,
+        description="SMA (pixels) at the midpoint of the outer regularization sigmoid. "
+        "Below this the penalty is near zero; above it the penalty ramps up toward "
+        "outer_reg_strength.",
+    )
+    outer_reg_sma_width: float = Field(
+        20.0,
+        gt=0.0,
+        description="Sigmoid slope width (pixels) for the outer regularization ramp. "
+        "Smaller values give a sharper transition at outer_reg_sma_onset.",
+    )
+    outer_reg_strength: float = Field(
+        2.0,
+        ge=0.0,
+        description="Peak strength of the outer center regularization. Adds "
+        "strength*dr^2 to the best-iteration harmonic amplitude, where dr is the "
+        "center offset from the frozen inner reference. Typical range: 0.5-8. "
+        "Default 2.0 was the benchmark winner on HSC LSB edge cases.",
+    )
+    outer_reg_ref_sma_factor: float = Field(
+        2.0,
+        gt=1.0,
+        description="Inward isophotes with sma <= sma0 * this factor feed the flux-weighted "
+        "reference centroid. Must be > 1; typical value 1.5-3.",
+    )
+
     # Permissive Geometry Mode (photutils-style)
     permissive_geometry: bool = Field(
         False,
@@ -239,6 +278,38 @@ class IsosterConfig(BaseModel):
         description="Number of consecutive initial isophotes that must all fail before "
         "declaring FIRST_FEW_ISOPHOTE_FAILURE. Default 3 means the first isophote "
         "at sma0 plus the next 2 growth steps must all have unacceptable stop codes.",
+    )
+
+    # Automatic LSB Geometry Lock
+    lsb_auto_lock: bool = Field(
+        False,
+        description="Enable automatic LSB geometry lock. When True, outward growth starts "
+        "with free geometry and automatically locks center/eps/pa to the last clean "
+        "isophote (and switches to the configured integrator) once the gradient quality "
+        "indicates the LSB regime. Inward growth and the central pixel are unaffected.",
+    )
+    lsb_auto_lock_maxgerr: float = Field(
+        0.3,
+        gt=0.0,
+        description="Trigger threshold on the relative gradient error |grad_err / grad|. "
+        "The lock commits when this threshold is exceeded on lsb_auto_lock_debounce "
+        "outward isophotes in a row. Intentionally stricter than the free-fit maxgerr "
+        "(default 0.5) so the lock fires before a stop_code=-1 would have.",
+    )
+    lsb_auto_lock_debounce: int = Field(
+        2,
+        ge=1,
+        le=10,
+        description="Number of consecutive triggered outward isophotes required before "
+        "the LSB lock commits. Debounces single-isophote noise spikes. The lock anchor "
+        "is the isophote immediately before the streak.",
+    )
+    lsb_auto_lock_integrator: str = Field(
+        "median",
+        pattern="^(mean|median)$",
+        description="Integrator used for locked-region isophotes. Default 'median' for "
+        "robustness against contaminants that the fixed-geometry path would otherwise "
+        "average in.",
     )
 
     @model_validator(mode="after")
@@ -308,5 +379,53 @@ class IsosterConfig(BaseModel):
                 UserWarning,
                 stacklevel=2,
             )
+
+        # Automatic LSB geometry lock: the lock is meaningful only when
+        # starting from free geometry. If the caller already fixed anything,
+        # the transition would be a no-op — fail loudly instead.
+        if self.lsb_auto_lock:
+            conflicting = [
+                name for name in ("fix_center", "fix_pa", "fix_eps")
+                if getattr(self, name)
+            ]
+            if conflicting:
+                raise ValueError(
+                    f"lsb_auto_lock=True conflicts with {', '.join(conflicting)}=True: "
+                    f"the auto-lock requires free geometry at the start of outward growth."
+                )
+            if self.debug is False:
+                warnings.warn(
+                    "lsb_auto_lock=True requires gradient diagnostics; "
+                    "debug will be enabled internally for this fit.",
+                    UserWarning,
+                    stacklevel=2,
+                )
+
+        # Outer center regularization sanity warnings.
+        if self.use_outer_center_regularization:
+            if self.outer_reg_sma_onset < self.sma0:
+                warnings.warn(
+                    f"outer_reg_sma_onset ({self.outer_reg_sma_onset}) < sma0 ({self.sma0}): "
+                    f"the outer regularization penalty will fire from the first outward step "
+                    f"and may over-constrain the mid-sma region. Typical onset ~ sma0 * 3.",
+                    UserWarning,
+                    stacklevel=2,
+                )
+            if self.minsma >= self.sma0:
+                warnings.warn(
+                    f"use_outer_center_regularization=True with minsma ({self.minsma}) >= "
+                    f"sma0 ({self.sma0}): no inward isophotes to build the reference centroid, "
+                    f"so the reference will fall back to the anchor isophote center.",
+                    UserWarning,
+                    stacklevel=2,
+                )
+            if self.fix_center:
+                warnings.warn(
+                    "use_outer_center_regularization=True with fix_center=True: the "
+                    "center is frozen, so the penalty is identically zero and the "
+                    "feature has no effect. Disable one of the two flags.",
+                    UserWarning,
+                    stacklevel=2,
+                )
 
         return self

@@ -70,6 +70,99 @@ template = [
 results = fit_image(image, mask=mask, config=config, template=template)
 ```
 
+### Automatic LSB Geometry Lock
+
+`fit_image` can be run in a mode that starts with free geometry and automatically switches to fixed geometry once the outward fit enters the low-surface-brightness regime. It combines the strengths of free fitting (true isophotal shapes in the high-S/N region) with fixed-geometry fitting (no centroid drift in the LSB outskirts) in a single pass — no post-hoc stitching.
+
+```python
+from isoster import fit_image
+from isoster.config import IsosterConfig
+
+config = IsosterConfig(
+    sma0=10.0,
+    maxsma=200.0,
+    lsb_auto_lock=True,                   # enable automatic LSB lock
+    lsb_auto_lock_maxgerr=0.3,            # lock when grad_r_error > 0.3
+    lsb_auto_lock_debounce=2,             # for 2 outward isophotes in a row
+    lsb_auto_lock_integrator="median",    # use median in the LSB region
+    debug=True,                           # required for the gradient diagnostics
+)
+result = fit_image(image, mask=mask, config=config, variance_map=variance)
+
+transition = result["lsb_auto_lock_sma"]
+locked_n = result["lsb_auto_lock_count"]
+print(f"Lock committed at sma = {transition}; {locked_n} locked isophotes")
+```
+
+How the detector works:
+
+1. Free outward growth runs exactly like `lsb_auto_lock=False`.
+2. After each outward isophote, the relative gradient error `|grad_error / grad|` is inspected. A trigger fires when `grad_r_error > lsb_auto_lock_maxgerr` OR the isophote returned `stop_code = -1`. The threshold is more sensitive than `maxgerr` so the lock commits *before* a gradient failure.
+3. Triggers are debounced: `lsb_auto_lock_debounce` consecutive triggered isophotes are required. A clean isophote in the streak resets the counter.
+4. When the lock commits, the anchor is the isophote **immediately before** the streak — not the trigger isophote itself — and its geometry (`x0`, `y0`, `eps`, `pa`) is carried forward. The integrator switches to `lsb_auto_lock_integrator` for the remaining outward isophotes.
+5. The transition is **one-way** per fit. Inward growth and the central pixel are unchanged.
+
+`debug=True` is required because the detector reads `grad`, `grad_error`, and `grad_r_error` from each outward isophote dict. If the caller leaves `debug=False`, isoster emits a `UserWarning` and internally flips the flag for the duration of the fit.
+
+The following fields are conflict-checked and raise `ValidationError`:
+`lsb_auto_lock=True` cannot be combined with `fix_center=True`, `fix_pa=True`, or `fix_eps=True`.
+
+The lock is wired only into the regular-mode driver. When combined with template-based forced photometry (`template=[...]`), `fit_image` emits a `UserWarning` and the lock is silently inactive. The same applies to all sampling and harmonic variants — the lock is agnostic to `use_eccentric_anomaly`, `simultaneous_harmonics`, and the isofit-style modes, because it only inspects the per-isophote gradient diagnostics, not the geometry update path.
+
+### Outer Region Center Regularization
+
+The automatic LSB lock is a hard switch — once the detector trips, the center is frozen. Outer-region center regularization is a *soft* complement that runs before the lock fires: a logistic-ramp penalty that makes it harder for the outward isophote centers to drift artificially in the LSB regime, while still letting real lopsided structure bleed through. Only the center `(x0, y0)` is regularized — position angle and ellipticity stay free.
+
+**When to turn it on.** This feature is disabled by default because it is still being validated on a broader range of surveys. We recommend turning it on when fitting deep, low-surface-brightness structure where the outskirts are close to the sky level, and especially when contamination (nearby bright sources, scattered light, faint companions) is expected to pull the free outward fit away from the real galaxy center. On HSC-scale edge cases we see clear drift reduction in the pre-lock tail with minimal disruption in the high-S/N interior. On clean synthetic galaxies the feature is essentially a no-op at the recommended strengths.
+
+The regular-mode driver always runs the inward loop before the outward loop (this is an unconditional reorder that preserves all outward semantics). With this feature on, the inward isophotes are used to build a stable inner reference centroid (flux-weighted mean of inner isophote centers) that the outward fit is pulled toward.
+
+```python
+from isoster import fit_image
+from isoster.config import IsosterConfig
+
+config = IsosterConfig(
+    sma0=10.0,
+    maxsma=200.0,
+    # Automatic LSB lock (optional, composes cleanly)
+    lsb_auto_lock=True,
+    debug=True,
+    # Outer-region soft center regularization
+    use_outer_center_regularization=True,
+    outer_reg_sma_onset=50.0,        # penalty starts ramping near sma=50
+    outer_reg_sma_width=15.0,        # logistic width (growth-step scale)
+    outer_reg_strength=2.0,          # penalty amplitude
+)
+result = fit_image(image, mask=mask, config=config, variance_map=variance)
+
+print("inner reference:", result["outer_reg_x0_ref"], result["outer_reg_y0_ref"])
+```
+
+How it works:
+
+1. The driver runs the inward loop first to collect high-S/N inner isophotes.
+2. A flux-weighted mean of their `(x0, y0)` — restricted to `sma <= sma0 * outer_reg_ref_sma_factor` — becomes the frozen inner reference `(x0_ref, y0_ref)`. If no inward isophotes qualify, the reference falls back to the anchor isophote center.
+3. During outward growth, each candidate fit iteration gets a penalty `lambda(sma) * ((x0 - x0_ref)^2 + (y0 - y0_ref)^2)` added to `effective_amp` in the best-iteration selector, where `lambda(sma) = outer_reg_strength / (1 + exp(-(sma - onset) / width))`. The penalty is near zero inside the bright galaxy (where it would over-constrain mid-sma structure) and ramps up in the LSB regime.
+4. Because it runs inside the best-iteration selector, the penalty biases which of the 50 fit iterations is kept — it never injects a restoring force into the geometry update equations, so real asymmetry is still recoverable.
+5. When `lsb_auto_lock=True` fires, the locked clone sets `fix_center=True` and the penalty becomes a no-op for the locked tail. The two mechanisms compose: soft pre-lock, hard post-lock.
+
+Result dict additions when `use_outer_center_regularization=True`:
+
+```python
+result["use_outer_center_regularization"]  # True
+result["outer_reg_x0_ref"]                 # frozen inner reference x0
+result["outer_reg_y0_ref"]                 # frozen inner reference y0
+```
+
+Interaction with existing flags:
+
+- **Independent from `lsb_auto_lock`**: either can run alone or both together.
+- **`minsma >= sma0`**: the reference falls back to the anchor; a `UserWarning` is emitted at config time.
+- **`outer_reg_sma_onset < sma0`**: the penalty would fire from the first outward step; a `UserWarning` is emitted.
+- **`fix_center=True`**: the penalty is inert because the center never moves; a `UserWarning` is emitted at config time so toggling `use_outer_center_regularization=True` under a fixed center is reported rather than silently ignored.
+- **Forced photometry (`template=[...]`)**: the feature is wired only into the regular-mode driver. When combined with a template, `fit_image` emits a `UserWarning` and the feature is silently inactive.
+- **Sampling / harmonic modes**: the feature is agnostic to `use_eccentric_anomaly`, `simultaneous_harmonics`, and the isofit-style modes, because the penalty rides the same `effective_amp` rail in the best-iteration selector.
+
 ### Using Variance Maps (WLS Fitting)
 
 When a per-pixel variance map is available (e.g., from survey pipelines like DESI Legacy Survey), pass it to `fit_image` to enable Weighted Least Squares fitting:
@@ -229,6 +322,12 @@ loaded = isophote_results_from_asdf('galaxy.asdf')
 | `config` | `IsosterConfig` | Yes | The configuration object used for the fit |
 | `first_isophote_failure` | bool | Only when `True` | First N isophotes all failed (see [First Isophote Robustness](#first-isophote-robustness)) |
 | `first_isophote_retry_log` | list[dict] | Only when retries ran | Detailed log of retry attempts when `max_retry_first_isophote > 0` |
+| `lsb_auto_lock` | bool | Only when `lsb_auto_lock=True` | Echoes that automatic LSB geometry lock was used |
+| `lsb_auto_lock_sma` | float or None | Only when `lsb_auto_lock=True` | SMA at which the lock committed; `None` if the detector never triggered |
+| `lsb_auto_lock_count` | int | Only when `lsb_auto_lock=True` | Number of outward isophotes fit under locked geometry |
+| `use_outer_center_regularization` | bool | Only when `use_outer_center_regularization=True` | Echoes that outer-region center regularization was used |
+| `outer_reg_x0_ref` | float | Only when `use_outer_center_regularization=True` | Frozen inner reference `x0` (flux-weighted mean over qualifying inward isophotes; falls back to anchor) |
+| `outer_reg_y0_ref` | float | Only when `use_outer_center_regularization=True` | Frozen inner reference `y0` |
 
 ### Per-Isophote Fields: Always Present
 
@@ -286,6 +385,15 @@ Present only when `compute_cog=True` (regular fitting mode only).
 | `area_annulus` | float | Area of the annulus (corrected for negative areas) |
 | `flag_cross` | bool | Ellipse crossing detected at this isophote |
 | `flag_negative_area` | bool | Negative annular area (geometry divergence indicator) |
+
+### Per-Isophote Fields: Automatic LSB Geometry Lock
+
+Present only on outward isophotes when `lsb_auto_lock=True`. Inward isophotes and the central pixel never carry these keys.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `lsb_locked` | bool | `True` if this isophote was fit under locked geometry (post-transition), `False` otherwise |
+| `lsb_auto_lock_anchor` | bool | `True` only on the first locked isophote; absent on all others. Useful as a marker in QA overlays |
 
 ### Per-Isophote Fields: Debug Diagnostics
 

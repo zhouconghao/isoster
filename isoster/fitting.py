@@ -80,6 +80,48 @@ def compute_central_regularization_penalty(current_geom, previous_geom, sma, con
     return penalty
 
 
+def compute_outer_center_regularization_penalty(current_geom, reference_geom, sma, config):
+    """
+    Compute ramp-up center-only penalty for outer-region drift suppression.
+
+    Unlike compute_central_regularization_penalty, which decays outward and
+    regularizes eps/pa/center alike, this penalty:
+
+    1. Ramps up outward via a logistic curve anchored at outer_reg_sma_onset.
+    2. Regularizes the center (x0, y0) only — PA and eps remain free.
+    3. Uses reference_geom as a frozen inner reference (typically a flux-weighted
+       mean of inward isophote centers) instead of the previous isophote, so the
+       penalty does not compound with drift.
+
+    Args:
+        current_geom (dict): Current iteration geometry {'x0', 'y0', 'eps', 'pa'}.
+        reference_geom (dict): Frozen reference geometry carrying x0/y0. Ignored
+            if None (e.g. when called on the inward loop or with the feature off).
+        sma (float): Current semi-major axis (pixels).
+        config (IsosterConfig): Configuration with outer_reg_* parameters.
+
+    Returns:
+        float: Penalty value added to the best-iteration selector amplitude.
+    """
+    if not config.use_outer_center_regularization:
+        return 0.0
+
+    if reference_geom is None:
+        return 0.0
+
+    # Logistic ramp: 0 at small sma, saturates at outer_reg_strength in the outskirts.
+    onset = config.outer_reg_sma_onset
+    width = config.outer_reg_sma_width
+    lambda_sma = config.outer_reg_strength / (1.0 + np.exp(-(sma - onset) / width))
+
+    if lambda_sma < 1e-6:
+        return 0.0
+
+    delta_x0 = current_geom["x0"] - reference_geom["x0"]
+    delta_y0 = current_geom["y0"] - reference_geom["y0"]
+    return lambda_sma * (delta_x0**2 + delta_y0**2)
+
+
 def extract_forced_photometry(
     image,
     mask,
@@ -1020,7 +1062,15 @@ def _compute_posthoc_harmonics(
 
 
 def fit_isophote(
-    image, mask, sma, start_geometry, config, going_inwards=False, previous_geometry=None, variance_map=None
+    image,
+    mask,
+    sma,
+    start_geometry,
+    config,
+    going_inwards=False,
+    previous_geometry=None,
+    variance_map=None,
+    outer_reference_geom=None,
 ):
     """
     Fit a single isophote with quality control.
@@ -1034,8 +1084,15 @@ def fit_isophote(
         start_geometry (dict): Initial guess for {'x0', 'y0', 'eps', 'pa'}.
         config (dict or IsosterConfig): Configuration object.
         going_inwards (bool): Flag indicating if the fitting is progressing inwards (affecting gradient checks).
-        previous_geometry (dict): Previous isophote geometry for regularization (optional).
+        previous_geometry (dict): Previous isophote geometry for central-region
+            regularization (optional). This is the *rolling* previous isophote
+            used by compute_central_regularization_penalty.
         variance_map (np.ndarray, optional): 2D per-pixel variance map for WLS fitting.
+        outer_reference_geom (dict, optional): Frozen reference geometry for
+            outer center regularization (only x0/y0 are read). Typically a
+            flux-weighted mean of inward isophote centers, computed once in the
+            driver before outward growth begins. When None, the outer center
+            regularization penalty is never applied even if the config flag is on.
 
     Returns:
         dict: The best fitted geometry and metadata for this isophote.
@@ -1301,9 +1358,16 @@ def fit_isophote(
         current_geom = {"x0": x0, "y0": y0, "eps": eps, "pa": pa}
         reg_penalty = compute_central_regularization_penalty(current_geom, previous_geometry, sma, cfg)
 
-        # Effective amplitude includes regularization penalty
-        # This discourages large geometry changes in the central region
-        effective_amp = abs(max_amp) + reg_penalty
+        # Apply outer-region center regularization penalty if enabled.
+        # The frozen reference comes from the driver (built once from inward
+        # isophotes). The penalty is center-only and ramps up outward via a
+        # logistic in sma, adding strength*dr^2 to the best-iteration selector.
+        outer_reg_penalty = compute_outer_center_regularization_penalty(
+            current_geom, outer_reference_geom, sma, cfg
+        )
+
+        # Effective amplitude includes regularization penalties.
+        effective_amp = abs(max_amp) + reg_penalty + outer_reg_penalty
 
         if effective_amp < min_amplitude:
             min_amplitude = effective_amp

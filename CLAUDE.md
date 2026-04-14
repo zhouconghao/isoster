@@ -89,6 +89,7 @@ Follow these rules for all Python environment and dependency work in this reposi
 | `docs/04-architecture.md` | Architecture, interfaces, and design decisions |
 | `docs/05-testing.md` | Testing and benchmark directives |
 | `docs/06-qa-functions.md` | QA plotting functions: usage, options, and examples |
+| `docs/07-lsb-features.md` | Design + implementation notes for LSB auto-lock and outer-region center regularization |
 
 ### Agent-internal docs (untracked, in `docs/agent/`)
 

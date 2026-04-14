@@ -17,6 +17,7 @@ nav:
   - Architecture: 04-architecture.md
   - Testing: 05-testing.md
   - QA Functions: 06-qa-functions.md
+  - LSB Features: 07-lsb-features.md
 
 markdown_extensions:
   - admonition
