@@ -4,8 +4,9 @@ Four tiers, ordered easy → hard:
 
 1. ``mocks``     — clean synthetic Sersic images generated on demand via
    ``benchmarks.utils.sersic_model``. Pure-geometry controlled test.
-2. ``huang2013`` — Huang 2013 mock galaxies (stub; to be wired up once
-   the hsc tier is validated).
+2. ``huang2013`` — Huang 2013 external libprofit mock galaxies (one
+   galaxy, four mock IDs at present), with header-driven initial
+   geometry via ``examples/example_huang2013/huang2013_shared``.
 3. ``highorder`` — high-order-harmonic LegacySurvey galaxies
    (``eso243-49``, ``ngc3610``) from ``data/`` at the project root,
    reusing ``examples/example_ls_highorder_harmonic/shared.py`` helpers.
@@ -24,6 +25,7 @@ loader implementations.
 
 from __future__ import annotations
 
+import os
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -168,6 +170,119 @@ def _load_mock(spec: GalaxySpec) -> GalaxyData:
         maxsma=maxsma,
         minsma=0.0,
         truth=truth,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Tier 2: Huang2013 libprofit mock galaxies
+# ---------------------------------------------------------------------------
+
+#: Default location of Huang2013 mock FITS inputs. These are external,
+#: large (~27 MB each as float64), and do not ship with the repo. Set
+#: ``HUANG2013_DATA_ROOT`` to override — the loader reads the directory
+#: tree ``<root>/<GALAXY>/<GALAXY>_mock<ID>.fits`` identical to the
+#: layout used by ``examples/example_huang2013``.
+_HUANG2013_DEFAULT_DATA_ROOT = Path(
+    "/Users/shuang/Library/CloudStorage/Dropbox/work/project/otters/"
+    "isophote_test/output/huang2013"
+)
+
+
+def _huang2013_data_root() -> Path:
+    env_root = os.environ.get("HUANG2013_DATA_ROOT")
+    if env_root:
+        return Path(env_root)
+    return _HUANG2013_DEFAULT_DATA_ROOT
+
+
+#: One galaxy with four independent libprofit mocks. Each mock shares
+#: the same OBJECT/REDSHIFT/NCOMP structure but varies the component
+#: realizations, so they exercise the initial-condition capture radius
+#: on four slightly different surface-brightness profiles.
+_HUANG2013_GALAXIES: tuple[tuple[str, int], ...] = (
+    ("IC2597", 1),
+    ("IC2597", 2),
+    ("IC2597", 3),
+    ("IC2597", 4),
+)
+
+
+def _huang2013_obj_id(galaxy: str, mock_id: int) -> str:
+    return f"{galaxy}_mock{mock_id}"
+
+
+def _list_huang2013() -> List[GalaxySpec]:
+    return [
+        GalaxySpec(
+            tier="huang2013",
+            obj_id=_huang2013_obj_id(galaxy, mock_id),
+            description=f"Huang2013 libprofit mock: {galaxy} mock{mock_id}",
+            extras={"galaxy": galaxy, "mock_id": mock_id},
+        )
+        for galaxy, mock_id in _HUANG2013_GALAXIES
+    ]
+
+
+def _load_huang2013(spec: GalaxySpec) -> GalaxyData:
+    """Load a Huang2013 libprofit mock (clean image, header-driven geometry).
+
+    Reuses ``infer_initial_geometry`` and ``infer_default_maxsma`` from
+    the ``examples/example_huang2013`` helpers so the robustness sweep's
+    fiducial start matches the shipped Huang2013 campaign. No mask or
+    variance map — these mocks are noise-free by construction (header
+    flag ``NOISE = False``).
+    """
+    from astropy.io import fits
+
+    example_dir = PROJECT_ROOT / "examples" / "example_huang2013"
+    if not example_dir.exists():
+        raise FileNotFoundError(
+            f"expected example directory not found: {example_dir}"
+        )
+    if str(example_dir) not in sys.path:
+        sys.path.insert(0, str(example_dir))
+
+    # Lazy imports — only paid when the huang2013 tier is touched.
+    from huang2013_shared import (  # type: ignore[import-not-found]
+        infer_initial_geometry,
+    )
+    from run_huang2013_profile_extraction import (  # type: ignore[import-not-found]
+        infer_default_maxsma,
+    )
+
+    galaxy = str(spec.extras["galaxy"])
+    mock_id = int(spec.extras["mock_id"])
+
+    data_root = _huang2013_data_root()
+    fits_path = data_root / galaxy / f"{_huang2013_obj_id(galaxy, mock_id)}.fits"
+    if not fits_path.exists():
+        raise FileNotFoundError(
+            f"huang2013 FITS file not found: {fits_path}. "
+            f"Set HUANG2013_DATA_ROOT to point at the "
+            f"``<GALAXY>/<GALAXY>_mock<ID>.fits`` tree."
+        )
+
+    image = np.asarray(fits.getdata(str(fits_path)), dtype=np.float64)
+    header = fits.getheader(str(fits_path))
+
+    fiducial = infer_initial_geometry(header, image.shape)
+    fiducial_pa_rad = float(np.deg2rad(fiducial["pa_deg"]))
+    maxsma = float(infer_default_maxsma(header, image.shape))
+
+    return GalaxyData(
+        spec=spec,
+        image=image,
+        mask=None,
+        variance_map=None,
+        fiducial_sma0=float(fiducial["sma0"]),
+        fiducial_eps=float(fiducial["eps"]),
+        fiducial_pa=fiducial_pa_rad,
+        fiducial_x0=float(fiducial["x0"]),
+        fiducial_y0=float(fiducial["y0"]),
+        maxsma=maxsma,
+        minsma=0.0,
+        truth=None,
+        # No overrides: clean libprofit mocks converge with defaults.
     )
 
 
@@ -404,13 +519,12 @@ def list_galaxies(tier: str) -> List[GalaxySpec]:
     """Return the list of galaxies registered for a tier."""
     if tier == "mocks":
         return _list_mocks()
+    if tier == "huang2013":
+        return _list_huang2013()
     if tier == "highorder":
         return _list_highorder()
     if tier == "hsc":
         return _list_hsc()
-    if tier == "huang2013":
-        # TODO: wire up once the hsc tier is validated end-to-end.
-        return []
     raise ValueError(f"unknown tier: {tier!r} (valid: {TIERS})")
 
 
@@ -418,6 +532,8 @@ def load_galaxy(spec: GalaxySpec) -> GalaxyData:
     """Materialize a galaxy's image, mask, variance, and fiducial config."""
     if spec.tier == "mocks":
         return _load_mock(spec)
+    if spec.tier == "huang2013":
+        return _load_huang2013(spec)
     if spec.tier == "highorder":
         return _load_highorder(spec)
     if spec.tier == "hsc":

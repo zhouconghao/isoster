@@ -39,7 +39,7 @@ This folder contains performance and comparison benchmarks for isoster.
 | `utils/mockgal_adapter.py` | Utility | External mockgal adapter (libprofit) | Presets / config | Mock FITS images | Active |
 | `utils/scaffold_models_config_batch_templates.py` | Utility | Scaffold batch template files | None | Template YAML/JSON | Active |
 | `benchmark_baseline/run_baseline.py` | Baseline | Multi-method baseline (isoster/photutils/autoprof) on real galaxies | `data/` FITS | profiles, models, fit_configs.json, comparison QA | Active |
-| `robustness/run_sweep.py` | Robustness | 1-D perturbation sweep on initial `sma0` + geometry; characterizes fit capture radius | Mocks (+ Huang2013, eso243-49, ngc3610, HSC edge cases — tiered) | `results.json`, `REPORT.md` | Active (mocks + highorder + hsc tiers wired; huang2013 stubbed) |
+| `robustness/run_sweep.py` | Robustness | 1-D perturbation sweep on initial `sma0` + geometry; characterizes fit capture radius | Mocks + Huang2013 (IC2597 mocks) + eso243-49 + ngc3610 + HSC edge cases (tiered) | `results.json`, `REPORT.md` | Active (all 4 tiers wired) |
 
 See `FRAMEWORK.md` for guidance on adding new benchmarks.
 
@@ -152,6 +152,13 @@ uv run python benchmarks/robustness/run_sweep.py --quick
 
 # Robustness benchmark — full 1-D sweep on the mocks tier
 uv run python benchmarks/robustness/run_sweep.py --tiers mocks
+
+# Robustness benchmark — full 1-D sweep on the huang2013 tier
+# (IC2597 libprofit mocks; set HUANG2013_DATA_ROOT to override the data path)
+uv run python benchmarks/robustness/run_sweep.py --tiers huang2013
+
+# Robustness benchmark — full 1-D sweep on the hsc edge-case tier
+uv run python benchmarks/robustness/run_sweep.py --tiers hsc
 ```
 
 ---

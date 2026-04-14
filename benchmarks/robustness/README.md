@@ -41,7 +41,7 @@ wired up incrementally as the sweep matures.
 | tier        | status       | galaxies                                   |
 |-------------|--------------|--------------------------------------------|
 | `mocks`     | implemented  | 4 synthetic Sersic profiles via `benchmarks.utils.sersic_model` |
-| `huang2013` | stub         | TBD (see `examples/example_huang2013/`)    |
+| `huang2013` | implemented  | 4 libprofit mocks of `IC2597` (`mock1`..`mock4`), loaded from the external data root (`HUANG2013_DATA_ROOT` env var, default `~/.../isophote_test/output/huang2013/`); header-driven fiducial start via `examples/example_huang2013/huang2013_shared.infer_initial_geometry` and `run_huang2013_profile_extraction.infer_default_maxsma` |
 | `highorder` | implemented  | `eso243-49`, `ngc3610` from `data/` at project root — reuses `examples/example_ls_highorder_harmonic/shared.py` loaders + `masking.make_object_mask`; masks cached under `outputs/benchmark_robustness/cache/highorder/` |
 | `hsc`       | implemented  | 6 HSC edge-case galaxies (`10140002`, `10140006`, `10140009`, `10140056`, `10140088`, `10140093`) from `examples/example_hsc_edgecases/data/` with pre-packaged `HSC_I` image+variance+mask FITS; fiducial start mirrors `run_lsb_mode_sweep` (`sma0=10`, `eps=0.2`, `pa=0`) |
 
@@ -59,6 +59,13 @@ uv run python benchmarks/robustness/run_sweep.py \
     --tiers mocks \
     --axes sma0 eps \
     --galaxies mock_disk_low_n
+
+# Huang2013 tier — single mock, bare arm, sma0 axis (a few seconds)
+uv run python benchmarks/robustness/run_sweep.py \
+    --tiers huang2013 --galaxies IC2597_mock1 --arms bare --axes sma0
+
+# Huang2013 tier — full sweep (4 IC2597 mocks x 3 arms x 5 axes)
+uv run python benchmarks/robustness/run_sweep.py --tiers huang2013
 
 # Highorder tier — single galaxy, one arm, sma0 axis only (a few seconds
 # after the first-run mask cache is built)
@@ -91,9 +98,18 @@ Every run writes, per the `benchmarks/FRAMEWORK.md` §2 rules:
 
 ## Tests
 
-Unit tests for the metric helpers live at
-`tests/unit/test_robustness_metrics.py`. Run with:
+Unit tests live at:
+
+- `tests/unit/test_robustness_metrics.py` — guards the metric math
+  (relative-intensity deviation, pi-periodic angular MAD, interpolation-
+  based comparison, bin thresholds).
+- `tests/unit/test_robustness_datasets.py` — tier dispatch smoke tests
+  and a huang2013 loader test that auto-skips when the external data
+  root is not present locally.
+
+Run both with:
 
 ```bash
-uv run pytest tests/unit/test_robustness_metrics.py -v
+uv run pytest tests/unit/test_robustness_metrics.py \
+              tests/unit/test_robustness_datasets.py -v
 ```
