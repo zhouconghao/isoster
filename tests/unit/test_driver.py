@@ -241,10 +241,19 @@ def test_fit_image_passes_previous_geometry_to_growth_calls(monkeypatch):
     fit_image(image, mask=None, config=config)
 
     assert len(call_log) == 3, "Expected first + one outward + one inward fit call"
-    assert call_log[0]["previous_geometry"] is None
-    assert call_log[1]["previous_geometry"] == call_log[0]["result"]
-    assert call_log[2]["going_inwards"] is True
-    assert call_log[2]["previous_geometry"] == call_log[0]["result"]
+    # The first call is always the anchor isophote (no previous_geometry).
+    anchor_call = call_log[0]
+    assert anchor_call["previous_geometry"] is None
+    anchor_result = anchor_call["result"]
+
+    # Inward growth runs before outward growth, so the post-anchor call order
+    # is [inward, outward]. Check by role, not position.
+    inward_calls = [c for c in call_log[1:] if c["going_inwards"]]
+    outward_calls = [c for c in call_log[1:] if not c["going_inwards"]]
+    assert len(inward_calls) == 1
+    assert len(outward_calls) == 1
+    assert inward_calls[0]["previous_geometry"] == anchor_result
+    assert outward_calls[0]["previous_geometry"] == anchor_result
 
 
 def test_fit_image_skips_inward_growth_when_first_isophote_fails(monkeypatch):
