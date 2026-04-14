@@ -11,6 +11,7 @@ Use this page as the entry point and map for project documentation.
 - `docs/04-architecture.md`: architecture, interfaces, and design decisions
 - `docs/05-testing.md`: testing and benchmark directives
 - `docs/06-qa-functions.md`: QA plotting functions, usage, options, and examples
+- `docs/07-lsb-features.md`: design and implementation of the LSB auto-lock and outer-region center regularization features
 
 ## Agent-Internal Documents
 

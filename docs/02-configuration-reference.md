@@ -307,6 +307,77 @@ Controls how the representative intensity is derived from sampled points.
 
 ---
 
+### 12. Automatic LSB Geometry Lock
+
+Single-pass free-then-locked outward growth. Starts in free mode, commits a lock to the last clean isophote once the gradient diagnostics cross the LSB thresholds, then continues outward with fixed center/eps/PA and a robust integrator.
+
+| Parameter | Default | Type | Description |
+|-----------|---------|------|-------------|
+| `lsb_auto_lock` | `False` | `bool` | Enable the automatic LSB geometry lock. When `False`, `fit_image` behaves exactly as before — zero behavior change for existing users. |
+| `lsb_auto_lock_maxgerr` | `0.3` | `float` (> 0) | Trigger threshold on the relative gradient error `|grad_error / grad|`. More sensitive than `maxgerr=0.5`, so the lock commits before a `stop_code=-1` would have. |
+| `lsb_auto_lock_debounce` | `2` | `int` (1–10) | Number of consecutive triggered outward isophotes required before the lock commits. Debounces single-isophote noise spikes. |
+| `lsb_auto_lock_integrator` | `'median'` | `str` | Integrator applied to locked-region isophotes. One of `'mean'` or `'median'`. `'median'` is more robust to the contaminants that typically trigger the lock in the first place. |
+
+**Interaction notes:**
+
+- **Conflict with geometry locks**: `lsb_auto_lock=True` raises `ValidationError` when combined with `fix_center=True`, `fix_pa=True`, or `fix_eps=True`. The auto-lock is meaningful only when outward growth starts from free geometry.
+- **`debug` requirement**: the detector reads `grad`, `grad_error`, and `grad_r_error` off each isophote dict. If the caller leaves `debug=False`, isoster emits a `UserWarning` and internally promotes `debug=True` for the duration of the fit.
+- **Lock anchor**: the isophote immediately *before* the trigger streak — not the trigger isophote itself, whose geometry may already have drifted.
+- **One-way state machine**: once the lock commits, the mode stays locked for the remainder of outward growth. Inward growth and the central pixel are never locked.
+- **Forced photometry unaffected**: the auto-lock applies only to regular `fit_image` calls. When combined with template-based forced photometry (`template=[...]`), `fit_image` emits a `UserWarning` and the feature is silently inactive.
+- **Sampling / harmonic modes**: the auto-lock is agnostic to `use_eccentric_anomaly`, `simultaneous_harmonics`, and isofit-style modes — the detector only inspects per-isophote gradient diagnostics.
+
+Result dict additions when `lsb_auto_lock=True`:
+
+- `result["lsb_auto_lock"]` (`bool`): echoes that the auto-lock was used.
+- `result["lsb_auto_lock_sma"]` (`float` or `None`): SMA at which the lock committed, or `None` if it never triggered.
+- `result["lsb_auto_lock_count"]` (`int`): number of outward isophotes fit under locked geometry.
+
+Per-isophote additions (outward only):
+
+- `iso["lsb_locked"]` (`bool`): fit under locked geometry.
+- `iso["lsb_auto_lock_anchor"]` (`bool`): present only on the first locked isophote.
+
+---
+
+### 13. Outer Region Center Regularization
+
+Soft damping complement to the automatic LSB lock. A logistic-ramp penalty biases the best-iteration selector toward outward isophote centers that stay close to a frozen inner reference, making it harder for contamination or background structure to drift the center before the hard lock fires. PA and ellipticity stay free — only the center is regularized.
+
+This feature is disabled by default and is still being validated on a broader range of surveys. Turn it on when fitting deep, LSB structure (e.g., HSC-scale edge cases) where contamination is expected to pull the free outward fit away from the real galaxy center. On clean high-S/N galaxies the feature is essentially a no-op at the recommended strengths.
+
+The regular-mode driver always runs the inward loop before the outward loop. The inward pass is unchanged — only the execution order is swapped — so that this feature can build its reference from inner isophote centers.
+
+| Parameter | Default | Type | Description |
+|-----------|---------|------|-------------|
+| `use_outer_center_regularization` | `False` | `bool` | Enable outer-region center regularization. When `False`, behavior is unchanged except for the inward-first loop reorder (which preserves all outward semantics). |
+| `outer_reg_sma_onset` | `50.0` | `float` (> 0) | Logistic midpoint in pixels. The penalty is near zero for `sma << onset` and saturates for `sma >> onset`. Should be larger than `sma0`; a `UserWarning` is emitted if not. |
+| `outer_reg_sma_width` | `20.0` | `float` (> 0) | Logistic width (growth-step scale). Controls how sharply the penalty ramps up around `sma_onset`. |
+| `outer_reg_strength` | `2.0` | `float` (≥ 0) | Saturated penalty amplitude. This is the lambda coefficient on `delta_r^2` added directly to `effective_amp` (intensity units). Benchmarked as a reasonable default on HSC edge cases; increase for heavier damping when outskirts are dominated by contamination. |
+| `outer_reg_ref_sma_factor` | `2.0` | `float` (> 1) | Inner reference window: only inward isophotes with `sma <= sma0 * factor` contribute to the flux-weighted reference mean. |
+
+**Interaction notes:**
+
+- **Independent from `lsb_auto_lock`**: the two flags compose cleanly. Soft regularization runs pre-lock; after the lock commits, `fix_center=True` makes the penalty a no-op on the locked tail.
+- **Selector, not prior**: the penalty sits inside the best-iteration selector (`effective_amp = abs(max_amp) + reg_penalty + outer_reg_penalty`). It biases *which of the 50 candidate iterations is kept*; it does not inject a restoring force into the geometry update equations. Real lopsided structure can still bleed through if it dominates every candidate iteration.
+- **Inward-first loop order**: the regular-mode driver unconditionally runs the inward pass before the outward pass. The inward pass's outputs are unchanged; consumers that iterate over `results['isophotes']` by index are unaffected because the result list is still assembled in sma-sorted order.
+- **Reference construction**: `(x0_ref, y0_ref)` is a flux-weighted mean over the anchor plus inward isophotes with acceptable stop codes and `sma <= sma0 * outer_reg_ref_sma_factor`. When no inward isophote qualifies, the reference falls back to `(anchor_iso['x0'], anchor_iso['y0'])`.
+- **`outer_reg_sma_onset < sma0`**: the penalty would fire from the first outward step; a `UserWarning` is emitted at config time.
+- **`minsma >= sma0`**: no inward isophotes exist, reference falls back to the anchor; a `UserWarning` is emitted.
+- **`fix_center=True`**: the penalty is inert because the center never moves; a `UserWarning` is emitted at config time so that toggling `use_outer_center_regularization=True` under a fixed center is reported rather than silently ignored.
+- **Forced photometry unaffected**: the feature applies only to regular `fit_image` calls. When combined with template-based forced photometry, `fit_image` emits a `UserWarning` and the feature is silently inactive.
+- **Sampling / harmonic modes**: agnostic to `use_eccentric_anomaly`, `simultaneous_harmonics`, and isofit-style modes, because the penalty rides the same `effective_amp` rail in the best-iteration selector.
+
+Result dict additions when `use_outer_center_regularization=True`:
+
+- `result["use_outer_center_regularization"]` (`bool`): echoes that the feature was used.
+- `result["outer_reg_x0_ref"]` (`float`): frozen inner reference `x0`.
+- `result["outer_reg_y0_ref"]` (`float`): frozen inner reference `y0`.
+
+No per-isophote fields are added.
+
+---
+
 ## Variance Map / WLS Fitting (via `variance_map`)
 
 Weighted Least Squares fitting is enabled by passing a per-pixel variance map to
