@@ -9,6 +9,7 @@ This folder contains performance and comparison benchmarks for isoster.
 - `baselines/`: threshold configs and CI regression gate scripts.
 - `exhausted/`: 39-configuration exhaustive sweep on any galaxy image.
 - `benchmark_baseline/`: baseline fits on real galaxies with isoster/photutils/autoprof comparison.
+- `robustness/`: sensitivity of the fit to initial `sma0` and isophotal geometry (`eps`, `pa`, `x0`, `y0`).
 - `utils/`: shared benchmark helpers and adapters.
 
 ## Goals
@@ -38,6 +39,7 @@ This folder contains performance and comparison benchmarks for isoster.
 | `utils/mockgal_adapter.py` | Utility | External mockgal adapter (libprofit) | Presets / config | Mock FITS images | Active |
 | `utils/scaffold_models_config_batch_templates.py` | Utility | Scaffold batch template files | None | Template YAML/JSON | Active |
 | `benchmark_baseline/run_baseline.py` | Baseline | Multi-method baseline (isoster/photutils/autoprof) on real galaxies | `data/` FITS | profiles, models, fit_configs.json, comparison QA | Active |
+| `robustness/run_sweep.py` | Robustness | 1-D perturbation sweep on initial `sma0` + geometry; characterizes fit capture radius | Mocks (+ Huang2013, eso243-49, ngc3610, HSC edge cases — tiered) | `results.json`, `REPORT.md` | Active (mocks + highorder + hsc tiers wired; huang2013 stubbed) |
 
 See `FRAMEWORK.md` for guidance on adding new benchmarks.
 
@@ -144,6 +146,12 @@ uv run python benchmarks/benchmark_baseline/run_baseline.py --galaxy eso243-49
 
 # Scaffold reusable models_config_batch template files into a new outputs/ run directory
 uv run python benchmarks/utils/scaffold_models_config_batch_templates.py
+
+# Robustness benchmark — sub-minute smoke test (mocks tier, bare arm, 3 sma0 factors)
+uv run python benchmarks/robustness/run_sweep.py --quick
+
+# Robustness benchmark — full 1-D sweep on the mocks tier
+uv run python benchmarks/robustness/run_sweep.py --tiers mocks
 ```
 
 ---
