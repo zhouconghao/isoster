@@ -1,37 +1,43 @@
 # Robustness Benchmark
 
 Measures how isoster's outward/inward free fit responds to perturbations
-of the user-supplied initial `sma0` and initial isophotal geometry
-(`eps`, `pa`, `x0`, `y0`).
+of the user-supplied initial `sma0`, initial ellipticity `eps`, and
+initial position angle `pa`. The fiducial center `(x0, y0)` is treated
+as known user input and is **not** perturbed by the sweep.
 
 This is a **benchmark experiment**, not a pass/fail test — the goal is
 to characterize the capture radius of the fit, not to gate the code on
-a threshold. Findings land in
-`outputs/benchmark_robustness/REPORT.md` and in the accompanying
-design doc at `docs/agent/journal/2026-04-15_robustness_plan.md`.
+a threshold. Findings land in the per-tier `REPORT.md` files under
+`outputs/benchmark_robustness/{tier}/` and the cross-tier
+`outputs/benchmark_robustness/SUMMARY.md`, alongside the design doc at
+`docs/agent/journal/2026-04-15_robustness_plan.md`.
 
 ## Layout
 
 ```
 benchmarks/robustness/
   __init__.py
-  datasets.py     # per-tier galaxy loaders + fiducial starting conditions
-  metrics.py      # relative-intensity, angular-MAD, interpolated comparison
-  run_sweep.py    # main entry — CLI + sweep driver + REPORT.md writer
-  README.md       # this file
+  datasets.py       # per-tier galaxy loaders + fiducial starting conditions
+  metrics.py        # relative-intensity, angular-MAD, interpolated comparison
+  persist.py        # per-row isophote FITS writer/reader
+  run_sweep.py      # main entry — CLI + sweep driver + per-tier REPORT.md writer
+  build_figures.py  # profile overlays + outlier QA figures from persisted FITS
+  README.md         # this file
 ```
 
 ## Arms
 
-| arm         | description                                                      |
-|-------------|------------------------------------------------------------------|
-| `bare`      | free fit, `max_retry_first_isophote=0`, no LSB features          |
-| `retry`     | `bare` + `max_retry_first_isophote=5`                            |
-| `retry_lsb` | `retry` + `lsb_auto_lock=True` + outer-region center regularization |
+| arm      | description                                                      |
+|----------|------------------------------------------------------------------|
+| `bare`   | free fit, `max_retry_first_isophote=0`, no LSB features          |
+| `retry`  | `bare` + `max_retry_first_isophote=5`                            |
+| `lsb`    | `retry` + `lsb_auto_lock=True` + outer-region center regularization |
+| `ea_lsb` | `lsb` + `use_eccentric_anomaly=True` (uniform ellipse sampling)  |
 
-The reference fit per galaxy uses `retry_lsb` at the fiducial start —
-on mocks this is truth-informed, on real galaxies it matches the
-shipped LSB sweep's `B_std` arm.
+The reference fit per galaxy uses `lsb` at the fiducial start — on
+mocks this is truth-informed, on real galaxies it matches the shipped
+LSB sweep's `B_std` arm. `ea_lsb` is the twin arm that adds
+eccentric-anomaly sampling and is most useful for high-ε galaxies.
 
 ## Tiers
 
@@ -51,7 +57,7 @@ wired up incrementally as the sweep matures.
 # Sub-minute smoke test (one mock galaxy, bare arm, 3 sma0 factors)
 uv run python benchmarks/robustness/run_sweep.py --quick
 
-# Full 1-D sweep on the mocks tier
+# Full 1-D sweep on the mocks tier (all 4 arms × 3 axes)
 uv run python benchmarks/robustness/run_sweep.py --tiers mocks
 
 # Restrict to specific axes or galaxies
@@ -64,23 +70,30 @@ uv run python benchmarks/robustness/run_sweep.py \
 uv run python benchmarks/robustness/run_sweep.py \
     --tiers huang2013 --galaxies IC2597_mock1 --arms bare --axes sma0
 
-# Huang2013 tier — full sweep (4 IC2597 mocks x 3 arms x 5 axes)
+# Huang2013 tier — full sweep (4 IC2597 mocks × 4 arms × 3 axes)
 uv run python benchmarks/robustness/run_sweep.py --tiers huang2013
 
 # Highorder tier — single galaxy, one arm, sma0 axis only (a few seconds
 # after the first-run mask cache is built)
 uv run python benchmarks/robustness/run_sweep.py \
-    --tiers highorder --galaxies ngc3610 --arms retry_lsb --axes sma0
+    --tiers highorder --galaxies ngc3610 --arms lsb --axes sma0
 
-# Highorder tier — full sweep (2 galaxies × 3 arms × 5 axes)
+# Highorder tier — full sweep (2 galaxies × 4 arms × 3 axes)
 uv run python benchmarks/robustness/run_sweep.py --tiers highorder
 
 # HSC tier — single galaxy, two arms, sma0 axis (few seconds)
 uv run python benchmarks/robustness/run_sweep.py \
-    --tiers hsc --galaxies 10140088 --arms bare retry_lsb --axes sma0
+    --tiers hsc --galaxies 10140088 --arms bare lsb --axes sma0
 
-# HSC tier — full sweep (6 galaxies × 3 arms × 5 axes)
+# HSC tier — full sweep (6 galaxies × 4 arms × 3 axes)
 uv run python benchmarks/robustness/run_sweep.py --tiers hsc
+
+# All tiers in one invocation (driver loops and writes per-tier outputs)
+uv run python benchmarks/robustness/run_sweep.py \
+    --tiers mocks huang2013 highorder hsc
+
+# Rebuild profile + outlier QA figures from persisted FITS
+uv run python benchmarks/robustness/build_figures.py
 
 # Custom output directory (default: outputs/benchmark_robustness/)
 uv run python benchmarks/robustness/run_sweep.py --output /tmp/robustness
@@ -88,13 +101,37 @@ uv run python benchmarks/robustness/run_sweep.py --output /tmp/robustness
 
 ## Outputs
 
-Every run writes, per the `benchmarks/FRAMEWORK.md` §2 rules:
+Every run writes a per-tier subtree under
+`outputs/benchmark_robustness/` plus a cross-tier `SUMMARY.md` at the
+top level:
 
-- `results.json` — machine-readable rows plus environment metadata
+```
+outputs/benchmark_robustness/
+├── SUMMARY.md                 # cross-tier headline rollup
+├── mocks/
+│   ├── REPORT.md              # per-tier human-readable report
+│   ├── results.json           # machine-readable rows + env metadata
+│   ├── _summary.csv           # flat one-row-per-fit CSV
+│   ├── sweep/{arm}/{obj_id}/{axis}_{value}.fits
+│   ├── reference/{obj_id}/{obj_id}_reference.fits
+│   └── figures/
+│       ├── profiles/{obj_id}/{arm}_{axis}.png
+│       └── outliers/{obj_id}/{arm}_{axis}_{value}_qa.png
+├── huang2013/ ...
+├── highorder/ ...
+└── hsc/ ...
+```
+
+- `results.json` is machine-readable rows plus environment metadata
   (git SHA, Python/numpy/scipy versions, platform) via
   `benchmarks/utils/run_metadata.py`.
-- `REPORT.md` — human-readable rollup with per-arm motion distribution
-  and per-row detail tables.
+- `REPORT.md` is the per-tier human-readable rollup with per-arm and
+  per-axis motion distributions, top outliers, and per-row walk detail.
+- `SUMMARY.md` at the parent level aggregates headline numbers across
+  every tier whose `results.json` currently exists on disk.
+- Profile figures plot every perturbation as a thin grey trace in the
+  background and highlight outliers (top-N by `profile_rel_rms`) in
+  saturated viridis colors with labels.
 
 ## Tests
 
