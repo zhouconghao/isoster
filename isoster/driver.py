@@ -116,17 +116,25 @@ def _mark_lsb_lock_state(iso, locked, is_anchor=False):
         iso["lsb_auto_lock_anchor"] = True
 
 
-def _build_outer_center_reference(inwards_results, anchor_iso, cfg):
-    """Compute a frozen (x0_ref, y0_ref) for outer center regularization.
+def _build_outer_reference(inwards_results, anchor_iso, cfg):
+    """Compute a frozen reference geometry for outer-region regularization.
 
     Uses a flux-weighted mean of inward isophotes with acceptable stop codes
     and sma <= anchor_iso['sma'] * cfg.outer_reg_ref_sma_factor. Falls back
-    to (anchor_iso['x0'], anchor_iso['y0']) when no inward isophotes qualify,
+    to the anchor isophote's own geometry when no inward isophotes qualify,
     which also covers the case where the inward loop produced nothing
     (e.g. minsma >= sma0).
 
     The anchor isophote itself is always folded into the weighted mean so the
     reference is well-defined even when only a handful of inward isophotes exist.
+
+    The reference carries x0, y0, eps, and pa. Downstream consumers (the
+    outer-reg penalty) pick which fields to use based on outer_reg_weights.
+    x0/y0/eps are flux-weighted arithmetic means; pa uses a flux-weighted
+    circular mean on 2*pa (axis-like angles, pa is defined mod pi) so that
+    isophotes with pa near 0 and near pi do not average to pi/2. If the
+    circular-mean resultant length is too small for a well-defined pa
+    (highly scattered inner pa), pa falls back to the anchor's pa.
 
     Args:
         inwards_results (list[dict]): Inward isophote results (ascending sma
@@ -135,8 +143,15 @@ def _build_outer_center_reference(inwards_results, anchor_iso, cfg):
         cfg (IsosterConfig): Full config, read for outer_reg_ref_sma_factor.
 
     Returns:
-        tuple[float, float]: The flux-weighted reference (x0_ref, y0_ref).
+        dict: Reference geometry with keys 'x0', 'y0', 'eps', 'pa'.
     """
+    anchor_ref = {
+        "x0": float(anchor_iso["x0"]),
+        "y0": float(anchor_iso["y0"]),
+        "eps": float(anchor_iso["eps"]),
+        "pa": float(anchor_iso["pa"]),
+    }
+
     sma_hi = float(anchor_iso["sma"]) * cfg.outer_reg_ref_sma_factor
 
     candidates = [anchor_iso]
@@ -145,26 +160,57 @@ def _build_outer_center_reference(inwards_results, anchor_iso, cfg):
             continue
         sma = iso.get("sma")
         intens = iso.get("intens")
+        eps_val = iso.get("eps")
+        pa_val = iso.get("pa")
         if sma is None or not np.isfinite(sma):
             continue
         if intens is None or not np.isfinite(intens):
+            continue
+        if eps_val is None or not np.isfinite(eps_val):
+            continue
+        if pa_val is None or not np.isfinite(pa_val):
             continue
         if sma > sma_hi:
             continue
         candidates.append(iso)
 
     # Flux-weight (clamp to strictly positive so a negative-background iso
-    # does not dominate); fall back to unweighted mean if total weight vanishes.
+    # does not dominate); fall back to the anchor if total weight vanishes.
     x0s = np.array([float(iso["x0"]) for iso in candidates])
     y0s = np.array([float(iso["y0"]) for iso in candidates])
+    eps_arr = np.array([float(iso["eps"]) for iso in candidates])
+    pa_arr = np.array([float(iso["pa"]) for iso in candidates])
     weights = np.array([max(float(iso["intens"]), 1e-6) for iso in candidates])
     if weights.sum() <= 0.0 or not np.all(np.isfinite(weights)):
-        return float(anchor_iso["x0"]), float(anchor_iso["y0"])
+        return anchor_ref
+
     x0_ref = float(np.average(x0s, weights=weights))
     y0_ref = float(np.average(y0s, weights=weights))
-    if not (np.isfinite(x0_ref) and np.isfinite(y0_ref)):
-        return float(anchor_iso["x0"]), float(anchor_iso["y0"])
-    return x0_ref, y0_ref
+    eps_ref = float(np.average(eps_arr, weights=weights))
+
+    # Circular mean on 2*pa: fold axis-like angles onto the unit circle so
+    # pa=0 and pa~pi average sensibly. Resultant length R < ~0.1 means the
+    # inner pa values are too scattered for a useful mean; fall back to the
+    # anchor's pa in that case.
+    cos_sum = float(np.sum(weights * np.cos(2.0 * pa_arr)))
+    sin_sum = float(np.sum(weights * np.sin(2.0 * pa_arr)))
+    w_sum = float(weights.sum())
+    resultant = np.hypot(cos_sum, sin_sum) / w_sum if w_sum > 0.0 else 0.0
+    if resultant >= 0.1:
+        pa_ref = 0.5 * float(np.arctan2(sin_sum, cos_sum))
+        pa_ref = pa_ref % np.pi
+    else:
+        pa_ref = float(anchor_iso["pa"]) % np.pi
+
+    if not (
+        np.isfinite(x0_ref)
+        and np.isfinite(y0_ref)
+        and np.isfinite(eps_ref)
+        and np.isfinite(pa_ref)
+    ):
+        return anchor_ref
+
+    return {"x0": x0_ref, "y0": y0_ref, "eps": eps_ref, "pa": pa_ref}
 
 
 def _is_error_field(field_name):
@@ -592,19 +638,16 @@ def fit_image(image, mask=None, config=None, template=None, template_isophotes=N
             if _is_acceptable_stop_code(next_iso["stop_code"]) or cfg.permissive_geometry:
                 current_iso = next_iso
 
-    # 3b. Build the frozen outer reference centroid once, if the feature is
+    # 3b. Build the frozen outer reference geometry once, if the feature is
     # enabled and we have an anchor. The reference is a flux-weighted mean of
-    # inward isophote centers (plus the anchor itself) within a sma window.
-    # Only x0/y0 are threaded into the penalty — the reference does not carry
-    # eps or pa because outer-region regularization is center-only.
+    # inward isophote geometry (plus the anchor itself) within a sma window.
+    # All four fields (x0, y0, eps, pa) are populated; which ones feed the
+    # penalty is chosen at penalty time via cfg.outer_reg_weights.
     outer_ref_geom = None
-    outer_ref_x0 = None
-    outer_ref_y0 = None
     if cfg.use_outer_center_regularization and anchor_iso is not None:
-        outer_ref_x0, outer_ref_y0 = _build_outer_center_reference(
+        outer_ref_geom = _build_outer_reference(
             inwards_results, anchor_iso, cfg
         )
-        outer_ref_geom = {"x0": outer_ref_x0, "y0": outer_ref_y0}
 
     # 4. Grow Outwards
     outwards_results = []
@@ -720,10 +763,12 @@ def fit_image(image, mask=None, config=None, template=None, template_isophotes=N
         result["lsb_auto_lock_count"] = sum(
             1 for iso in final_list if iso.get("lsb_locked", False)
         )
-    if cfg.use_outer_center_regularization and outer_ref_x0 is not None:
+    if cfg.use_outer_center_regularization and outer_ref_geom is not None:
         result["use_outer_center_regularization"] = True
-        result["outer_reg_x0_ref"] = outer_ref_x0
-        result["outer_reg_y0_ref"] = outer_ref_y0
+        result["outer_reg_x0_ref"] = outer_ref_geom["x0"]
+        result["outer_reg_y0_ref"] = outer_ref_geom["y0"]
+        result["outer_reg_eps_ref"] = outer_ref_geom["eps"]
+        result["outer_reg_pa_ref"] = outer_ref_geom["pa"]
     return result
 
 
