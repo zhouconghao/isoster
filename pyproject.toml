@@ -25,6 +25,7 @@ asdf = [
 dev = [
     "pytest>=8.0",
     "photutils>=1.10; python_version >= '3.9'",
+    "scikit-image>=0.22; python_version >= '3.9'",
     "numba>=0.60; python_version >= '3.9'",
     "ruff>=0.6; python_version >= '3.9'",
     "pre-commit>=3.8; python_version >= '3.9'",
