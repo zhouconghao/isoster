@@ -49,7 +49,9 @@ isoster.plot_qa_summary(
     photutils_res=None, # optional photutils IsophoteList for comparison
     mask=None,          # 2D bool mask (True = masked)
     filename="qa_summary.png",
-    relative_residual=False,  # True: show (model-data)/data [%]
+    relative_residual=False,   # True: show (model-data)/data [%]
+    sb_zeropoint=None,         # mag zeropoint (see SB section below)
+    pixel_scale_arcsec=None,   # arcsec/pix; must accompany sb_zeropoint
 )
 ```
 
@@ -71,6 +73,8 @@ isoster.plot_qa_summary_extended(
     relative_residual=False,
     mask=None,
     filename="qa_summary_extended.png",
+    sb_zeropoint=None,          # mag zeropoint (see SB section below)
+    pixel_scale_arcsec=None,    # arcsec/pix; must accompany sb_zeropoint
 )
 ```
 
@@ -78,6 +82,32 @@ isoster.plot_qa_summary_extended(
 |-----------------|---------|
 | `"coefficients"` | Individual a_n (filled) and b_n (open) per order |
 | `"amplitude"` | Combined A_n = sqrt(a_n^2 + b_n^2) per order |
+
+### Surface brightness convention
+
+When `sb_zeropoint` is supplied, the SB panel of both
+`plot_qa_summary` and `plot_qa_summary_extended` displays
+
+```
+μ [mag/arcsec²] = -2.5 · log10(I_per_pix / pixarea) + sb_zeropoint
+pixarea = pixel_scale_arcsec ** 2
+```
+
+`sb_zeropoint` and `pixel_scale_arcsec` must be passed as **two
+separate values** — never pre-combined into a single effective
+zeropoint. Passing one without the other raises `ValueError`; passing
+neither keeps the panel in `log10(I)` mode. Typical survey pairs:
+
+| Survey | `sb_zeropoint` | `pixel_scale_arcsec` |
+|--------|----------------|----------------------|
+| HSC coadd | 27.0 | 0.168 |
+| DECaLS / BASS / MzLS (LegacySurvey) | 22.5 | read from header (~0.262) |
+| SDSS imaging | 22.5 (calibrated `nanomaggies` reference) | 0.396 |
+
+For surveys with a header-provided pixel scale, read `PIXSCALE` (or
+derive it from `CD1_1` / `CDELT1`) and pass it alongside the
+survey-specific zeropoint — do not hard-code a value that could
+diverge from the image WCS.
 
 ### `plot_comparison_qa_figure`
 

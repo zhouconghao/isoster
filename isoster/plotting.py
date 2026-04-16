@@ -49,6 +49,24 @@ MONOCHROME_STOP_COLORS = {
 }
 
 
+def _validate_sb_inputs(sb_zeropoint, pixel_scale_arcsec):
+    """Repo convention: ``sb_zeropoint`` and ``pixel_scale_arcsec`` are
+    always supplied together and never pre-combined. Callers pass the two
+    raw survey constants and SB panels compute
+    ``μ = -2.5·log10(I/pixarea) + zp`` internally.
+    """
+    if (sb_zeropoint is None) != (pixel_scale_arcsec is None):
+        raise ValueError(
+            "sb_zeropoint and pixel_scale_arcsec must be passed together "
+            "(both set for mag/arcsec^2, or both None for log10(I)). "
+            "Never pre-combine them into a single zeropoint."
+        )
+    if pixel_scale_arcsec is not None and pixel_scale_arcsec <= 0:
+        raise ValueError(
+            f"pixel_scale_arcsec must be positive, got {pixel_scale_arcsec!r}"
+        )
+
+
 # ---------------------------------------------------------------------------
 # Multi-method comparison constants
 # ---------------------------------------------------------------------------
@@ -684,6 +702,7 @@ def plot_qa_summary(
     filename="qa_summary.png",
     relative_residual=False,
     sb_zeropoint=None,
+    pixel_scale_arcsec=None,
 ):
     """Generate a QA figure following the Huang2013 campaign baseline style.
 
@@ -708,7 +727,17 @@ def plot_qa_summary(
         When False (default), show ``data - model`` (direct residual).
         Note: the sign convention differs between modes (direct uses
         data-model; fractional uses model-data).
+    sb_zeropoint : float, optional
+        AB magnitude zeropoint ``zp`` matching the image flux units. Must
+        be supplied together with ``pixel_scale_arcsec`` — the two are
+        always passed separately and never pre-combined. When both are
+        given, the SB panel shows ``μ = -2.5·log10(I / pixarea) + zp`` in
+        mag/arcsec². When both are None, the panel shows ``log10(I)``.
+    pixel_scale_arcsec : float, optional
+        Pixel size in arcsec (``pixarea = pixel_scale_arcsec**2``). Must
+        accompany ``sb_zeropoint``.
     """
+    _validate_sb_inputs(sb_zeropoint, pixel_scale_arcsec)
     configure_qa_plot_style()
 
     # --- Extract isoster arrays ------------------------------------------------
@@ -926,8 +955,12 @@ def plot_qa_summary(
     y_sb = np.full_like(i_intens, np.nan)
     y_sb_err = np.full_like(i_intens_err, np.nan)
     if sb_zeropoint is not None:
-        # Surface brightness: μ = -2.5 * log10(I) + zp
-        y_sb[sb_valid] = -2.5 * np.log10(i_intens[sb_valid]) + sb_zeropoint
+        # Surface brightness in mag/arcsec^2:
+        #   μ = -2.5 * log10(I_per_pix / pixarea) + zp
+        pixarea = pixel_scale_arcsec**2
+        y_sb[sb_valid] = (
+            -2.5 * np.log10(i_intens[sb_valid] / pixarea) + sb_zeropoint
+        )
         y_sb_err[sb_valid] = 2.5 * i_intens_err[sb_valid] / (i_intens[sb_valid] * np.log(10))
         sb_ylabel = r"$\mu$ [mag/arcsec$^2$]"
     else:
@@ -1175,6 +1208,7 @@ def plot_qa_summary_extended(
     mask=None,
     filename="qa_summary_extended.png",
     sb_zeropoint=None,
+    pixel_scale_arcsec=None,
 ):
     """QA figure with extended harmonic visualization panels.
 
@@ -1211,7 +1245,14 @@ def plot_qa_summary_extended(
         Bad-pixel mask (True = masked) for the data panel overlay.
     filename : str
         Output path.
+    sb_zeropoint : float, optional
+        AB magnitude zeropoint. Must be passed together with
+        ``pixel_scale_arcsec``; see :func:`plot_qa_summary` for the
+        formula and rationale.
+    pixel_scale_arcsec : float, optional
+        Pixel size in arcsec. Must accompany ``sb_zeropoint``.
     """
+    _validate_sb_inputs(sb_zeropoint, pixel_scale_arcsec)
     configure_qa_plot_style()
 
     def get_arr(key, default=np.nan):
@@ -1421,7 +1462,10 @@ def plot_qa_summary_extended(
     y_sb = np.full_like(i_intens, np.nan)
     y_sb_err = np.full_like(i_intens_err, np.nan)
     if sb_zeropoint is not None:
-        y_sb[sb_valid] = -2.5 * np.log10(i_intens[sb_valid]) + sb_zeropoint
+        pixarea = pixel_scale_arcsec**2
+        y_sb[sb_valid] = (
+            -2.5 * np.log10(i_intens[sb_valid] / pixarea) + sb_zeropoint
+        )
         y_sb_err[sb_valid] = 2.5 * i_intens_err[sb_valid] / (i_intens[sb_valid] * np.log(10))
         sb_ylabel = r"$\mu$ [mag/arcsec$^2$]"
     else:

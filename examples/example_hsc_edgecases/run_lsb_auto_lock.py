@@ -44,6 +44,7 @@ GALAXIES = [
 
 BAND = "HSC_I"
 SB_ZEROPOINT = 27.0
+PIXEL_SCALE_ARCSEC = 0.168  # HSC coadd
 
 BASE_CONFIG = dict(
     sma0=10.0,
@@ -181,6 +182,7 @@ def run_one(obj_id, desc, output_dir):
         filename=str(galaxy_out / f"{obj_id}_{tag}_qa.png"),
         relative_residual=False,
         sb_zeropoint=SB_ZEROPOINT,
+        pixel_scale_arcsec=PIXEL_SCALE_ARCSEC,
     )
 
     return {

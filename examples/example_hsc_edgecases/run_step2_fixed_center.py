@@ -54,6 +54,7 @@ GALAXIES = [
 
 BAND = "HSC_I"
 SB_ZEROPOINT = 27.0
+PIXEL_SCALE_ARCSEC = 0.168  # HSC coadd
 
 # Step2 config: fixed center, free PA and eps, aggressive asymmetric clipping
 BASE_CONFIG = dict(
@@ -183,6 +184,7 @@ def run_one_galaxy(obj_id, desc, strategy, output_dir):
         filename=str(galaxy_out / f"{obj_id}_{tag}_qa.png"),
         relative_residual=False,
         sb_zeropoint=SB_ZEROPOINT,
+        pixel_scale_arcsec=PIXEL_SCALE_ARCSEC,
     )
 
     return {

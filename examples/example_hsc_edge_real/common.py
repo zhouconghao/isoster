@@ -21,6 +21,7 @@ OUTPUT_ROOT = EXAMPLE_DIR.parents[1] / "outputs" / "example_hsc_edge_real"
 
 BAND = "HSC_I"
 SB_ZEROPOINT = 27.0
+PIXEL_SCALE_ARCSEC = 0.168  # HSC coadd
 
 GALAXIES = [
     ("37498869835124888", "cluster BCG with multiple companions"),
