@@ -96,6 +96,7 @@ GALAXIES = [
 
 BAND = "HSC_I"
 SB_ZEROPOINT = 27.0
+PIXEL_SCALE_ARCSEC = 0.168  # HSC coadd
 
 # Shared free-fit base — identical to run_lsb_auto_lock.py and
 # run_outer_center_regularization.py, so the sweep rows are directly
@@ -326,6 +327,7 @@ def run_one(obj_id: str, desc: str, arm_name: str, arm_dir: Path, save_qa: bool)
             filename=str(galaxy_out / f"{obj_id}_{tag}_qa.png"),
             relative_residual=False,
             sb_zeropoint=SB_ZEROPOINT,
+            pixel_scale_arcsec=PIXEL_SCALE_ARCSEC,
         )
 
     return {

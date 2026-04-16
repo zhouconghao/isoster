@@ -36,6 +36,7 @@ from isoster.utils import isophote_results_to_fits
 from common import (
     GALAXIES,
     OUTPUT_ROOT,
+    PIXEL_SCALE_ARCSEC,
     SB_ZEROPOINT,
     combined_drift,
     count_stop_code,
@@ -150,6 +151,7 @@ def run_one(obj_id: str, desc: str, output_dir):
         filename=str(qa_path),
         relative_residual=False,
         sb_zeropoint=SB_ZEROPOINT,
+        pixel_scale_arcsec=PIXEL_SCALE_ARCSEC,
     )
 
     return {

@@ -56,6 +56,7 @@ GALAXIES = [
 
 BAND = "HSC_I"
 SB_ZEROPOINT = 27.0
+PIXEL_SCALE_ARCSEC = 0.168  # HSC coadd
 
 # Shared base config (same as step1 baseline except sigma clipping)
 BASE_CONFIG = dict(
@@ -150,6 +151,7 @@ def run_one_galaxy(obj_id, desc, output_dir, variant_name, variant_cfg):
         filename=str(galaxy_out / f"{obj_id}_{tag}_qa.png"),
         relative_residual=False,
         sb_zeropoint=SB_ZEROPOINT,
+        pixel_scale_arcsec=PIXEL_SCALE_ARCSEC,
     )
 
     return {
