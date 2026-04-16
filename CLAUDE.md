@@ -17,6 +17,7 @@ ISOSTER (ISOphote on STERoid) is an accelerated Python library for elliptical is
 - Use lowercase kebab-case for markdown file names (for example, `stop-codes.md`).
 - Generated artifacts must be written under `outputs/` and not mixed into source folders.
 - Use `uv` as the default tool for dependency management and environment execution.
+- **Surface brightness convention**: whenever intensity (per pixel) is converted to surface brightness in mag/arcsec², the formula is always `μ = -2.5·log10(I_per_pix / pixarea) + zp` where `pixarea = pixel_scale_arcsec**2`. The photometric zeropoint `zp` and the pixel scale `pixel_scale_arcsec` must be passed to the plotting/conversion code as **two separate inputs** and never pre-combined into a single effective zeropoint. Reference values: HSC coadd `zp=27.0`, `pixel_scale_arcsec=0.168`. LegacySurvey (DECaLS/BASS/MzLS) `zp=22.5`, pixel scale from the image header (typically 0.262″ for DECaLS). Callers that pass one of the two must pass both; passing only one is a hard error.
 
 ## Context and Memory Preservation
 
