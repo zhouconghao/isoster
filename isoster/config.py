@@ -231,35 +231,24 @@ class IsosterConfig(BaseModel):
         "Below this the penalty is near zero; above it the penalty ramps up toward "
         "outer_reg_strength.",
     )
-    outer_reg_sma_width: float = Field(
-        20.0,
-        gt=0.0,
-        description="Sigmoid slope width (pixels) for the outer regularization ramp. "
-        "Smaller values give a sharper transition at outer_reg_sma_onset.",
-    )
     outer_reg_strength: float = Field(
         2.0,
         ge=0.0,
-        description="Peak strength of the outer center regularization. Adds "
-        "strength*dr^2 to the best-iteration harmonic amplitude, where dr is the "
-        "center offset from the frozen inner reference. Typical range: 0.5-8. "
-        "Default 2.0 was the benchmark winner on HSC LSB edge cases.",
-    )
-    outer_reg_ref_sma_factor: float = Field(
-        2.0,
-        gt=1.0,
-        description="Inward isophotes with sma <= sma0 * this factor feed the flux-weighted "
-        "reference centroid. Must be > 1; typical value 1.5-3.",
+        description="Peak strength of the outer regularization. Controls how "
+        "aggressively the Tikhonov term shrinks per-iteration geometry steps "
+        "in the outer region. Typical range: 2-8 for real LSB data. "
+        "Default 2.0 was the benchmark winner on the HSC edge-case and "
+        "edge-real BCG suites.",
     )
     outer_reg_weights: dict = Field(
-        default_factory=lambda: {"center": 1.0, "eps": 0.0, "pa": 0.0},
-        description="Per-axis weights for the outer-region penalty. Default is "
-        "center-only (preserves the original feature behavior). Setting eps>0 and/or "
-        "pa>0 also damps ellipticity and PA jumps in the LSB regime, which is "
-        "required when the coordinate-descent fit produces saturated clipped steps "
-        "in eps/pa because the center-only penalty redirects the random walk from "
-        "(x0, y0) into (eps, pa). Units follow central_reg_weights: center is in "
-        "pixel^2, eps is dimensionless^2, pa is radian^2 - tune empirically.",
+        default_factory=lambda: {"center": 1.0, "eps": 1.0, "pa": 1.0},
+        description="Per-axis weights for the outer-region Tikhonov penalty. "
+        "Default {1, 1, 1} damps center, ellipticity, and PA uniformly - "
+        "required to prevent the selector asymmetry failure mode where a "
+        "center-only penalty redirects the outer random walk from (x0, y0) "
+        "into (eps, pa), producing saturated clipped steps. Set eps or pa "
+        "to 0 to disable damping on that axis (rare). Units: center in "
+        "pixel^2, eps dimensionless^2, pa radian^2.",
     )
     outer_reg_mode: str = Field(
         default="damping",
@@ -275,19 +264,23 @@ class IsosterConfig(BaseModel):
         "'solver': full Tikhonov term (step shrink + pull toward the inner "
         "flux-weighted reference) in the update equations. Biases outer "
         "geometry toward the reference, which flattens genuine astrophysical "
-        "PA/eps walks. Useful when you want the outer isophotes anchored to "
-        "the inner shape rather than walking freely. "
-        "The selector-layer penalty (outer_reg_use_selector) is independent "
-        "of this choice and adds a cumulative center anchor on top.",
+        "PA/eps walks. Specialized use case; 'damping' is preferred for "
+        "general LSB fitting.",
     )
-    outer_reg_use_selector: bool = Field(
-        default=True,
-        description="Whether the selector-level penalty "
-        "(compute_outer_center_regularization_penalty) is applied to the "
-        "best-iteration amplitude. Default True preserves the original "
-        "behavior and composes with solver mode. Set False to disable the "
-        "selector layer and rely on the solver-level Tikhonov term alone "
-        "(only meaningful when outer_reg_mode='solver').",
+    # --- Expert tuning knobs (defaults work for HSC-grade data) ---
+    outer_reg_sma_width: Optional[float] = Field(
+        default=None,
+        gt=0.0,
+        description="Sigmoid slope width (pixels) for the outer regularization "
+        "ramp. When None (default), auto-computed as 0.4 * outer_reg_sma_onset. "
+        "Expert tuning: smaller values give a sharper transition at the onset.",
+    )
+    outer_reg_ref_sma_factor: float = Field(
+        2.0,
+        gt=1.0,
+        description="Expert tuning: inward isophotes with sma <= sma0 * this "
+        "factor feed the flux-weighted reference geometry. Default 2.0 has "
+        "never needed adjustment in benchmarks; typical range 1.5-3.",
     )
 
     # Permissive Geometry Mode (photutils-style)
@@ -500,8 +493,7 @@ class IsosterConfig(BaseModel):
                     "simultaneous_harmonics=True is not supported: the "
                     "Tikhonov term is not wired into the 7-parameter ISOFIT "
                     "joint solver. The solver-level modification is skipped "
-                    "for this fit; only the selector-layer penalty (if "
-                    "enabled) applies.",
+                    "for this fit; only the selector-layer penalty applies.",
                     UserWarning,
                     stacklevel=2,
                 )

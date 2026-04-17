@@ -111,15 +111,13 @@ def compute_outer_center_regularization_penalty(current_geom, reference_geom, sm
     if not config.use_outer_center_regularization:
         return 0.0
 
-    if not config.outer_reg_use_selector:
-        return 0.0
-
     if reference_geom is None:
         return 0.0
 
     # Logistic ramp: 0 at small sma, saturates at outer_reg_strength in the outskirts.
+    # outer_reg_sma_width auto-computes as 0.4 * onset when left at None.
     onset = config.outer_reg_sma_onset
-    width = config.outer_reg_sma_width
+    width = config.outer_reg_sma_width if config.outer_reg_sma_width is not None else 0.4 * onset
     lambda_sma = config.outer_reg_strength / (1.0 + np.exp(-(sma - onset) / width))
 
     if lambda_sma < 1e-6:
@@ -1279,7 +1277,12 @@ def fit_isophote(
         outer_solver_eps_ref = float(outer_reference_geom.get("eps", eps))
         outer_solver_pa_ref = float(outer_reference_geom.get("pa", pa))
         _onset = cfg.outer_reg_sma_onset
-        _width = cfg.outer_reg_sma_width
+        # outer_reg_sma_width auto-computes as 0.4 * onset when left at None.
+        _width = (
+            cfg.outer_reg_sma_width
+            if cfg.outer_reg_sma_width is not None
+            else 0.4 * _onset
+        )
         outer_solver_lambda = cfg.outer_reg_strength / (
             1.0 + np.exp(-(sma - _onset) / _width)
         )

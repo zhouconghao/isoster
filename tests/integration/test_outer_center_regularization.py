@@ -425,14 +425,6 @@ def _count_saturated_outer_eps_steps(
     return int(np.sum(deps >= frac * clip_max_eps))
 
 
-class TestOuterRegWeightsDefaults:
-    """Default weights preserve center-only behavior (backwards compat)."""
-
-    def test_default_weights_match_center_only(self):
-        cfg = IsosterConfig(x0=100.0, y0=100.0, maxsma=40.0)
-        assert cfg.outer_reg_weights == {"center": 1.0, "eps": 0.0, "pa": 0.0}
-
-
 class TestOuterReferenceCarriesEpsAndPa:
     """The reference dict populates all four geometry fields, and the result
     dict exposes the eps/pa references for downstream QA."""
@@ -623,17 +615,39 @@ class TestSolverModeTikhonov:
         accepted."""
         cfg = IsosterConfig(x0=100.0, y0=100.0, maxsma=40.0)
         assert cfg.outer_reg_mode == "damping"
-        assert cfg.outer_reg_use_selector is True
         with pytest.raises(Exception):
             # Pydantic raises ValidationError (a subclass) on pattern mismatch
             IsosterConfig(
                 x0=100.0, y0=100.0, maxsma=40.0, outer_reg_mode="selector"
             )
 
+    def test_default_weights_are_full(self):
+        """Default outer_reg_weights damp center, eps, and pa uniformly.
+        This is the cleanup default (was {1, 0, 0} in an earlier revision
+        of this branch, which caused saturated eps/PA jumps on real data)."""
+        cfg = IsosterConfig(x0=100.0, y0=100.0, maxsma=40.0)
+        assert cfg.outer_reg_weights == {"center": 1.0, "eps": 1.0, "pa": 1.0}
+
+    def test_sma_width_auto_computes_when_none(self):
+        """outer_reg_sma_width defaults to None and is auto-computed as
+        0.4 * onset inside the fitting code. Expert users can still set it."""
+        cfg_default = IsosterConfig(
+            x0=100.0, y0=100.0, maxsma=40.0,
+            use_outer_center_regularization=True,
+        )
+        assert cfg_default.outer_reg_sma_width is None
+        # Explicit override still works.
+        cfg_explicit = IsosterConfig(
+            x0=100.0, y0=100.0, maxsma=40.0,
+            use_outer_center_regularization=True,
+            outer_reg_sma_width=15.0,
+        )
+        assert cfg_explicit.outer_reg_sma_width == 15.0
+
     def test_solver_mode_zero_weights_equals_no_reg(self):
         """With all weights zero, solver mode must reproduce the no-reg
         fit exactly - this is the pixel-identity gate that proves the
-        solver branch is dormant at default weights."""
+        solver branch is dormant at zero weights (regardless of mode)."""
         image = _make_contaminated_truncated_galaxy()
         base = dict(
             x0=100.0, y0=100.0, sma0=8.0, minsma=2.0, maxsma=90.0, astep=0.15
@@ -646,7 +660,6 @@ class TestSolverModeTikhonov:
             outer_reg_sma_width=8.0,
             outer_reg_strength=5.0,
             outer_reg_mode="solver",
-            outer_reg_use_selector=False,
             outer_reg_weights={"center": 0.0, "eps": 0.0, "pa": 0.0},
         )
         with warnings.catch_warnings():
@@ -661,34 +674,6 @@ class TestSolverModeTikhonov:
                 assert a[key] == pytest.approx(b[key], abs=1e-12), (
                     f"solver+zero-weights diverged from no-reg at key={key}"
                 )
-
-    def test_solver_mode_with_selector_off_disables_selector(self):
-        """With outer_reg_use_selector=False, the selector penalty function
-        returns zero regardless of geometry drift."""
-        from isoster.fitting import compute_outer_center_regularization_penalty
-
-        cfg = IsosterConfig(
-            x0=100.0,
-            y0=100.0,
-            sma0=10.0,
-            maxsma=40.0,
-            use_outer_center_regularization=True,
-            outer_reg_mode="solver",
-            outer_reg_use_selector=False,
-            outer_reg_weights={"center": 1.0, "eps": 1.0, "pa": 1.0},
-        )
-        current = {"x0": 110.0, "y0": 95.0, "eps": 0.4, "pa": 1.2}
-        reference = {"x0": 100.0, "y0": 100.0, "eps": 0.2, "pa": 0.5}
-        penalty = compute_outer_center_regularization_penalty(
-            current, reference, sma=80.0, config=cfg
-        )
-        assert penalty == 0.0
-
-        cfg_sel_on = cfg.model_copy(update={"outer_reg_use_selector": True})
-        penalty_on = compute_outer_center_regularization_penalty(
-            current, reference, sma=80.0, config=cfg_sel_on
-        )
-        assert penalty_on > 0.0
 
     def test_damping_mode_reduces_pa_step_variance(self):
         """On the contaminated mock, damping mode (the default) should

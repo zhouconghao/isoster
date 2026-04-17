@@ -161,11 +161,6 @@ ARMS = {
         outer_reg_strength=8.0,
         outer_reg_weights={"center": 1.0, "eps": 1.0, "pa": 1.0},
     ),
-    "solver_full_noselector": dict(
-        outer_reg_mode="solver",
-        outer_reg_use_selector=False,
-        outer_reg_weights={"center": 1.0, "eps": 1.0, "pa": 1.0},
-    ),
     # --- damping mode (recommended default) ------------------------------
     # onset=100 keeps the baseline-preferred inner geometry walk intact,
     # strength=4 is gentle enough to avoid collapsing real eps/PA
