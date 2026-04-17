@@ -16,8 +16,11 @@ background — but they attack it at different stages and compose cleanly.
 
 For usage, see `docs/01-user-guide.md` ("Automatic LSB Geometry Lock" and
 "Outer Region Center Regularization"). For parameter names and defaults,
-see `docs/02-configuration-reference.md` sections 12 and 13. This document
-explains *why* the features exist, *how* the algorithms were chosen, and
+see `docs/02-configuration-reference.md` sections 12 and 13. **For the
+full mathematical derivation, algorithm pseudocode, benchmark tables,
+and publication-grade reference on the outer-region Tikhonov mechanism,
+see `docs/08-outer-regularization.md`.** This document (07) explains
+*why* the features exist, *how* the algorithms were chosen, and
 *where* the implementation lives file by file.
 
 ## 1. Motivation
