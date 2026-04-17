@@ -16,8 +16,11 @@ background — but they attack it at different stages and compose cleanly.
 
 For usage, see `docs/01-user-guide.md` ("Automatic LSB Geometry Lock" and
 "Outer Region Center Regularization"). For parameter names and defaults,
-see `docs/02-configuration-reference.md` sections 12 and 13. This document
-explains *why* the features exist, *how* the algorithms were chosen, and
+see `docs/02-configuration-reference.md` sections 12 and 13. **For the
+full mathematical derivation, algorithm pseudocode, benchmark tables,
+and publication-grade reference on the outer-region Tikhonov mechanism,
+see `docs/08-outer-regularization.md`.** This document (07) explains
+*why* the features exist, *how* the algorithms were chosen, and
 *where* the implementation lives file by file.
 
 ## 1. Motivation
@@ -167,26 +170,69 @@ is easy to tune from two parameters, and matches the empirically observed
 shape of the transition — the drift starts ramping up near the half-light
 radius and saturates a few scale lengths further out.
 
-**Where does `(x0_ref, y0_ref)` come from?** From a flux-weighted mean of
-the *inward* isophote centers, plus the anchor isophote at `sma0` folded
-in unconditionally. See `_build_outer_center_reference` in
+**Where does the reference geometry come from?** From a flux-weighted
+mean of the *inward* isophote geometry, plus the anchor isophote at
+`sma0` folded in unconditionally. See `_build_outer_reference` in
 `isoster/driver.py`:
 
 - Candidates: all inward isophotes with acceptable stop codes and
   `sma ≤ anchor.sma × outer_reg_ref_sma_factor`.
 - Weights: `max(intens, 1e-6)`, so the brightest inner isophotes dominate
   and negative-background rings cannot flip the sign.
+- `x0_ref`, `y0_ref`, `eps_ref`: flux-weighted arithmetic mean.
+- `pa_ref`: flux-weighted **circular mean on `2·pa`** — pa is defined
+  mod π (axis-like), so a naive arithmetic mean of pa=0 and pa≈π lands
+  at π/2 (orthogonal to both). If the resultant length on the unit
+  circle is < 0.1 (inner pa values too scattered for a useful mean),
+  pa_ref falls back to the anchor's pa.
 - Fallback: if no inward isophote qualifies (`minsma ≥ sma0`, for
-  example), the reference is just `(anchor.x0, anchor.y0)` and a
+  example), the reference is just the anchor's geometry and a
   `UserWarning` is emitted at config time.
 
-The flux-weighted mean (as opposed to picking a single inner isophote) is
-robust to individual bad inner isophotes, and is the standard trick for
-collapsing a noisy inner trajectory into a single well-defined centroid.
+The flux-weighted mean (as opposed to picking a single inner isophote)
+is robust to individual bad inner isophotes, and is the standard trick
+for collapsing a noisy inner trajectory into a single well-defined
+reference.
 
-The reference is built *once* per fit, before the outward loop runs, and
-is frozen for the remainder of the fit. Letting it update per iteration
-would recreate the drift problem the feature is meant to solve.
+The reference is built *once* per fit, before the outward loop runs,
+and is frozen for the remainder of the fit. Letting it update per
+iteration would recreate the drift problem the feature is meant to
+solve.
+
+**Selector asymmetry and the `outer_reg_weights` extension.** The
+penalty as originally written was **center-only**: `λ(sma) · ((x0 −
+x0_ref)² + (y0 − y0_ref)²)`. In empirical use on real HSC BCG data the
+center-only form was found to introduce a selector asymmetry: in the
+LSB outer regime, harmonic amplitudes in all four modes (x0, y0, eps,
+pa) are noise-dominated and comparable in magnitude; the best-iteration
+selector therefore systematically prefers iterations where eps or pa
+was just updated, because those iterations leave `(x0, y0)` unmoved
+and so carry zero center-penalty. The clipped per-iteration steps
+(`clip_max_eps=0.1`, `clip_max_pa=0.5 rad`) then show up as saturated
+jumps in the 1-D eps(sma) and PA(sma) profiles. The feature was
+*redirecting* the outer random walk from `(x0, y0)` into `(eps, pa)`
+rather than damping it.
+
+The fix is the `outer_reg_weights` config dict, which mirrors the
+existing `central_reg_weights` pattern:
+
+```python
+outer_reg_weights = {"center": 1.0, "eps": 0.0, "pa": 0.0}   # default
+```
+
+With all three weights positive the penalty becomes
+
+```
+λ(sma) · [ w_c · ((x0 − x0_ref)² + (y0 − y0_ref)²)
+         + w_e · (eps − eps_ref)²
+         + w_p · (pa_wrap − pa_ref)² ]
+```
+
+where `pa_wrap` folds the PA residual onto `(−π/2, π/2]`. The default
+weights `{center: 1, eps: 0, pa: 0}` reproduce the original center-only
+behavior exactly (backwards compatible); setting `eps > 0` and `pa > 0`
+closes the selector asymmetry. See §5 for empirical validation on the
+`37498869835124888` HSC BCG.
 
 ### 2.3 Inward-first loop ordering
 
@@ -201,6 +247,84 @@ because:
   role not position.
 
 See the note in `docs/04-architecture.md` ("Inward-first loop order").
+
+### 2.4 Solver-level Tikhonov modes (damping and solver)
+
+The selector-only form described in §2.2 was found empirically on real
+HSC BCGs to suffer a different failure: in the noise-dominated outer
+regime, the harmonic solver's per-iteration candidates are effectively
+**quantized** by the clip limits (`clip_max_eps`, `clip_max_pa`). The
+selector penalty picks among candidates but cannot produce a sub-clip
+answer — so it is forced to choose between "no update" and "saturated
+clipped step", producing visible 0.1-eps and 0.5-rad PA jumps in the
+1-D profiles even when the center is anchored. This is a structural
+limit of any selector-only mechanism.
+
+The fix is to put the penalty **inside** the per-iteration harmonic
+update (Tikhonov-style), so each iteration's candidate step is itself
+penalty-aware and no longer fixed to the clip magnitude. The
+`outer_reg_mode` config field picks one of two solver-level variants:
+
+**`damping` (default).** Per-iteration step shrink only — no reference
+pull. Each parameter's update equation becomes
+
+```
+Δparam  =  (1 − α) · Δparam_harmonic
+```
+
+with `α = λ(sma) · w · coeff² / (1 + λ(sma) · w · coeff²)` where
+`coeff` is the harmonic-to-parameter Jacobian the existing solver
+already computes. The fit still walks to its data-preferred geometry;
+only the **step magnitude** is shrunk in the outer region, so
+saturated clipped updates cannot occur. This mode preserves the real
+astrophysical walks of eps(sma) and PA(sma) that the baseline free fit
+captures (up to ~80-90 px on 37498869835124888), while suppressing the
+clip-saturated jumps in the LSB regime. Harmonic convergence works
+correctly: once the step is small enough, the `|max_amp|` criterion
+trips normally.
+
+**`solver`.** Full Tikhonov term — step shrink *plus* a pull toward
+the frozen reference:
+
+```
+Δparam  =  (1 − α) · Δparam_harmonic  −  α · (param − param_ref)
+```
+
+The geometry settles at a static balance point where the harmonic
+drive equals the Tikhonov pull. This point depends on α (i.e. on
+`λ`, `w`, and the local gradient); it is neither the data-preferred
+geometry nor `param_ref`. Use `solver` when you want the outer
+isophotes anchored to the inner flux-weighted reference (for example,
+when the outer fit would otherwise drift off-source due to heavy
+contamination). The mode flattens genuine outer PA/eps structure by
+design.
+
+**Selector layer (`outer_reg_use_selector`).** Orthogonal to
+`outer_reg_mode`. Default `True`. When enabled, the selector-level
+penalty described in §2.2 is also applied on top of the chosen
+solver-level mode; it acts as a cumulative anchor that the selector
+uses to score candidate iterations. Setting it to `False` isolates
+the pure solver-level mechanism.
+
+**`geometry_convergence` auto-enable.** Both solver-level modes cause
+`|max_amp|` to stay somewhat above the harmonic convergence threshold
+— in `damping` because the shrunk step leaves residual harmonics that
+decay slowly, in `solver` because the ref-pull intentionally biases
+away from the harmonic minimum. Without a geometry-stability
+convergence check, many outer isophotes run to `maxit` with zero
+change to the recorded geometry (wasted cost). The config validator
+therefore auto-enables `geometry_convergence=True` whenever
+`use_outer_center_regularization=True`, with a `UserWarning` if the
+user had explicitly set it `False`. With auto-enable on, runtime is
+within a few percent of the no-regularization baseline.
+
+**Removed: `outer_reg_mode='selector'`.** The original selector-only
+mode was dropped from the valid values in the same change that
+introduced damping/solver. The selector-level penalty still exists as
+the `outer_reg_use_selector` layer, composable on top of any
+`outer_reg_mode`. Users whose old configs set `outer_reg_mode="selector"`
+will see a pydantic `ValidationError` at config time listing the
+accepted values.
 
 ## 3. Composition
 
@@ -275,8 +399,12 @@ them keep working. New keys:
 - `results["lsb_auto_lock"]` — bool, whether the detector fired.
 - `results["lsb_auto_lock_sma"]` — commit sma, or None.
 - `results["lsb_auto_lock_count"]` — locked tail length.
-- `results["outer_reg_x0_ref"], ["outer_reg_y0_ref"]` — frozen reference
-  centroid (only when `use_outer_center_regularization=True`).
+- `results["outer_reg_x0_ref"], ["outer_reg_y0_ref"],
+  ["outer_reg_eps_ref"], ["outer_reg_pa_ref"]` — frozen reference
+  geometry (only when `use_outer_center_regularization=True`).
+  eps/pa keys were added alongside the `outer_reg_weights` extension;
+  they are always populated for downstream QA even when the user
+  leaves `weights["eps"] = weights["pa"] = 0`.
 - Per-isophote: `iso["lsb_locked"]` and `iso["lsb_auto_lock_anchor"]`.
 
 ## 5. Empirical validation (HSC edge cases)
@@ -333,6 +461,62 @@ Observations:
 - Combining all features adds ~20% over the baseline free fit — acceptable
   for the drift-reduction benefit.
 
+### 5.1 Two-mode Tikhonov validation — HSC edge-real BCG `37498869835124888`
+
+Outer-region metrics (sma ≥ 30 px) on the `37498869835124888` cluster
+BCG. `pl_comb` is the pre-anchor combined center drift (max over x and
+y); sat_Δ counts single-iteration transitions at ≥ 90% of their clip
+limit (`clip_max_eps=0.1`, `clip_max_pa=0.5 rad ≈ 28.6°`).
+
+| config                                    | med (s) | sc=2 | pl_comb | sat_Δeps | sat_ΔPA | max\|Δpa\| | eps range  | PA range (°) |
+|-------------------------------------------|--------:|-----:|--------:|---------:|--------:|-----------:|-----------:|--------------:|
+| baseline (no outer-reg)                   |   0.25  |   0  | 91.42   |    0     |    0    |   6.29°    | 0.19–0.53  | 50.4–69.1     |
+| selector center-only (historical default) |   0.20  |   0  |  0.00   |    3     |    1    |  26.85°    | 0.21–0.41  | 40.8–67.6     |
+| selector full weights                     |   0.21  |   0  |  0.00   |    1     |    0    |  13.74°    | 0.21–0.31  | 53.9–67.6     |
+| **`damping` + `geomconv` (new default)**  | **0.27**|  **0**| **0.00**|  **0**   |  **0**  |  **1.42°** | **0.20–0.27** | **67.1–68.5** |
+| `solver` + `geomconv`                     |   0.26  |   0  |  0.05   |    0     |    0    |   0.00°    | 0.17–0.21  | 61.4–61.4     |
+
+(`sc=2` = count of outer isophotes that hit `maxit`. Selector rows
+are shown for historical context: the `"selector"` value was removed
+from `outer_reg_mode` in the same change that introduced the two
+solver-level modes.)
+
+Observations:
+
+- **Baseline has meaningful astrophysical content out to sma ≈ 80 px**
+  (b/a walks 1.0 → 0.5, PA walks 0° → 65°) then degrades into
+  noise-driven drift (combined center drift reaches 91 px in the
+  outermost isophotes).
+- **Selector form (any weights)** produces visible saturated-step
+  jumps in the 1-D profiles. Center is well-anchored (pl_comb ≈ 0)
+  but eps/PA are quantized.
+- **`damping` mode preserves the inner walk** (b/a down to ~0.75, PA
+  to ~67°) and clamps the outermost noise-driven divergence. No
+  saturated jumps; max |Δpa| = 1.42° in the outer is smoother than
+  baseline's 6.29°.
+- **`solver` mode flattens outer structure** toward the inner
+  reference (b/a ≈ 0.21, PA ≈ 61° for all outer isophotes).
+  Appropriate when you want outer isophotes anchored to the inner
+  shape; not appropriate when you want the data-preferred walk.
+
+Runtime column: auto-enabled `geometry_convergence=True` keeps both
+solver-level modes within ~7% of the free-fit baseline. Without
+geomconv, solver mode runs to maxit on ~26 isophotes (0.36s → 5.86s
+at maxit=2000 with **no change to recorded geometry** — pure cost).
+
+**Maxit sensitivity.** For `damping + geomconv`, maxit=50 vs
+maxit=500 give bit-identical geometry at the same runtime. Raising
+maxit is a no-op: geometry genuinely converges before 50 iterations
+in every case. For `solver + geomconv`, same — geometry stabilizes
+at the Tikhonov balance point by iteration ~10 on each outer
+isophote.
+
+Benchmark script:
+`examples/example_hsc_edge_real/run_outer_reg_param_sweep.py` (arms
+include `damping_recommended`, `solver_center`, `solver_full`,
+`solver_strong`, `solver_full_noselector` among others). Summary
+CSV/MD at `outputs/example_hsc_edge_real/outer_reg_param_sweep/`.
+
 ## 6. Implementation, file by file
 
 ### `isoster/config.py`
@@ -348,6 +532,18 @@ define the config fields. Key pieces:
     branch)
   - `outer_reg_ref_sma_factor: float` — filters inward candidates when
     building the flux-weighted reference.
+  - `outer_reg_weights: dict = {"center": 1.0, "eps": 0.0, "pa": 0.0}` —
+    per-axis weights for the penalty. Default is center-only; set
+    `eps > 0` and/or `pa > 0` to also damp ellipticity / PA jumps.
+    With `outer_reg_mode="damping"` (the default), full weights
+    `{1, 1, 1}` are the recommended choice for real LSB fits.
+  - `outer_reg_mode: str = "damping"` — solver-level variant. Accepts
+    `"damping"` (default, step shrink only) or `"solver"` (full
+    Tikhonov with ref pull). The historical `"selector"` value was
+    removed; see §2.4.
+  - `outer_reg_use_selector: bool = True` — orthogonal selector-layer
+    penalty on top of the solver-level mode. Kept on by default to
+    provide cumulative center anchoring.
 
 - Section 13 fields:
   - `lsb_auto_lock: bool = False`
@@ -359,8 +555,20 @@ define the config fields. Key pieces:
   - `outer_reg_sma_onset < sma0` → warn.
   - `use_outer_center_regularization=True` with `minsma >= sma0` → warn
     (inner reference will fall back to the anchor).
-  - `use_outer_center_regularization=True` with `fix_center=True` → warn
-    (penalty is inert).
+  - `fix_center=True` with `outer_reg_weights["center"] > 0` → warn
+    (center penalty is inert; refined from the earlier blanket
+    `fix_center` warning).
+  - `fix_eps=True` with `outer_reg_weights["eps"] > 0` → warn.
+  - `fix_pa=True` with `outer_reg_weights["pa"] > 0` → warn.
+  - `use_outer_center_regularization=True` with all weights zero → warn
+    (feature is a no-op).
+  - `use_outer_center_regularization=True` with `simultaneous_harmonics=True`
+    → warn (Tikhonov term is not wired into the ISOFIT 7-parameter
+    joint solver; selector layer still applies if enabled).
+  - `use_outer_center_regularization=True` with `geometry_convergence=False`
+    → silently flips `geometry_convergence=True` and warns (required
+    for either solver-level mode to finish cleanly; otherwise outer
+    isophotes hit maxit with zero geometry change).
   - `lsb_auto_lock=True` with any of `fix_center/fix_pa/fix_eps=True` →
     raises, since the lock would conflict with prescribed geometry.
   - `lsb_auto_lock=True` with `debug=False` → silently flips `debug=True`
@@ -377,14 +585,17 @@ helpers. Key symbols:
 - `_mark_lsb_lock_state(iso, locked, is_anchor=False)` — single write site
   for `lsb_locked` / `lsb_auto_lock_anchor`, so future loop reorderings
   cannot accidentally mutate the anchor dict twice.
-- `_build_outer_center_reference(inwards_results, anchor_iso, cfg)` — the
-  flux-weighted inner reference builder.
+- `_build_outer_reference(inwards_results, anchor_iso, cfg)` — the
+  flux-weighted inner reference builder (renamed from
+  `_build_outer_center_reference`). Returns a full geom dict
+  `{x0, y0, eps, pa}`; pa uses a circular mean on `2·pa`.
 
 In `_fit_image_free` (the regular-mode driver):
 
-1. After the inward loop, compute `outer_ref_x0, outer_ref_y0` via
-   `_build_outer_center_reference`. Pass them into the outward fit as
-   `outer_reference_geom={"x0": ..., "y0": ...}` (no `eps`/`pa`).
+1. After the inward loop, compute `outer_ref_geom` via
+   `_build_outer_reference`. Pass it into the outward fit as
+   `outer_reference_geom=outer_ref_geom`; which fields feed the penalty
+   is controlled by `cfg.outer_reg_weights`.
 2. Initialize `lsb_state = {"locked": False, "consec": 0, "transition_sma": None}`.
 3. Mark the anchor with `_mark_lsb_lock_state(anchor_iso, locked=False)`.
 4. In the outward loop, after each successful isophote:
@@ -408,29 +619,63 @@ flag is set together with a template.
 
 ### `isoster/fitting.py`
 
-The per-isophote fitter owns the selector penalty.
+The per-isophote fitter owns both the selector-layer penalty and the
+solver-level Tikhonov blend.
 
-- `compute_outer_center_regularization_penalty(current_geom, reference_geom, sma, config)`
-  — see §2.2 for the math. Returns 0.0 when the feature is off, when
-  `reference_geom is None`, or when `λ(sma) < 1e-6` (early exit for the
-  inner region where the logistic is effectively zero).
+- `compute_outer_center_regularization_penalty(current_geom,
+  reference_geom, sma, config)` — the selector-level penalty. Returns
+  0.0 when the feature is off, when `outer_reg_use_selector=False`,
+  when `reference_geom is None`, or when `λ(sma) < 1e-6`.
 
-- Integration site in `fit_isophote`:
+- `_tikhonov_alpha(coeff, lambda_sma, weight)` — closed-form blend
+  fraction for the solver-level Tikhonov update. See §2.4 for the
+  math. Returns `α ∈ [0, 1)`: 0 means fully harmonic-driven (no reg
+  effect on the step), 1 means fully pulled to reference (reachable
+  only in the limit of vanishing gradient or `λ·w → ∞`).
+
+- `fit_isophote` hoists the solver-level setup out of the iteration
+  loop:
+
+  ```python
+  outer_solver_on = (
+      cfg.use_outer_center_regularization
+      and cfg.outer_reg_mode in ("damping", "solver")
+      and outer_reference_geom is not None
+      and not simultaneous_harmonics
+  )
+  outer_solver_use_pull = cfg.outer_reg_mode == "solver"
+  outer_solver_lambda = strength / (1 + exp(-(sma - onset) / width))
+  ```
+
+  Each of the four coord-descent update branches (A1, B1, A2, B2) and
+  the simultaneous branch computes its parameter-specific Jacobian
+  coefficient, calls `_tikhonov_alpha`, and blends:
+
+  ```python
+  if outer_solver_on and w_param > 0:
+      alpha = _tikhonov_alpha(coeff, lambda_sma, w_param)
+      if outer_solver_use_pull:   # mode = "solver"
+          step = (1 - alpha) * step_harmonic - alpha * (param - param_ref)
+      else:                        # mode = "damping"
+          step = (1 - alpha) * step_harmonic
+  ```
+
+  Clipping (`clip_max_*`) is applied to the blended step, so the
+  safety bounds still fire if a catastrophic proposed update sneaks
+  through.
+
+- Selector integration site stays as before:
 
   ```python
   outer_reg_penalty = compute_outer_center_regularization_penalty(
       current_geom, outer_reference_geom, sma, cfg
   )
   effective_amp = abs(max_amp) + reg_penalty + outer_reg_penalty
-  if effective_amp < min_amplitude:
-      min_amplitude = effective_amp
-      ...record this iteration as the new best...
   ```
 
-  `reg_penalty` is the pre-existing central regularization penalty; the
-  outer penalty simply adds on top of it. Neither penalty is added to the
-  convergence criterion itself — that still uses the raw `|max_amp|` —
-  so convergence conditions are unchanged.
+  The selector penalty still feeds the best-iteration picker; it does
+  not enter the convergence criterion (`|max_amp| < conver·rms`),
+  which uses the raw harmonic amplitude.
 
 ### `tests/integration/test_lsb_auto_lock.py`
 

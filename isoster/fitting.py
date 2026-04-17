@@ -82,23 +82,28 @@ def compute_central_regularization_penalty(current_geom, previous_geom, sma, con
 
 def compute_outer_center_regularization_penalty(current_geom, reference_geom, sma, config):
     """
-    Compute ramp-up center-only penalty for outer-region drift suppression.
+    Compute ramp-up penalty for outer-region drift suppression.
 
-    Unlike compute_central_regularization_penalty, which decays outward and
-    regularizes eps/pa/center alike, this penalty:
+    Unlike compute_central_regularization_penalty (which decays outward and
+    uses the previous isophote), this penalty:
 
     1. Ramps up outward via a logistic curve anchored at outer_reg_sma_onset.
-    2. Regularizes the center (x0, y0) only — PA and eps remain free.
-    3. Uses reference_geom as a frozen inner reference (typically a flux-weighted
-       mean of inward isophote centers) instead of the previous isophote, so the
-       penalty does not compound with drift.
+    2. Uses reference_geom as a frozen inner reference (flux-weighted mean of
+       inward isophotes) so the penalty does not compound with drift.
+    3. Applies per-axis weights from config.outer_reg_weights, with the
+       default {center:1, eps:0, pa:0} preserving the original center-only
+       behavior. Setting eps>0 / pa>0 also damps ellipticity / PA jumps in
+       the LSB regime - required when the center-only form redirects the
+       outer-region random walk into (eps, pa), producing saturated clipped
+       steps.
 
     Args:
         current_geom (dict): Current iteration geometry {'x0', 'y0', 'eps', 'pa'}.
-        reference_geom (dict): Frozen reference geometry carrying x0/y0. Ignored
-            if None (e.g. when called on the inward loop or with the feature off).
+        reference_geom (dict): Frozen reference geometry carrying all four
+            fields. Ignored if None (inward loop or feature off).
         sma (float): Current semi-major axis (pixels).
-        config (IsosterConfig): Configuration with outer_reg_* parameters.
+        config (IsosterConfig): Configuration with outer_reg_* parameters and
+            outer_reg_weights.
 
     Returns:
         float: Penalty value added to the best-iteration selector amplitude.
@@ -110,16 +115,77 @@ def compute_outer_center_regularization_penalty(current_geom, reference_geom, sm
         return 0.0
 
     # Logistic ramp: 0 at small sma, saturates at outer_reg_strength in the outskirts.
+    # outer_reg_sma_width auto-computes as 0.4 * onset when left at None.
     onset = config.outer_reg_sma_onset
-    width = config.outer_reg_sma_width
+    width = config.outer_reg_sma_width if config.outer_reg_sma_width is not None else 0.4 * onset
     lambda_sma = config.outer_reg_strength / (1.0 + np.exp(-(sma - onset) / width))
 
     if lambda_sma < 1e-6:
         return 0.0
 
-    delta_x0 = current_geom["x0"] - reference_geom["x0"]
-    delta_y0 = current_geom["y0"] - reference_geom["y0"]
-    return lambda_sma * (delta_x0**2 + delta_y0**2)
+    weights = config.outer_reg_weights
+    w_center = float(weights.get("center", 1.0))
+    w_eps = float(weights.get("eps", 0.0))
+    w_pa = float(weights.get("pa", 0.0))
+
+    penalty = 0.0
+
+    if w_center > 0.0:
+        delta_x0 = current_geom["x0"] - reference_geom["x0"]
+        delta_y0 = current_geom["y0"] - reference_geom["y0"]
+        penalty += w_center * (delta_x0**2 + delta_y0**2)
+
+    if w_eps > 0.0 and "eps" in reference_geom:
+        delta_eps = current_geom["eps"] - reference_geom["eps"]
+        penalty += w_eps * delta_eps**2
+
+    if w_pa > 0.0 and "pa" in reference_geom:
+        # pa is defined mod pi (axis-like); wrap the residual onto (-pi/2, pi/2].
+        delta_pa = current_geom["pa"] - reference_geom["pa"]
+        delta_pa = ((delta_pa + 0.5 * np.pi) % np.pi) - 0.5 * np.pi
+        penalty += w_pa * delta_pa**2
+
+    return lambda_sma * penalty
+
+
+def _tikhonov_alpha(coeff, lambda_sma, weight):
+    """Return the Tikhonov blend fraction in [0, 1].
+
+    Solves the closed-form mix between the harmonic-driven update and a
+    pull toward the reference under the per-iteration objective
+
+        L = 0.5 * (harmonic residual)^2 + 0.5 * lambda * w * (param - param_ref)^2
+
+    At the minimum, each axis' step is
+
+        delta_param = (1 - alpha) * delta_harmonic  -  alpha * (param - param_ref)
+
+    with alpha = lambda * w * coeff^2 / (1 + lambda * w * coeff^2), where
+    `coeff` is the harmonic-to-parameter Jacobian already computed by the
+    solver (so delta_harmonic = coeff * harmonic_amp, or its sign-wrapped
+    equivalent). alpha = 0 recovers the unregularized step exactly; alpha
+    -> 1 in the limit of vanishing gradient (|coeff| -> infinity) or very
+    strong regularization, fully pulling the parameter to its reference.
+
+    Args:
+        coeff (float): Parameter's harmonic Jacobian coefficient. Larger
+            absolute value means the fit has less local information about
+            this parameter, and alpha -> 1 even at modest `lambda*w`.
+        lambda_sma (float): Ramp value at this sma (logistic in sma).
+        weight (float): Per-axis weight from config.outer_reg_weights.
+
+    Returns:
+        float: The blend fraction, clamped to [0, 1).
+    """
+    if weight <= 0.0 or lambda_sma <= 0.0:
+        return 0.0
+    coeff_sq = coeff * coeff
+    if coeff_sq == 0.0 or not np.isfinite(coeff_sq):
+        return 0.0
+    denom = 1.0 + lambda_sma * weight * coeff_sq
+    if denom <= 0.0 or not np.isfinite(denom):
+        return 0.0
+    return lambda_sma * weight * coeff_sq / denom
 
 
 def extract_forced_photometry(
@@ -1172,6 +1238,57 @@ def fit_isophote(
     cached_gradient_error = None
     no_improvement_count = 0
 
+    # Outer-region Tikhonov (solver-level) regularization setup. Hoisted
+    # out of the iteration loop so the config lookups and reference reads
+    # are paid once per isophote, not once per iteration. When the feature
+    # is off or the mode is 'selector', outer_solver_on is False and the
+    # per-iteration update path is byte-identical to the pre-change code.
+    # The ISOFIT joint-harmonic mode (simultaneous_harmonics=True) falls
+    # back to selector-only; this is announced at config time.
+    #
+    # Two solver-level variants share the same alpha blend:
+    #   'solver'  - full Tikhonov: (1-alpha)*step_harmonic - alpha*(param-ref).
+    #               Biases toward the reference; breaks harmonic convergence.
+    #   'damping' - step shrink only: (1-alpha)*step_harmonic.  No ref pull,
+    #               so the fit still converges to its data-preferred geometry
+    #               but saturated clipped steps are suppressed in the outer.
+    outer_solver_on = False
+    outer_solver_use_pull = False
+    outer_solver_w_center = 0.0
+    outer_solver_w_eps = 0.0
+    outer_solver_w_pa = 0.0
+    outer_solver_x0_ref = x0
+    outer_solver_y0_ref = y0
+    outer_solver_eps_ref = eps
+    outer_solver_pa_ref = pa
+    outer_solver_lambda = 0.0
+    if (
+        bool(cfg.use_outer_center_regularization)
+        and cfg.outer_reg_mode in ("solver", "damping")
+        and outer_reference_geom is not None
+        and not simultaneous_harmonics
+    ):
+        _ow = cfg.outer_reg_weights
+        outer_solver_w_center = float(_ow.get("center", 0.0))
+        outer_solver_w_eps = float(_ow.get("eps", 0.0))
+        outer_solver_w_pa = float(_ow.get("pa", 0.0))
+        outer_solver_x0_ref = float(outer_reference_geom["x0"])
+        outer_solver_y0_ref = float(outer_reference_geom["y0"])
+        outer_solver_eps_ref = float(outer_reference_geom.get("eps", eps))
+        outer_solver_pa_ref = float(outer_reference_geom.get("pa", pa))
+        _onset = cfg.outer_reg_sma_onset
+        # outer_reg_sma_width auto-computes as 0.4 * onset when left at None.
+        _width = (
+            cfg.outer_reg_sma_width
+            if cfg.outer_reg_sma_width is not None
+            else 0.4 * _onset
+        )
+        outer_solver_lambda = cfg.outer_reg_strength / (
+            1.0 + np.exp(-(sma - _onset) / _width)
+        )
+        outer_solver_on = outer_solver_lambda >= 1e-6
+        outer_solver_use_pull = cfg.outer_reg_mode == "solver"
+
     for i in range(maxit):
         niter = i + 1
 
@@ -1523,8 +1640,30 @@ def fit_isophote(
             # Simultaneous: update ALL geometry parameters each iteration
             # Center corrections (minor/major axis)
             if not fix_center:
-                aux_minor = -harmonics[0] * (1.0 - eps) / gradient * damping
-                aux_major = -harmonics[1] / gradient * damping
+                coeff_c_minor = (1.0 - eps) / gradient
+                coeff_c_major = 1.0 / gradient
+                aux_minor = -harmonics[0] * coeff_c_minor * damping
+                aux_major = -harmonics[1] * coeff_c_major * damping
+
+                if outer_solver_on and outer_solver_w_center > 0.0:
+                    alpha_minor = _tikhonov_alpha(
+                        coeff_c_minor, outer_solver_lambda, outer_solver_w_center
+                    )
+                    alpha_major = _tikhonov_alpha(
+                        coeff_c_major, outer_solver_lambda, outer_solver_w_center
+                    )
+                    if outer_solver_use_pull:
+                        dc_minor = (x0 - outer_solver_x0_ref) * (-np.sin(pa)) + (
+                            y0 - outer_solver_y0_ref
+                        ) * np.cos(pa)
+                        dc_major = (x0 - outer_solver_x0_ref) * np.cos(pa) + (
+                            y0 - outer_solver_y0_ref
+                        ) * np.sin(pa)
+                        aux_minor = (1.0 - alpha_minor) * aux_minor - alpha_minor * dc_minor
+                        aux_major = (1.0 - alpha_major) * aux_major - alpha_major * dc_major
+                    else:
+                        aux_minor = (1.0 - alpha_minor) * aux_minor
+                        aux_major = (1.0 - alpha_major) * aux_major
 
                 # Safety: Clip large jumps in a single iteration
                 if cfg.clip_max_shift is not None:
@@ -1542,13 +1681,37 @@ def fit_isophote(
                 denom = (1.0 - eps) ** 2 - 1.0
                 if abs(denom) < 1e-10:
                     denom = -1e-10
-                pa_corr = harmonics[2] * 2.0 * (1.0 - eps) / sma / gradient / denom * damping
+                coeff_pa = 2.0 * (1.0 - eps) / sma / gradient / denom
+                pa_corr = harmonics[2] * coeff_pa * damping
+                if outer_solver_on and outer_solver_w_pa > 0.0:
+                    alpha_pa = _tikhonov_alpha(
+                        coeff_pa, outer_solver_lambda, outer_solver_w_pa
+                    )
+                    if outer_solver_use_pull:
+                        delta_pa_ref = pa - outer_solver_pa_ref
+                        delta_pa_ref = (
+                            (delta_pa_ref + 0.5 * np.pi) % np.pi - 0.5 * np.pi
+                        )
+                        pa_corr = (1.0 - alpha_pa) * pa_corr - alpha_pa * delta_pa_ref
+                    else:
+                        pa_corr = (1.0 - alpha_pa) * pa_corr
                 if cfg.clip_max_pa is not None:
                     pa_corr = np.clip(pa_corr, -cfg.clip_max_pa, cfg.clip_max_pa)
                 pa = (pa + pa_corr) % np.pi
             # Ellipticity correction
             if not fix_eps:
-                eps_corr = harmonics[3] * 2.0 * (1.0 - eps) / sma / gradient * damping
+                coeff_eps = 2.0 * (1.0 - eps) / sma / gradient
+                eps_corr = harmonics[3] * coeff_eps * damping
+                if outer_solver_on and outer_solver_w_eps > 0.0:
+                    alpha_eps = _tikhonov_alpha(
+                        coeff_eps, outer_solver_lambda, outer_solver_w_eps
+                    )
+                    if outer_solver_use_pull:
+                        eps_corr = (1.0 - alpha_eps) * eps_corr + alpha_eps * (
+                            eps - outer_solver_eps_ref
+                        )
+                    else:
+                        eps_corr = (1.0 - alpha_eps) * eps_corr
                 if cfg.clip_max_eps is not None:
                     eps_corr = np.clip(eps_corr, -cfg.clip_max_eps, cfg.clip_max_eps)
                 eps = min(eps - eps_corr, 0.95)
@@ -1560,13 +1723,40 @@ def fit_isophote(
         else:
             # Largest: update only the geometry parameter with the largest harmonic amplitude
             if max_idx == 0:  # A1: center shift (minor-axis direction)
-                aux = -max_amp * (1.0 - eps) / gradient * damping
+                coeff = (1.0 - eps) / gradient
+                aux = -max_amp * coeff * damping
+                if outer_solver_on and outer_solver_w_center > 0.0:
+                    alpha = _tikhonov_alpha(
+                        coeff, outer_solver_lambda, outer_solver_w_center
+                    )
+                    if outer_solver_use_pull:
+                        # Project current offset onto the minor-axis direction.
+                        dc_minor = (x0 - outer_solver_x0_ref) * (-np.sin(pa)) + (
+                            y0 - outer_solver_y0_ref
+                        ) * np.cos(pa)
+                        aux = (1.0 - alpha) * aux - alpha * dc_minor
+                    else:
+                        # 'damping' mode: shrink the harmonic step only,
+                        # do not pull toward reference.
+                        aux = (1.0 - alpha) * aux
                 if cfg.clip_max_shift is not None:
                     aux = np.clip(aux, -cfg.clip_max_shift, cfg.clip_max_shift)
                 x0 -= aux * np.sin(pa)
                 y0 += aux * np.cos(pa)
             elif max_idx == 1:  # B1: center shift (major-axis direction)
-                aux = -max_amp / gradient * damping
+                coeff = 1.0 / gradient
+                aux = -max_amp * coeff * damping
+                if outer_solver_on and outer_solver_w_center > 0.0:
+                    alpha = _tikhonov_alpha(
+                        coeff, outer_solver_lambda, outer_solver_w_center
+                    )
+                    if outer_solver_use_pull:
+                        dc_major = (x0 - outer_solver_x0_ref) * np.cos(pa) + (
+                            y0 - outer_solver_y0_ref
+                        ) * np.sin(pa)
+                        aux = (1.0 - alpha) * aux - alpha * dc_major
+                    else:
+                        aux = (1.0 - alpha) * aux
                 if cfg.clip_max_shift is not None:
                     aux = np.clip(aux, -cfg.clip_max_shift, cfg.clip_max_shift)
                 x0 += aux * np.cos(pa)
@@ -1575,12 +1765,40 @@ def fit_isophote(
                 denom = (1.0 - eps) ** 2 - 1.0
                 if abs(denom) < 1e-10:
                     denom = -1e-10
-                pa_corr = max_amp * 2.0 * (1.0 - eps) / sma / gradient / denom * damping
+                coeff = 2.0 * (1.0 - eps) / sma / gradient / denom
+                pa_corr = max_amp * coeff * damping
+                if outer_solver_on and outer_solver_w_pa > 0.0:
+                    alpha = _tikhonov_alpha(
+                        coeff, outer_solver_lambda, outer_solver_w_pa
+                    )
+                    if outer_solver_use_pull:
+                        # Wrap PA residual onto (-pi/2, pi/2] so pa ~ 0 and pa
+                        # ~ pi do not read as a huge mod-pi displacement.
+                        delta_pa_ref = pa - outer_solver_pa_ref
+                        delta_pa_ref = (
+                            (delta_pa_ref + 0.5 * np.pi) % np.pi - 0.5 * np.pi
+                        )
+                        pa_corr = (1.0 - alpha) * pa_corr - alpha * delta_pa_ref
+                    else:
+                        pa_corr = (1.0 - alpha) * pa_corr
                 if cfg.clip_max_pa is not None:
                     pa_corr = np.clip(pa_corr, -cfg.clip_max_pa, cfg.clip_max_pa)
                 pa = (pa + pa_corr) % np.pi
             elif max_idx == 3:  # B2: ellipticity
-                eps_corr = max_amp * 2.0 * (1.0 - eps) / sma / gradient * damping
+                coeff = 2.0 * (1.0 - eps) / sma / gradient
+                eps_corr = max_amp * coeff * damping
+                if outer_solver_on and outer_solver_w_eps > 0.0:
+                    alpha = _tikhonov_alpha(
+                        coeff, outer_solver_lambda, outer_solver_w_eps
+                    )
+                    if outer_solver_use_pull:
+                        # Update convention: eps <- eps - eps_corr, so the
+                        # pull toward eps_ref adds +(eps - eps_ref) to eps_corr.
+                        eps_corr = (1.0 - alpha) * eps_corr + alpha * (
+                            eps - outer_solver_eps_ref
+                        )
+                    else:
+                        eps_corr = (1.0 - alpha) * eps_corr
                 if cfg.clip_max_eps is not None:
                     eps_corr = np.clip(eps_corr, -cfg.clip_max_eps, cfg.clip_max_eps)
                 eps = min(eps - eps_corr, 0.95)
