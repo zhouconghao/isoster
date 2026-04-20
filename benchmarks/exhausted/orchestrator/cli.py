@@ -12,10 +12,10 @@ matrix without running any fits.
 from __future__ import annotations
 
 import argparse
-import sys
 from pathlib import Path
 
 from .config_loader import CampaignPlan, DatasetPlan, load_campaign
+from .runner import run_campaign
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -39,7 +39,7 @@ def main(argv: list[str] | None = None) -> int:
 
     run = subparsers.add_parser(
         "run",
-        help="Run the campaign (Phase B+, not implemented yet).",
+        help="Run the campaign (Phase B: isoster-only, sequential).",
     )
     run.add_argument("campaign_yaml", type=Path)
 
@@ -48,12 +48,23 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "dry-run":
         return _cmd_dry_run(args.campaign_yaml, args.max_galaxies)
     if args.command == "run":
-        print(
-            "ERROR: 'run' is not implemented yet (Phase B). Use 'dry-run' for now.",
-            file=sys.stderr,
-        )
-        return 2
+        return _cmd_run(args.campaign_yaml)
     return 2
+
+
+def _cmd_run(yaml_path: Path) -> int:
+    plan = load_campaign(yaml_path)
+    _print_header(plan)
+    _print_tools(plan)
+    summary = run_campaign(plan)
+    print("=" * 72)
+    print(f"Total requested:        {summary.total_requested}")
+    print(f"  Ran:                  {summary.total_ran}")
+    print(f"  Skipped (cached):     {summary.total_skipped_existing}")
+    print(f"  Skipped (arm):        {summary.total_skipped_arm}")
+    print(f"  Ok:                   {summary.total_ok}")
+    print(f"  Failed:               {summary.total_failed}")
+    return 0 if summary.total_failed == 0 else 1
 
 
 def _cmd_dry_run(yaml_path: Path, max_galaxies: int | None) -> int:

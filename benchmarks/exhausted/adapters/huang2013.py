@@ -173,11 +173,19 @@ class Huang2013Adapter:
         }
 
     def _read_effective_Re_pix(self, header: fits.Header) -> float | None:
-        """Try several header-key conventions before giving up.
+        """Return a half-light radius in pixels, or ``None`` if none derivable.
 
-        The Huang2013 mock headers do not carry a uniform Re key; when
-        all candidates are missing we return ``None`` so the runner
-        skips the adaptive-integrator arms for this galaxy.
+        Lookup order:
+
+        1. Single-valued convention: ``REHALF``, ``R_E_PX``, ``REFF_PIX``,
+           ``RE_PIX``, ``SMA_E``.
+        2. Huang2013 / libprofit multi-component convention: flux-weighted
+           mean of ``RE_PX{i}`` across ``i = 1..NCOMP``, with weights
+           ``10**(-0.4 * APPMAG{i})`` when available.
+        3. Single-valued ``REKPC`` + ``REDSHIFT`` converted via Planck18.
+
+        When all candidates are missing the runner skips adaptive arms
+        for this galaxy.
         """
         for key in ("REHALF", "R_E_PX", "REFF_PIX", "RE_PIX", "SMA_E"):
             if key in header:
@@ -187,6 +195,35 @@ class Huang2013Adapter:
                     continue
                 if value > 0.0 and np.isfinite(value):
                     return value
+
+        ncomp = int(header.get("NCOMP", 0))
+        if ncomp > 0:
+            re_values: list[float] = []
+            weights: list[float] = []
+            for i in range(1, ncomp + 1):
+                re_key = f"RE_PX{i}"
+                if re_key not in header:
+                    continue
+                try:
+                    re_value = float(header[re_key])
+                except (TypeError, ValueError):
+                    continue
+                if not (re_value > 0.0 and np.isfinite(re_value)):
+                    continue
+                re_values.append(re_value)
+                mag_key = f"APPMAG{i}"
+                if mag_key in header:
+                    try:
+                        weights.append(10.0 ** (-0.4 * float(header[mag_key])))
+                    except (TypeError, ValueError):
+                        weights.append(1.0)
+                else:
+                    weights.append(1.0)
+            if re_values:
+                weight_array = np.asarray(weights, dtype=float)
+                weight_array /= float(weight_array.sum())
+                return float(np.sum(np.asarray(re_values) * weight_array))
+
         if "REKPC" in header and "REDSHIFT" in header:
             try:
                 from astropy import units

@@ -189,6 +189,9 @@ def _load_datasets(
                 f"{yaml_path}: datasets.{dataset_name}.select must be a list or null"
             )
         adapter: DatasetAdapter | None = None
+        extra_kwargs = {
+            k: v for k, v in ds_cfg.items() if k not in {"enabled", "adapter", "select"}
+        }
         if enabled:
             adapter_module = _import_adapter_module(adapter_name)
             adapter_cls = getattr(adapter_module, "ADAPTER_CLASS", None)
@@ -196,14 +199,15 @@ def _load_datasets(
                 raise AttributeError(
                     f"Adapter module '{adapter_module.__name__}' must expose ADAPTER_CLASS"
                 )
-            adapter = adapter_cls(root=root_raw)
+            # Pass root + any adapter-specific kwargs straight through.
+            adapter = adapter_cls(**extra_kwargs)
         plans[dataset_name] = DatasetPlan(
             name=dataset_name,
             enabled=enabled,
             adapter_name=adapter_name,
             adapter=adapter,  # type: ignore[arg-type]
             select=select,
-            extra={k: v for k, v in ds_cfg.items() if k not in {"enabled", "adapter", "root", "select"}},
+            extra=extra_kwargs,
         )
     return plans
 
