@@ -470,7 +470,7 @@ class TestConfigValidation:
         assert config.astep == 0.1
         assert config.linear_growth is False
         assert config.maxit == 50
-        assert config.minit == 10
+        assert config.minit == 6
         assert config.conver == 0.05
         assert config.maxgerr == 0.5
         assert config.fflag == 0.5

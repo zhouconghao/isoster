@@ -272,6 +272,7 @@ def test_fit_image_skips_inward_growth_when_first_isophote_fails(monkeypatch):
         maxsma=14.0,
         astep=2.0,
         linear_growth=True,
+        max_retry_first_isophote=0,  # isolate probe path from retry path
     )
 
     call_count = {"n": 0}
