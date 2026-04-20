@@ -1,0 +1,78 @@
+# Exhausted benchmark campaign - example configuration.
+#
+# Copy this file and edit for your campaign:
+#   cp campaign.example.yaml /tmp/my_campaign.yaml
+#   # then edit /tmp/my_campaign.yaml
+#   uv run python -m benchmarks.exhausted.orchestrator.cli dry-run /tmp/my_campaign.yaml
+
+campaign_name: "2026-04-20_initial_huang2013"
+output_root: "~/isoster_campaign_runs"  # $HOME-relative or absolute; created if missing
+
+# --- Tools to run ---
+# Tool-specific arms live in the files referenced by arms_file.
+tools:
+  isoster:
+    enabled: true
+    arms_file: benchmarks/exhausted/configs/isoster_arms.yaml
+  photutils:
+    enabled: false
+    arms_file: benchmarks/exhausted/configs/photutils_arms.yaml   # Phase D
+  autoprof:
+    enabled: false
+    arms_file: benchmarks/exhausted/configs/autoprof_arms.yaml    # Phase D
+    venv_python: "/tmp/autoprof_venv/bin/python"
+
+# --- Parameterized isoster arms ---
+# Each entry expands into one arm with id "harm_higher_orders::<nums joined by _>".
+# Default is a single list; add more to grow the matrix.
+isoster_harmonic_sweeps:
+  - [5, 6]
+  # - [5, 6, 7, 8]
+
+# --- Datasets ---
+# Each dataset references an adapter under benchmarks/exhausted/adapters/.
+datasets:
+  huang2013:
+    enabled: true
+    adapter: huang2013
+    root: "~/isophote_test/output/huang2013"
+    # Optional: galaxy allowlist. If omitted, runs all galaxies the adapter finds.
+    # select:
+    #   - "NGC_0596/mock001"
+    #   - "NGC_0596/mock002"
+  hsc_edge_real:
+    enabled: false
+    adapter: hsc_edge_real
+    root: "examples/example_hsc_edge_real/data"
+  hsc_edgecases:
+    enabled: false
+    adapter: hsc_edgecases
+    root: "examples/example_hsc_edgecases/data"
+
+# --- QA toggles ---
+qa:
+  per_galaxy_qa: true
+  cross_arm_overlay: true
+  cross_tool_comparison: true  # effective only when >=2 tools are enabled
+  summary_grids: true
+  residual_models: true
+
+# --- Execution controls ---
+execution:
+  max_parallel_galaxies: 4
+  skip_existing: true
+  dry_run: false
+  fail_fast: false
+
+# --- Statistical summary ---
+summary:
+  per_galaxy_inventory: true
+  per_tool_cross_arm_table: true
+  cross_tool_table: true
+  # Composite score: lower is better. Weights multiplied by the listed metric.
+  composite_score_weights:
+    spline_rms_center: 1.0
+    max_dpa_deg: 1.0
+    max_deps: 1.0
+    n_stop_m1: 2.0
+    elapsed_s: -0.02

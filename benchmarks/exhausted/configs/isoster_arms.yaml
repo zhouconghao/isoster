@@ -1,0 +1,99 @@
+# isoster arm roster for the exhausted benchmark campaign.
+#
+# Each arm is defined as a minimal *delta* from the current
+# IsosterConfig() baseline (minit=6, nclip=1, max_retry_first_isophote=3,
+# geometry_update_mode="largest", integrator="mean", WLS when variance is
+# supplied by the dataset adapter).
+#
+# Special tokens resolved by the runner against the dataset adapter:
+#   _use_Re        -> dataset_adapter.effective_Re(galaxy); arm is skipped
+#                     if the adapter cannot supply a half-light radius
+#   _use_2Re       -> 2 * effective_Re; same skip rule
+#   drop_variance  -> force OLS (variance_map=None) at the call site; arm
+#                     is skipped when the adapter supplies no variance
+#
+# The ``harm_higher_orders`` family is parameterized: the campaign YAML's
+# ``isoster_harmonic_sweeps`` list expands into one arm per entry, with
+# arm_id = f"harm_higher_orders::{'_'.join(str(n) for n in entry)}".
+
+arms:
+
+  # G0 - reference
+  ref_default: {}
+
+  # G1 - weighting
+  ols_noweight:
+    _special: drop_variance
+
+  # G2 - integrator
+  int_median:
+    integrator: median
+  int_adaptive_Re:
+    integrator: adaptive
+    lsb_sma_threshold: _use_Re
+  int_adaptive_2Re:
+    integrator: adaptive
+    lsb_sma_threshold: _use_2Re
+
+  # G3 - sigma clipping (baseline is nclip=1, symmetric 3-sigma)
+  sclip_off:
+    nclip: 0
+  sclip_sym3_2pass:
+    nclip: 2
+  sclip_asym_32:
+    sclip_low: 3.0
+    sclip_high: 2.0
+    nclip: 1
+
+  # G4 - geometry update
+  geom_simul:
+    geometry_update_mode: simultaneous
+    geometry_damping: 0.5
+  geom_ea:
+    use_eccentric_anomaly: true
+  geom_simul_ea:
+    geometry_update_mode: simultaneous
+    geometry_damping: 0.5
+    use_eccentric_anomaly: true
+
+  # G5 - higher-order harmonics
+  harm_isofit_inloop:
+    simultaneous_harmonics: true
+  harm_isofit_original:
+    simultaneous_harmonics: true
+    isofit_mode: original
+  # harm_higher_orders::* is expanded from the campaign YAML.
+
+  # G6 - convergence
+  conv_no_lazy:
+    use_lazy_gradient: false
+  conv_scale_sqrt:
+    convergence_scaling: sqrt_sma
+
+  # G7 - regularization
+  reg_central_on:
+    use_central_regularization: true
+  reg_outer_damp:
+    use_outer_center_regularization: true
+    outer_reg_mode: damping
+    outer_reg_strength: 2.0
+  reg_outer_strong:
+    use_outer_center_regularization: true
+    outer_reg_mode: damping
+    outer_reg_strength: 8.0
+  lsb_autolock:
+    lsb_auto_lock: true
+
+  # G8 - robustness
+  retry_off:
+    max_retry_first_isophote: 0
+  permissive_on:
+    permissive_geometry: true
+  stack_all:
+    use_outer_center_regularization: true
+    outer_reg_mode: damping
+    outer_reg_strength: 2.0
+    lsb_auto_lock: true
+    permissive_geometry: true
+    integrator: adaptive
+    lsb_sma_threshold: _use_Re
