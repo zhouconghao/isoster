@@ -217,9 +217,9 @@ class TestFirstIsophoteRetryConfig:
             IsosterConfig(first_isophote_fail_count=0)
 
     def test_default_values(self):
-        """Default config has retry disabled and fail_count=3."""
+        """Default config enables retry (3 attempts) and fail_count=3."""
         config = IsosterConfig()
-        assert config.max_retry_first_isophote == 0
+        assert config.max_retry_first_isophote == 3
         assert config.first_isophote_fail_count == 3
 
     def test_large_max_retry_rejected(self):

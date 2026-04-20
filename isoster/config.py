@@ -37,7 +37,7 @@ class IsosterConfig(BaseModel):
 
     # Fitting control
     maxit: int = Field(50, gt=0, description="Maximum iterations per isophote.")
-    minit: int = Field(10, gt=0, description="Minimum iterations per isophote.")
+    minit: int = Field(6, gt=0, description="Minimum iterations per isophote.")
     conver: float = Field(0.05, gt=0.0, description="Convergence threshold (max harmonic amplitude / rms).")
     convergence_scaling: str = Field(
         default="sector_area",
@@ -114,7 +114,7 @@ class IsosterConfig(BaseModel):
 
     # Quality control
     sclip: float = Field(3.0, gt=0.0, description="Sigma clipping threshold.")
-    nclip: int = Field(0, ge=0, description="Number of sigma clipping iterations.")
+    nclip: int = Field(1, ge=0, description="Number of sigma clipping iterations.")
     sclip_low: Optional[float] = Field(None, description="Lower sigma clipping threshold.")
     sclip_high: Optional[float] = Field(None, description="Upper sigma clipping threshold.")
     fflag: float = Field(0.5, ge=0.0, le=1.0, description="Maximum fraction of flagged data (masked + clipped).")
@@ -295,12 +295,14 @@ class IsosterConfig(BaseModel):
 
     # First Isophote Robustness
     max_retry_first_isophote: int = Field(
-        default=0,
+        default=3,
         ge=0,
         le=20,
         description="Maximum number of retry attempts for the first isophote when it fails "
         "(stop_code not in {0, 1, 2}). Each attempt perturbs sma0 and/or initial "
-        "geometry (eps, pa). 0 = disabled (default, backward compatible).",
+        "geometry (eps, pa). 0 disables retry; default 3 uses a fixed schedule "
+        "(0.8*sma0, 1.3*sma0, 0.6*sma0+near-circular) that adds near-zero overhead "
+        "when the first isophote already succeeds.",
     )
     first_isophote_fail_count: int = Field(
         default=3,
