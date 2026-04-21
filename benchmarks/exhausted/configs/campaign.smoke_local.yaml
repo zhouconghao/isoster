@@ -11,6 +11,14 @@ tools:
   isoster:
     enabled: true
     arms_file: benchmarks/exhausted/configs/isoster_arms.yaml
+  photutils:
+    enabled: true
+    arms_file: benchmarks/exhausted/configs/photutils_arms.yaml
+  autoprof:
+    enabled: true
+    arms_file: benchmarks/exhausted/configs/autoprof_arms.yaml
+    venv_python: "/tmp/autoprof_venv/bin/python"
+    timeout: 300
 
 isoster_harmonic_sweeps:
   - [5, 6]
@@ -33,7 +41,7 @@ datasets:
 qa:
   per_galaxy_qa: true
   cross_arm_overlay: true     # Phase C
-  cross_tool_comparison: false # Phase D (needs >=2 tools)
+  cross_tool_comparison: true # Phase D (needs >=2 tools)
   summary_grids: true         # Phase C
   residual_models: true
 
@@ -47,7 +55,7 @@ summary:
   per_galaxy_inventory: true
   per_galaxy_cross_arm_table: true   # Phase C
   per_tool_cross_arm_table: true     # Phase C
-  cross_tool_table: false             # Phase D
+  cross_tool_table: true              # Phase D
   # Composite score axes (lower = better). PA and ellipticity drift are
   # intentionally NOT scored: they can be genuinely astrophysical.
   composite_score_weights:

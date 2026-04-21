@@ -31,12 +31,16 @@ from ..analysis.inventory import (
     write_inventory,
 )
 from ..analysis.noise import compute_image_sigma
-from ..fitters.isoster_fitter import run_one_arm
+from ..fitters.autoprof_fitter import run_one_arm as _autoprof_run_one_arm
+from ..fitters.isoster_fitter import run_one_arm as _isoster_run_one_arm
+from ..fitters.photutils_fitter import run_one_arm as _photutils_run_one_arm
 from ..plotting.cross_arm_overlay import plot_cross_arm_overlay
+from ..plotting.cross_tool_comparison import plot_cross_tool_comparison
 from ..plotting.summary_grids import plot_summary_profiles, plot_summary_residuals
 from .config_loader import CampaignPlan, DatasetPlan, ToolPlan, load_campaign
 from .stats import (
     apply_composite_scores,
+    write_cross_tool_table,
     write_per_galaxy_cross_arm_table,
     write_per_tool_cross_arm_summary,
 )
@@ -112,9 +116,11 @@ def run_dataset(
         for tool_name, tool_plan in plan.tools.items():
             if not tool_plan.enabled:
                 continue
-            if tool_name != "isoster":
-                # Phase B: only isoster fitter exists.
-                print(f"      [skip] tool '{tool_name}' — Phase B supports isoster only")
+            if tool_name not in _TOOL_DISPATCH:
+                print(
+                    f"      [skip] tool '{tool_name}' — no fitter registered "
+                    f"(known: {sorted(_TOOL_DISPATCH)})"
+                )
                 continue
             tool_summary, rows = _run_tool_on_galaxy(
                 plan, tool_plan, bundle, galaxy_dir, sigma_info=sigma_info
@@ -126,6 +132,34 @@ def run_dataset(
             summary.total_skipped_arm += tool_summary.total_skipped_arm
             summary.total_failed += tool_summary.total_failed
             summary.total_ok += tool_summary.total_ok
+
+        # Per-galaxy cross-tool comparison figure (Phase D).
+        if plan.qa.get("cross_tool_comparison", False):
+            galaxy_inventories = {
+                tool: per_tool_rows.get(tool, {}).get(galaxy_id, [])
+                for tool in plan.tools
+                if plan.tools[tool].enabled
+            }
+            galaxy_inventories = {
+                k: v for k, v in galaxy_inventories.items() if v
+            }
+            if len(galaxy_inventories) >= 2:
+                cross_dir = galaxy_dir / "cross"
+                cross_dir.mkdir(parents=True, exist_ok=True)
+                try:
+                    plot_cross_tool_comparison(
+                        galaxy_inventories,
+                        cross_dir / "cross_tool_comparison.png",
+                        image=np.asarray(bundle.image, dtype=np.float64),
+                        mask=bundle.mask,
+                        sb_zeropoint=bundle.metadata.sb_zeropoint,
+                        pixel_scale_arcsec=bundle.metadata.pixel_scale_arcsec,
+                        title=f"{galaxy_id}  |  cross-tool",
+                    )
+                except Exception as exc:  # noqa: BLE001
+                    (cross_dir / "cross_tool_comparison.err.txt").write_text(
+                        f"{type(exc).__name__}: {exc}\n"
+                    )
 
     # Dataset-level per-tool cross-arm summary (Phase C).
     if plan.summary.get("per_tool_cross_arm_table", True):
@@ -142,6 +176,14 @@ def run_dataset(
     # Dataset-level multi-galaxy grids (one per (tool, arm)).
     if plan.qa.get("summary_grids", True):
         _write_summary_grids(plan, per_tool_rows, dataset_dir, campaign_dir)
+
+    # Dataset-level cross-tool table (Phase D).
+    if plan.summary.get("cross_tool_table", True) and len(per_tool_rows) >= 2:
+        result = write_cross_tool_table(per_tool_rows, dataset_dir)
+        if result is not None:
+            csv_path, md_path = result
+            print(f"  wrote {csv_path.relative_to(campaign_dir)}")
+            print(f"  wrote {md_path.relative_to(campaign_dir)}")
 
     return summary
 
@@ -211,6 +253,13 @@ def _first_galaxy_surface_brightness_hints(
     return {}
 
 
+_TOOL_DISPATCH: dict[str, Any] = {
+    "isoster": _isoster_run_one_arm,
+    "photutils": _photutils_run_one_arm,
+    "autoprof": _autoprof_run_one_arm,
+}
+
+
 def _run_tool_on_galaxy(
     plan: CampaignPlan,
     tool_plan: ToolPlan,
@@ -240,14 +289,24 @@ def _run_tool_on_galaxy(
         print(f"        [run ] {arm_id}")
         write_qa = plan.qa.get("per_galaxy_qa", True)
         write_model_fits = plan.qa.get("residual_models", True)
+        fitter_fn = _TOOL_DISPATCH[tool_plan.name]
+        # AutoProf needs a venv_python path from the tool's YAML extras.
+        extra_kwargs: dict[str, Any] = {}
+        if tool_plan.name == "autoprof":
+            extra = tool_plan.extra or {}
+            if "venv_python" in extra:
+                extra_kwargs["venv_python"] = str(extra["venv_python"])
+            if "timeout" in extra:
+                extra_kwargs["timeout"] = int(extra["timeout"])
         start = time.perf_counter()
-        row = run_one_arm(
+        row = fitter_fn(
             bundle,
             arm_id,
             arm_delta,
             arm_dir,
             write_qa=write_qa,
             write_model_fits=write_model_fits,
+            **extra_kwargs,
         )
         elapsed = time.perf_counter() - start
         status = row.get("status", "failed")

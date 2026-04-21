@@ -1,0 +1,62 @@
+# photutils.isophote arm roster.
+#
+# Ported from /Users/shuang/Dropbox/work/project/otters/sga_isoster/config/
+# photutils_benchmark.yaml. Each arm is a set of kwargs passed into
+# photutils's Ellipse.fit_image(). Unknown keys are silently dropped by
+# the fitter so adding new knobs is safe.
+
+arms:
+
+  baseline_median:
+    integrmode: median
+    sclip: 3.0
+    nclip: 3
+    linear: false
+    step: 0.1
+    fflag: 0.7
+    fix_center: false
+
+  default_bilinear:
+    integrmode: bilinear
+    sclip: 0.0
+    nclip: 0
+    linear: false
+    step: 0.1
+    fflag: 0.7
+    fix_center: false
+
+  aggressive_clip:
+    integrmode: median
+    sclip: 2.0
+    nclip: 5
+    linear: false
+    step: 0.1
+    fflag: 0.7
+    fix_center: false
+
+  low_fflag:
+    integrmode: median
+    sclip: 3.0
+    nclip: 3
+    linear: false
+    step: 0.1
+    fflag: 0.3
+    fix_center: false
+
+  linear_step:
+    integrmode: median
+    sclip: 3.0
+    nclip: 3
+    linear: true
+    step: 1.0
+    fflag: 0.7
+    fix_center: false
+
+  fixed_center:
+    integrmode: median
+    sclip: 3.0
+    nclip: 3
+    linear: false
+    step: 0.1
+    fflag: 0.7
+    fix_center: true

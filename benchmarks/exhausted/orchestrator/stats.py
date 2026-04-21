@@ -399,11 +399,110 @@ def _as_float(value: Any, fallback: float) -> float:
     return value
 
 
+def write_cross_tool_table(
+    per_tool_rows: dict[str, dict[str, list[dict[str, Any]]]],
+    output_dir: Path,
+    *,
+    default_arm_per_tool: dict[str, str] | None = None,
+) -> tuple[Path, Path] | None:
+    """Pivot per-tool inventories to a tool-vs-galaxy table.
+
+    Picks each tool's default arm (overridable via
+    ``default_arm_per_tool``) and, per galaxy, tabulates composite_score,
+    wall_time_fit_s, n_iso, combined_drift_pix, resid_rms_outer, flags.
+    Returns ``(csv_path, md_path)`` or ``None`` if fewer than two tools
+    contributed a row.
+    """
+    if default_arm_per_tool is None:
+        default_arm_per_tool = {
+            "isoster": "ref_default",
+            "photutils": "baseline_median",
+            "autoprof": "baseline",
+        }
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+    all_galaxies: set[str] = set()
+    for rows_by_galaxy in per_tool_rows.values():
+        all_galaxies.update(rows_by_galaxy.keys())
+    if len(per_tool_rows) < 2 or not all_galaxies:
+        return None
+
+    rows: list[dict[str, Any]] = []
+    for galaxy_id in sorted(all_galaxies):
+        for tool, rows_by_galaxy in per_tool_rows.items():
+            galaxy_rows = rows_by_galaxy.get(galaxy_id, [])
+            if not galaxy_rows:
+                continue
+            chosen = _pick_arm_row(galaxy_rows, default_arm_per_tool.get(tool))
+            if chosen is None:
+                continue
+            rows.append(
+                {
+                    "galaxy_id": galaxy_id,
+                    "tool": tool,
+                    "arm_id": chosen.get("arm_id", ""),
+                    "status": chosen.get("status", ""),
+                    "composite_score": _as_float(chosen.get("composite_score"), float("nan")),
+                    "wall_time_fit_s": _as_float(chosen.get("wall_time_fit_s"), float("nan")),
+                    "n_iso": int(chosen.get("n_iso", 0) or 0),
+                    "combined_drift_pix": _as_float(chosen.get("combined_drift_pix"), float("nan")),
+                    "resid_rms_inner": _as_float(chosen.get("resid_rms_inner"), float("nan")),
+                    "resid_rms_outer": _as_float(chosen.get("resid_rms_outer"), float("nan")),
+                    "flags": chosen.get("flags", ""),
+                }
+            )
+    if not rows:
+        return None
+
+    cols = (
+        "galaxy_id",
+        "tool",
+        "arm_id",
+        "status",
+        "composite_score",
+        "wall_time_fit_s",
+        "n_iso",
+        "combined_drift_pix",
+        "resid_rms_inner",
+        "resid_rms_outer",
+        "flags",
+    )
+    csv_path = output_dir / "cross_tool_table.csv"
+    md_path = output_dir / "cross_tool_table.md"
+    _write_csv(csv_path, rows, cols)
+    _write_markdown(
+        md_path,
+        title="Cross-tool table (default arm per tool)",
+        rows=rows,
+        columns=cols,
+    )
+    return csv_path, md_path
+
+
+def _pick_arm_row(
+    rows: list[dict[str, Any]], default_arm: str | None
+) -> dict[str, Any] | None:
+    ok_rows = [
+        r for r in rows
+        if str(r.get("status", "")).lower() in {"ok", "cached"}
+        and _as_float(r.get("flag_severity_max"), 0.0) < SEVERITY_ERROR
+    ]
+    if default_arm:
+        for r in ok_rows:
+            if str(r.get("arm_id", "")) == default_arm:
+                return r
+    if not ok_rows:
+        return None
+    ok_rows.sort(key=lambda r: _as_float(r.get("composite_score"), float("inf")))
+    return ok_rows[0]
+
+
 __all__ = [
     "compute_composite_score",
     "apply_composite_scores",
     "write_per_galaxy_cross_arm_table",
     "write_per_tool_cross_arm_summary",
+    "write_cross_tool_table",
     "DEFAULT_WEIGHTS",
     "ERROR_FLAG_PENALTY",
     "CROSS_ARM_COLUMNS",

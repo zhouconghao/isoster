@@ -1,0 +1,39 @@
+# AutoProf arm roster.
+#
+# Ported from /Users/shuang/Dropbox/work/project/otters/sga_isoster/config/
+# autoprof_benchmark.yaml. Arm keys map directly onto AutoProf's
+# ap_* options (the campaign fitter merges these into a defaults dict
+# before writing the options JSON).
+#
+# The sga_isoster "fixed_sga_center" arm is dropped because every adapter
+# in the campaign already provides an x0/y0; all AutoProf arms here are
+# effectively seeded with the adapter's initial center.
+
+arms:
+
+  baseline:
+    ap_isoclip: true
+    ap_isoclip_nsigma: 5.0
+    ap_regularize_scale: 1.0
+    ap_fit_limit: 2.0
+    ap_samplegeometricscale: 0.1
+
+  no_clip:
+    ap_isoclip: false
+    ap_regularize_scale: 1.0
+    ap_fit_limit: 2.0
+    ap_samplegeometricscale: 0.1
+
+  deep:
+    ap_isoclip: true
+    ap_isoclip_nsigma: 5.0
+    ap_fit_limit: 1.0
+    ap_samplegeometricscale: 0.05
+    ap_iso_interpolate_start: 3
+
+  high_regularization:
+    ap_isoclip: true
+    ap_isoclip_nsigma: 5.0
+    ap_regularize_scale: 2.0
+    ap_fit_limit: 2.0
+    ap_samplegeometricscale: 0.1
