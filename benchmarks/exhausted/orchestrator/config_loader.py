@@ -62,7 +62,11 @@ def load_campaign(yaml_path: str | Path) -> CampaignPlan:
     campaign_name = _require(raw, "campaign_name", yaml_path)
     output_root = expand_root(_require(raw, "output_root", yaml_path))
 
-    harmonic_sweeps = raw.get("isoster_harmonic_sweeps") or [[5, 6]]
+    # A missing key falls back to the default sweep; an explicit empty
+    # list disables higher-order harmonic expansion entirely.
+    harmonic_sweeps = raw.get("isoster_harmonic_sweeps")
+    if harmonic_sweeps is None:
+        harmonic_sweeps = [[5, 6]]
     if not isinstance(harmonic_sweeps, list) or not all(
         isinstance(entry, list) and all(isinstance(n, int) for n in entry)
         for entry in harmonic_sweeps

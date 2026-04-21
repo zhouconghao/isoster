@@ -24,9 +24,20 @@ from benchmarks.utils.run_metadata import (  # noqa: E402
 from isoster.output_paths import resolve_output_directory  # noqa: E402
 
 
-DEFAULT_MOCKGAL_PATH = Path("/Users/mac/Dropbox/work/project/otters/isophote_test/mockgal.py")
-DEFAULT_LIBPROFIT_BUILD_PATH = Path(
+# Original fallback paths used before the env-var override was added.
+# Set MOCKGAL_PATH / MOCKGAL_LIBPROFIT_BUILD to point at a different
+# checkout without editing this file.
+_MOCKGAL_FALLBACK_PATH = Path(
+    "/Users/mac/Dropbox/work/project/otters/isophote_test/mockgal.py"
+)
+_LIBPROFIT_BUILD_FALLBACK_PATH = Path(
     "/Users/mac/Dropbox/work/project/otters/isophote_test/libprofit/build"
+)
+DEFAULT_MOCKGAL_PATH = Path(os.environ.get("MOCKGAL_PATH", str(_MOCKGAL_FALLBACK_PATH)))
+DEFAULT_LIBPROFIT_BUILD_PATH = Path(
+    os.environ.get(
+        "MOCKGAL_LIBPROFIT_BUILD", str(_LIBPROFIT_BUILD_FALLBACK_PATH)
+    )
 )
 
 PRESETS = {
