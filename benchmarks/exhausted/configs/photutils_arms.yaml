@@ -43,14 +43,9 @@ arms:
     fflag: 0.3
     fix_center: false
 
-  linear_step:
-    integrmode: median
-    sclip: 3.0
-    nclip: 3
-    linear: true
-    step: 1.0
-    fflag: 0.7
-    fix_center: false
+  # NOTE: the SGA "linear_step" arm (linear=true, step=1.0) has been
+  # removed from the campaign — it is known to be a bad idea and took
+  # ~100 s on IC3370 vs ~20 s for the geometric-step arms.
 
   fixed_center:
     integrmode: median

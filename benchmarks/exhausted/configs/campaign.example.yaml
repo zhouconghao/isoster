@@ -56,7 +56,11 @@ qa:
   per_galaxy_qa: true
   cross_arm_overlay: true
   cross_tool_comparison: true  # effective only when >=2 tools are enabled
-  summary_grids: true
+  # summary_grids held off by default: the N-thumbnail grid format does
+  # not scale past ~20 galaxies. Raw outputs (profile.fits / inventory.fits
+  # / run_record.json) are enough to reconstruct any multi-galaxy figure
+  # offline. Set to true on small datasets where the grids are useful.
+  summary_grids: false
   residual_models: true
 
 # --- Execution controls ---

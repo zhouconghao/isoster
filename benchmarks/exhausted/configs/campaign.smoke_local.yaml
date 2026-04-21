@@ -42,7 +42,11 @@ qa:
   per_galaxy_qa: true
   cross_arm_overlay: true     # Phase C
   cross_tool_comparison: true # Phase D (needs >=2 tools)
-  summary_grids: true         # Phase C
+  # summary_grids default-off: the per-(tool, arm) N-thumbnail format
+  # does not scale past ~20 galaxies. Raw data in profile.fits +
+  # inventory.fits + run_record.json is enough to reconstruct any
+  # multi-galaxy figure offline.
+  summary_grids: false
   residual_models: true
 
 execution:
