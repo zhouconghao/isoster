@@ -47,6 +47,9 @@ INVENTORY_COLUMNS: tuple[str, ...] = (
     "resid_median_mid",
     "resid_median_outer",
     "frac_above_3sigma_outer",
+    "image_sigma_adu",
+    "sigma_method",
+    "n_iso_ref_used",
     "flags",
     "flag_severity_max",
     "composite_score",
@@ -65,6 +68,7 @@ INTEGER_COLUMNS = frozenset(
         "n_stop_m1",
         "n_locked",
         "first_isophote_retry_attempts",
+        "n_iso_ref_used",
     }
 )
 
@@ -91,6 +95,7 @@ FLOAT_COLUMNS = frozenset(
         "resid_median_mid",
         "resid_median_outer",
         "frac_above_3sigma_outer",
+        "image_sigma_adu",
         "flag_severity_max",
         "composite_score",
     }

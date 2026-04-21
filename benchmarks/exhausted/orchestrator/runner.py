@@ -30,6 +30,7 @@ from ..analysis.inventory import (
     column_default,
     write_inventory,
 )
+from ..analysis.noise import compute_image_sigma
 from ..fitters.isoster_fitter import run_one_arm
 from ..plotting.cross_arm_overlay import plot_cross_arm_overlay
 from ..plotting.summary_grids import plot_summary_profiles, plot_summary_residuals
@@ -102,7 +103,11 @@ def run_dataset(
 
         galaxy_dir = dataset_dir / safe_galaxy_id(galaxy_id)
         galaxy_dir.mkdir(parents=True, exist_ok=True)
-        _write_manifest(bundle, galaxy_dir)
+
+        # Estimate image_sigma once per galaxy so every arm uses the
+        # same noise scale for the composite score.
+        sigma_info = _estimate_galaxy_sigma(bundle)
+        _write_manifest(bundle, galaxy_dir, sigma_info=sigma_info)
 
         for tool_name, tool_plan in plan.tools.items():
             if not tool_plan.enabled:
@@ -111,7 +116,9 @@ def run_dataset(
                 # Phase B: only isoster fitter exists.
                 print(f"      [skip] tool '{tool_name}' — Phase B supports isoster only")
                 continue
-            tool_summary, rows = _run_tool_on_galaxy(plan, tool_plan, bundle, galaxy_dir)
+            tool_summary, rows = _run_tool_on_galaxy(
+                plan, tool_plan, bundle, galaxy_dir, sigma_info=sigma_info
+            )
             per_tool_rows.setdefault(tool_name, {})[galaxy_id] = rows
             summary.total_requested += tool_summary.total_requested
             summary.total_ran += tool_summary.total_ran
@@ -209,6 +216,8 @@ def _run_tool_on_galaxy(
     tool_plan: ToolPlan,
     bundle: GalaxyBundle,
     galaxy_dir: Path,
+    *,
+    sigma_info: dict[str, Any] | None = None,
 ) -> tuple[RunSummary, list[dict[str, Any]]]:
     tool_dir = galaxy_dir / tool_plan.name
     arms_dir = tool_dir / "arms"
@@ -270,7 +279,16 @@ def _run_tool_on_galaxy(
     # Phase C: attach composite_score using campaign weights, write
     # inventory + per-galaxy cross-arm table + overlay plot.
     weights = plan.summary.get("composite_score_weights") or None
-    rows = apply_composite_scores(rows, weights)
+    image_sigma = float(
+        (sigma_info or {}).get("image_sigma_adu", 1.0)
+    )
+    sigma_method = str((sigma_info or {}).get("sigma_method", "unknown"))
+    rows = apply_composite_scores(rows, weights, image_sigma=image_sigma)
+    # Stamp every row with the sigma provenance so the inventory is
+    # self-contained for the auditor.
+    for row in rows:
+        row.setdefault("image_sigma_adu", image_sigma)
+        row.setdefault("sigma_method", sigma_method)
     inv_path = tool_dir / "inventory.fits"
     write_inventory(rows, inv_path)
     if plan.summary.get("per_galaxy_cross_arm_table", True):
@@ -334,7 +352,12 @@ def _load_cached_row(
     return row
 
 
-def _write_manifest(bundle: GalaxyBundle, galaxy_dir: Path) -> None:
+def _write_manifest(
+    bundle: GalaxyBundle,
+    galaxy_dir: Path,
+    *,
+    sigma_info: dict[str, Any] | None = None,
+) -> None:
     """Write MANIFEST.json summarizing the galaxy bundle for downstream tools."""
     md = bundle.metadata
     manifest = {
@@ -348,10 +371,27 @@ def _write_manifest(bundle: GalaxyBundle, galaxy_dir: Path) -> None:
         "has_variance": bundle.variance is not None,
         "has_mask": bundle.mask is not None,
         "initial_geometry": bundle.initial_geometry,
+        "image_sigma": sigma_info or {},
         "extra": md.extra,
     }
     with (galaxy_dir / "MANIFEST.json").open("w") as handle:
         json.dump(manifest, handle, indent=2, default=_json_default)
+
+
+def _estimate_galaxy_sigma(bundle: GalaxyBundle) -> dict[str, Any]:
+    """Compute once-per-galaxy ``image_sigma`` for the composite score."""
+    geom = bundle.initial_geometry
+    return compute_image_sigma(
+        np.asarray(bundle.image, dtype=np.float64),
+        x0=float(geom["x0"]),
+        y0=float(geom["y0"]),
+        eps=float(geom.get("eps", 0.2)),
+        pa=float(geom.get("pa", 0.0)),
+        R_ref=bundle.metadata.effective_Re_pix,
+        maxsma=float(geom.get("maxsma", min(np.asarray(bundle.image).shape) // 2)),
+        mask=bundle.mask,
+        variance=bundle.variance,
+    )
 
 
 def _write_campaign_snapshot(plan: CampaignPlan, campaign_dir: Path) -> None:

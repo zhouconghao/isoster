@@ -5,7 +5,7 @@
 # galaxies. Scale down via the `select:` list or trim isoster_arms.yaml.
 
 campaign_name: "smoke_local_data"
-output_root: "~/isoster_campaign_runs"
+output_root: "outputs/benchmark_exhausted"   # repo-relative (under gitignored outputs/)
 
 tools:
   isoster:
@@ -48,9 +48,20 @@ summary:
   per_galaxy_cross_arm_table: true   # Phase C
   per_tool_cross_arm_table: true     # Phase C
   cross_tool_table: false             # Phase D
+  # Composite score axes (lower = better). PA and ellipticity drift are
+  # intentionally NOT scored: they can be genuinely astrophysical.
   composite_score_weights:
-    spline_rms_center: 1.0
-    max_dpa_deg: 1.0
-    max_deps: 1.0
+    # Fidelity (residual RMS in zone, divided by image_sigma)
+    resid_inner: 1.0
+    resid_mid: 1.0
+    resid_outer: 2.0
+    # Center stability (combined_drift_pix / centroid_tol_pix)
+    centroid_drift: 1.0
+    centroid_tol_pix: 2.0    # divisor; for real galaxies scale with PSF FWHM
+    # Convergence health
     n_stop_m1: 2.0
-    elapsed_s: -0.02
+    frac_stop_nonzero: 5.0
+    # Completeness (penalize short fits vs. the best arm on this galaxy)
+    n_iso_completeness: 3.0
+    # Speed (tie-breaker)
+    wall_time: 0.1

@@ -6,7 +6,9 @@
 #   uv run python -m benchmarks.exhausted.orchestrator.cli dry-run /tmp/my_campaign.yaml
 
 campaign_name: "2026-04-20_initial_huang2013"
-output_root: "~/isoster_campaign_runs"  # $HOME-relative or absolute; created if missing
+# Repo-relative (under gitignored outputs/) by default; also accepts
+# absolute or $HOME-relative (e.g. "/data/...", "~/campaign_runs/...").
+output_root: "outputs/benchmark_exhausted"
 
 # --- Tools to run ---
 # Tool-specific arms live in the files referenced by arms_file.
@@ -69,10 +71,23 @@ summary:
   per_galaxy_inventory: true
   per_tool_cross_arm_table: true
   cross_tool_table: true
-  # Composite score: lower is better. Weights multiplied by the listed metric.
+  # Composite score axes (lower = better). PA and eps drift are not
+  # scored: they can be genuinely astrophysical (isophote twist,
+  # ellipticity gradient). Residual RMS in three radial zones captures
+  # fit fidelity; centroid drift captures nucleus wander; stop-code
+  # counts and n_iso completeness capture convergence behavior.
   composite_score_weights:
-    spline_rms_center: 1.0
-    max_dpa_deg: 1.0
-    max_deps: 1.0
+    # Fidelity (resid_rms_zone / image_sigma)
+    resid_inner: 1.0
+    resid_mid: 1.0
+    resid_outer: 2.0
+    # Center stability
+    centroid_drift: 1.0
+    centroid_tol_pix: 2.0    # divisor; tolerate up to this per isophote
+    # Convergence health
     n_stop_m1: 2.0
-    elapsed_s: -0.02
+    frac_stop_nonzero: 5.0
+    # Completeness
+    n_iso_completeness: 3.0
+    # Speed (minor tie-breaker)
+    wall_time: 0.1
