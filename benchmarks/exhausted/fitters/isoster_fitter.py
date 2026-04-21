@@ -32,7 +32,10 @@ from isoster import IsosterConfig, fit_image
 from isoster.utils import isophote_results_to_fits
 
 from ..adapters.base import GalaxyBundle
+from ..analysis.inventory import INVENTORY_COLUMNS
 from ..analysis.metrics import summarize_fit
+from ..analysis.quality_flags import evaluate_flags
+from ..analysis.residual_zones import residual_zone_stats
 from ..plotting.per_galaxy_qa import build_model_cube, render_per_arm_qa
 
 # ---------------------------------------------------------------------------
@@ -157,6 +160,47 @@ def run_one_arm(
         lsb_sma_threshold_pix=lsb_threshold,
     )
 
+    # First-isophote diagnostics (live in the results dict, not the profile FITS).
+    retry_log = results.get("first_isophote_retry_log") or []
+    first_isophote_diag = {
+        "first_isophote_failure": bool(results.get("first_isophote_failure", False)),
+        "first_isophote_retry_attempts": len(retry_log),
+        "first_isophote_retry_stop_codes": ",".join(
+            str(int(entry.get("stop_code", -99))) for entry in retry_log
+        ),
+    }
+
+    # Residual-zone statistics (elliptical zones anchored at the adapter's
+    # initial geometry so zones stay arm-independent).
+    image = np.asarray(bundle.image, dtype=np.float64)
+    model, _ = build_model_cube(bundle, results)
+    geom = bundle.initial_geometry
+    zone_stats = residual_zone_stats(
+        image,
+        model,
+        x0=float(geom["x0"]),
+        y0=float(geom["y0"]),
+        eps=float(geom.get("eps", 0.2)),
+        pa=float(geom.get("pa", 0.0)),
+        R_ref=bundle.metadata.effective_Re_pix,
+        maxsma=float(geom.get("maxsma", min(image.shape) // 2)),
+        mask=bundle.mask,
+    )
+    # Only the inventory-column subset flows into the row; the rest sits in
+    # the run_record for audit.
+    zone_row_cols = {
+        k: zone_stats[k]
+        for k in (
+            "resid_rms_inner",
+            "resid_rms_mid",
+            "resid_rms_outer",
+            "resid_median_inner",
+            "resid_median_mid",
+            "resid_median_outer",
+            "frac_above_3sigma_outer",
+        )
+    }
+
     row = dict(row_skeleton)
     row.update(
         {
@@ -165,19 +209,27 @@ def run_one_arm(
             "wall_time_fit_s": float(wall_fit),
             "wall_time_total_s": float(time.perf_counter() - total_start),
             **metrics,
+            **first_isophote_diag,
+            **zone_row_cols,
             "qa_path": str(outputs.qa_png) if outputs.qa_png else "",
             "profile_path": str(outputs.profile_fits),
             "model_path": str(outputs.model_fits) if outputs.model_fits else "",
             "config_path": str(outputs.config_yaml),
         }
     )
+    # Flags depend on all metrics above, so evaluate after the row is
+    # assembled.
+    row.update(evaluate_flags(row))
     _write_run_record(
         output_dir,
         {
             "status": "ok",
             "wall_time_fit_s": float(wall_fit),
             "wall_time_total_s": row["wall_time_total_s"],
-            "metrics": metrics,
+            "metrics": {**metrics, **first_isophote_diag, **zone_stats},
+            "flags": row.get("flags", ""),
+            "flag_severity_max": row.get("flag_severity_max", 0.0),
+            "first_isophote_retry_log": retry_log,
             "arm_delta": effective_delta,
             "variance_used": bool(use_variance and bundle.variance is not None),
             "config_snapshot": _config_to_dict(config),
@@ -322,50 +374,18 @@ def _json_default(value: Any) -> Any:
 # Inventory row skeleton
 # ---------------------------------------------------------------------------
 
-INVENTORY_COLUMNS: tuple[str, ...] = (
-    "galaxy_id",
-    "tool",
-    "arm_id",
-    "status",
-    "error_msg",
-    "wall_time_fit_s",
-    "wall_time_total_s",
-    "n_iso",
-    "n_stop_0",
-    "n_stop_1",
-    "n_stop_2",
-    "n_stop_m1",
-    "frac_stop_nonzero",
-    "stop_code_hist",
-    "combined_drift_pix",
-    "spline_rms_center",
-    "max_dpa_deg",
-    "max_deps",
-    "outer_gerr_median",
-    "outward_drift_x",
-    "outward_drift_y",
-    "n_locked",
-    "locked_drift_x",
-    "locked_drift_y",
-    "qa_path",
-    "profile_path",
-    "model_path",
-    "config_path",
-)
-
-
 def _empty_inventory_row(galaxy_id: str, arm_id: str) -> dict[str, Any]:
     row: dict[str, Any] = {col: "" for col in INVENTORY_COLUMNS}
     row["galaxy_id"] = galaxy_id
     row["tool"] = "isoster"
     row["arm_id"] = arm_id
     row["status"] = "pending"
-    row["n_iso"] = 0
-    row["n_stop_0"] = 0
-    row["n_stop_1"] = 0
-    row["n_stop_2"] = 0
-    row["n_stop_m1"] = 0
-    row["n_locked"] = 0
+    for int_col in (
+        "n_iso", "n_stop_0", "n_stop_1", "n_stop_2", "n_stop_m1", "n_locked",
+        "first_isophote_retry_attempts",
+    ):
+        row[int_col] = 0
+    row["first_isophote_failure"] = False
     for numeric_col in (
         "wall_time_fit_s",
         "wall_time_total_s",
@@ -379,6 +399,15 @@ def _empty_inventory_row(galaxy_id: str, arm_id: str) -> dict[str, Any]:
         "outward_drift_y",
         "locked_drift_x",
         "locked_drift_y",
+        "resid_rms_inner",
+        "resid_rms_mid",
+        "resid_rms_outer",
+        "resid_median_inner",
+        "resid_median_mid",
+        "resid_median_outer",
+        "frac_above_3sigma_outer",
+        "flag_severity_max",
+        "composite_score",
     ):
         row[numeric_col] = float("nan")
     return row

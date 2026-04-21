@@ -32,21 +32,22 @@ datasets:
 
 qa:
   per_galaxy_qa: true
-  cross_arm_overlay: false    # Phase C
-  cross_tool_comparison: false
-  summary_grids: false        # Phase C
+  cross_arm_overlay: true     # Phase C
+  cross_tool_comparison: false # Phase D (needs >=2 tools)
+  summary_grids: true         # Phase C
   residual_models: true
 
 execution:
-  max_parallel_galaxies: 1    # Phase B is sequential
+  max_parallel_galaxies: 1    # parallelism deferred to Phase E
   skip_existing: true
   dry_run: false
   fail_fast: false
 
 summary:
   per_galaxy_inventory: true
-  per_tool_cross_arm_table: false    # Phase C
-  cross_tool_table: false
+  per_galaxy_cross_arm_table: true   # Phase C
+  per_tool_cross_arm_table: true     # Phase C
+  cross_tool_table: false             # Phase D
   composite_score_weights:
     spline_rms_center: 1.0
     max_dpa_deg: 1.0

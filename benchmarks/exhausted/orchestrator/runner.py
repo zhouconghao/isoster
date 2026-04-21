@@ -23,11 +23,22 @@ from typing import Any
 
 import numpy as np
 import yaml
-from astropy.table import Table
 
 from ..adapters.base import GalaxyBundle, safe_galaxy_id
-from ..fitters.isoster_fitter import INVENTORY_COLUMNS, run_one_arm
+from ..analysis.inventory import (
+    INVENTORY_COLUMNS,
+    column_default,
+    write_inventory,
+)
+from ..fitters.isoster_fitter import run_one_arm
+from ..plotting.cross_arm_overlay import plot_cross_arm_overlay
+from ..plotting.summary_grids import plot_summary_profiles, plot_summary_residuals
 from .config_loader import CampaignPlan, DatasetPlan, ToolPlan, load_campaign
+from .stats import (
+    apply_composite_scores,
+    write_per_galaxy_cross_arm_table,
+    write_per_tool_cross_arm_summary,
+)
 
 
 @dataclass
@@ -77,6 +88,9 @@ def run_dataset(
         allow = set(ds_plan.select)
         galaxy_ids = [g for g in galaxy_ids if g in allow]
 
+    # Collected inventory rows per (tool, galaxy) for dataset-level summaries.
+    per_tool_rows: dict[str, dict[str, list[dict[str, Any]]]] = {}
+
     print(f"=== dataset '{ds_plan.name}' ({len(galaxy_ids)} galaxies) ===")
     for index, galaxy_id in enumerate(galaxy_ids, start=1):
         print(f"  [{index:>3d}/{len(galaxy_ids)}] {galaxy_id}")
@@ -97,7 +111,8 @@ def run_dataset(
                 # Phase B: only isoster fitter exists.
                 print(f"      [skip] tool '{tool_name}' — Phase B supports isoster only")
                 continue
-            tool_summary = _run_tool_on_galaxy(plan, tool_plan, bundle, galaxy_dir)
+            tool_summary, rows = _run_tool_on_galaxy(plan, tool_plan, bundle, galaxy_dir)
+            per_tool_rows.setdefault(tool_name, {})[galaxy_id] = rows
             summary.total_requested += tool_summary.total_requested
             summary.total_ran += tool_summary.total_ran
             summary.total_skipped_existing += tool_summary.total_skipped_existing
@@ -105,7 +120,88 @@ def run_dataset(
             summary.total_failed += tool_summary.total_failed
             summary.total_ok += tool_summary.total_ok
 
+    # Dataset-level per-tool cross-arm summary (Phase C).
+    if plan.summary.get("per_tool_cross_arm_table", True):
+        for tool_name, rows_by_galaxy in per_tool_rows.items():
+            if not rows_by_galaxy:
+                continue
+            dataset_tool_dir = dataset_dir / tool_name
+            csv_path, md_path = write_per_tool_cross_arm_summary(
+                rows_by_galaxy, tool_name, dataset_tool_dir
+            )
+            print(f"  wrote {csv_path.relative_to(campaign_dir)}")
+            print(f"  wrote {md_path.relative_to(campaign_dir)}")
+
+    # Dataset-level multi-galaxy grids (one per (tool, arm)).
+    if plan.qa.get("summary_grids", True):
+        _write_summary_grids(plan, per_tool_rows, dataset_dir, campaign_dir)
+
     return summary
+
+
+def _write_summary_grids(
+    plan: CampaignPlan,
+    per_tool_rows: dict[str, dict[str, list[dict[str, Any]]]],
+    dataset_dir: Path,
+    campaign_dir: Path,
+) -> None:
+    """One profile grid + one residual grid per (tool, arm)."""
+    for tool_name, rows_by_galaxy in per_tool_rows.items():
+        tool_plan = plan.tools.get(tool_name)
+        if tool_plan is None:
+            continue
+        grid_dir = dataset_dir / tool_name / "summary_grids"
+        # Infer a representative SB zeropoint and pixel scale for the profile
+        # grid from the first galaxy in the map; mixed datasets degrade
+        # gracefully to log10(I).
+        first_galaxy_bundle_hints = _first_galaxy_surface_brightness_hints(
+            rows_by_galaxy
+        )
+        for arm_id in tool_plan.arms.keys():
+            profile_path = grid_dir / f"summary_profiles_{_safe_arm_id(arm_id)}.png"
+            residual_path = grid_dir / f"summary_residuals_{_safe_arm_id(arm_id)}.png"
+            try:
+                plot_summary_profiles(
+                    rows_by_galaxy,
+                    arm_id,
+                    profile_path,
+                    sb_zeropoint=first_galaxy_bundle_hints.get("sb_zeropoint"),
+                    pixel_scale_arcsec=first_galaxy_bundle_hints.get("pixel_scale_arcsec"),
+                )
+                plot_summary_residuals(rows_by_galaxy, arm_id, residual_path)
+            except Exception as exc:  # noqa: BLE001 - plots must not kill the run
+                grid_dir.mkdir(parents=True, exist_ok=True)
+                (grid_dir / f"summary_{_safe_arm_id(arm_id)}.err.txt").write_text(
+                    f"{type(exc).__name__}: {exc}\n"
+                )
+
+
+def _first_galaxy_surface_brightness_hints(
+    rows_by_galaxy: dict[str, list[dict[str, Any]]]
+) -> dict[str, Any]:
+    """Find an arm row whose config.yaml surfaces the SB zeropoint + scale.
+
+    We look at the first galaxy's MANIFEST.json (written by
+    ``_write_manifest``). Returns an empty dict when none is found.
+    """
+    for galaxy_id, rows in rows_by_galaxy.items():
+        for row in rows:
+            config_path = row.get("config_path")
+            if not config_path:
+                continue
+            manifest_path = Path(config_path).parents[2] / "MANIFEST.json"
+            if not manifest_path.is_file():
+                continue
+            try:
+                with manifest_path.open() as handle:
+                    manifest = json.load(handle)
+            except json.JSONDecodeError:
+                continue
+            return {
+                "sb_zeropoint": manifest.get("sb_zeropoint"),
+                "pixel_scale_arcsec": manifest.get("pixel_scale_arcsec"),
+            }
+    return {}
 
 
 def _run_tool_on_galaxy(
@@ -113,7 +209,7 @@ def _run_tool_on_galaxy(
     tool_plan: ToolPlan,
     bundle: GalaxyBundle,
     galaxy_dir: Path,
-) -> RunSummary:
+) -> tuple[RunSummary, list[dict[str, Any]]]:
     tool_dir = galaxy_dir / tool_plan.name
     arms_dir = tool_dir / "arms"
     arms_dir.mkdir(parents=True, exist_ok=True)
@@ -154,7 +250,12 @@ def _run_tool_on_galaxy(
             summary.total_ok += 1
             drift = row.get("combined_drift_pix")
             drift_s = f"{drift:.3f}" if isinstance(drift, (int, float)) and np.isfinite(drift) else "nan"
-            print(f"             ok  ({elapsed:5.2f}s)  n_iso={row.get('n_iso')} drift={drift_s}px")
+            flags = row.get("flags", "")
+            flag_s = f"  flags={flags}" if flags else ""
+            print(
+                f"             ok  ({elapsed:5.2f}s)  n_iso={row.get('n_iso')} "
+                f"drift={drift_s}px{flag_s}"
+            )
         else:
             summary.total_ran += 1
             summary.total_failed += 1
@@ -166,10 +267,29 @@ def _run_tool_on_galaxy(
             print(f"             FAIL: {row.get('error_msg', '')}")
         rows.append(row)
 
-    # Per-galaxy-per-tool inventory.
+    # Phase C: attach composite_score using campaign weights, write
+    # inventory + per-galaxy cross-arm table + overlay plot.
+    weights = plan.summary.get("composite_score_weights") or None
+    rows = apply_composite_scores(rows, weights)
     inv_path = tool_dir / "inventory.fits"
     write_inventory(rows, inv_path)
-    return summary
+    if plan.summary.get("per_galaxy_cross_arm_table", True):
+        write_per_galaxy_cross_arm_table(rows, bundle.metadata.galaxy_id, tool_dir)
+    if plan.qa.get("cross_arm_overlay", True):
+        overlay_path = tool_dir / "cross_arm_overlay.png"
+        try:
+            plot_cross_arm_overlay(
+                rows,
+                overlay_path,
+                sb_zeropoint=bundle.metadata.sb_zeropoint,
+                pixel_scale_arcsec=bundle.metadata.pixel_scale_arcsec,
+                title=f"{bundle.metadata.galaxy_id}  |  {tool_plan.name}",
+            )
+        except Exception as exc:  # noqa: BLE001 - plot failures must not abort runs
+            overlay_path.with_suffix(".png.err.txt").write_text(
+                f"{type(exc).__name__}: {exc}\n"
+            )
+    return summary, rows
 
 
 # ---------------------------------------------------------------------------
@@ -181,45 +301,12 @@ def _safe_arm_id(arm_id: str) -> str:
     return arm_id.replace(":", "_").replace("/", "_")
 
 
-def write_inventory(rows: list[dict[str, Any]], path: Path) -> None:
-    """Write an inventory FITS table with one row per arm."""
-    if not rows:
-        return
-    path.parent.mkdir(parents=True, exist_ok=True)
-    ordered = {col: [row.get(col, _default_for(col)) for row in rows] for col in INVENTORY_COLUMNS}
-    table = Table(ordered)
-    table.write(path, overwrite=True)
-
-
-def _default_for(col: str) -> Any:
-    numeric_cols = {
-        "wall_time_fit_s",
-        "wall_time_total_s",
-        "frac_stop_nonzero",
-        "combined_drift_pix",
-        "spline_rms_center",
-        "max_dpa_deg",
-        "max_deps",
-        "outer_gerr_median",
-        "outward_drift_x",
-        "outward_drift_y",
-        "locked_drift_x",
-        "locked_drift_y",
-    }
-    int_cols = {"n_iso", "n_stop_0", "n_stop_1", "n_stop_2", "n_stop_m1", "n_locked"}
-    if col in numeric_cols:
-        return float("nan")
-    if col in int_cols:
-        return 0
-    return ""
-
-
 def _load_cached_row(
     arm_dir: Path, tool: str, galaxy_id: str, arm_id: str
 ) -> dict[str, Any]:
     """Rebuild an inventory row from an existing run_record.json."""
     record_path = arm_dir / "run_record.json"
-    row: dict[str, Any] = {col: _default_for(col) for col in INVENTORY_COLUMNS}
+    row: dict[str, Any] = {col: column_default(col) for col in INVENTORY_COLUMNS}
     row.update({"galaxy_id": galaxy_id, "tool": tool, "arm_id": arm_id, "status": "cached"})
     if not record_path.is_file():
         row["status"] = "cached_missing_record"
@@ -233,6 +320,8 @@ def _load_cached_row(
     for key in INVENTORY_COLUMNS:
         if key in metrics:
             row[key] = metrics[key]
+    row["flags"] = record.get("flags", "")
+    row["flag_severity_max"] = float(record.get("flag_severity_max", 0.0))
     # Preserve output paths
     row["profile_path"] = str(arm_dir / "profile.fits")
     model_fits = arm_dir / "model.fits"
