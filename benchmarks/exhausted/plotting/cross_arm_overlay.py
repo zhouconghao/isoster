@@ -43,7 +43,6 @@ from matplotlib.lines import Line2D
 from isoster.plotting import (
     configure_qa_plot_style,
     normalize_pa_degrees,
-    robust_limits,
     set_axis_limits_from_finite_values,
     set_x_limits_with_right_margin,
 )
@@ -291,50 +290,48 @@ def plot_cross_arm_overlay(
     ax_cen.grid(alpha=0.25)
     ax_cen.tick_params(axis="both", labelsize=tick_fs)
     dr_arr = np.asarray(dr_values, dtype=float)
+    dr_arr = dr_arr[np.isfinite(dr_arr)]
     if dr_arr.size:
-        set_axis_limits_from_finite_values(
-            ax_cen, dr_arr, margin_fraction=0.08, min_margin=0.3, lower_clip=0.0
-        )
+        dr_hi = float(np.max(dr_arr))
+        margin_hi = max(0.05 * dr_hi, 0.1)
+        ax_cen.set_ylim(-0.3, dr_hi + margin_hi)
 
-    # Axis ratio
+    # Axis ratio -- full range, clamped to [0, 1]
     ax_ba.set_ylabel(r"axis ratio $1-\epsilon$", fontsize=panel_label_fs)
     ax_ba.grid(alpha=0.25)
     ax_ba.tick_params(axis="both", labelsize=tick_fs)
     ba_arr = np.asarray(ba_values, dtype=float)
+    ba_arr = ba_arr[np.isfinite(ba_arr)]
     if ba_arr.size:
-        set_axis_limits_from_finite_values(
-            ax_ba,
-            ba_arr,
-            margin_fraction=0.08,
-            min_margin=0.03,
-            lower_clip=0.0,
-            upper_clip=1.0,
-        )
+        ba_lo = max(0.0, float(np.min(ba_arr)) - 0.03)
+        ba_hi = min(1.0, float(np.max(ba_arr)) + 0.03)
+        ax_ba.set_ylim(ba_lo, ba_hi)
 
-    # PA
+    # PA -- full range
     ax_pa.set_ylabel("PA [deg]", fontsize=panel_label_fs)
     ax_pa.grid(alpha=0.25)
     ax_pa.tick_params(axis="both", labelsize=tick_fs)
     pa_arr = np.asarray(pa_values_finite, dtype=float)
+    pa_arr = pa_arr[np.isfinite(pa_arr)]
     if pa_arr.size > 1:
-        pa_low, pa_high = robust_limits(pa_arr, 3, 97)
-        pa_margin = max(3.0, 0.08 * (pa_high - pa_low + 1e-6))
-        ax_pa.set_ylim(pa_low - pa_margin, pa_high + pa_margin)
+        pa_lo, pa_hi = float(np.min(pa_arr)), float(np.max(pa_arr))
+        pa_margin = max(3.0, 0.05 * (pa_hi - pa_lo + 1e-6))
+        ax_pa.set_ylim(pa_lo - pa_margin, pa_hi + pa_margin)
 
-    # Relative intensity difference
+    # Relative intensity difference -- full range
     ax_dsb.axhline(0.0, color="black", linestyle=":", linewidth=0.8, alpha=0.6)
     ref_tag = ref_arm_id if ref_arm_id else "ref"
     ax_dsb.set_ylabel(
-        r"$\Delta I/I_\mathrm{ref}$ [%]",
+        r"$\Delta I / I_\mathrm{ref}$ [\%]",
         fontsize=panel_label_fs,
     )
     ax_dsb.grid(alpha=0.25)
     ax_dsb.tick_params(axis="both", labelsize=tick_fs)
     dsb_arr = np.asarray(dsb_values, dtype=float)
+    dsb_arr = dsb_arr[np.isfinite(dsb_arr)]
     if dsb_arr.size > 1:
-        lo, hi = robust_limits(dsb_arr, 2, 98)
-        span = max(0.5, max(abs(lo), abs(hi)))
-        ax_dsb.set_ylim(-span * 1.1, span * 1.1)
+        span = max(0.5, float(np.max(np.abs(dsb_arr))))
+        ax_dsb.set_ylim(-span * 1.08, span * 1.08)
     ax_dsb.text(
         0.015,
         0.92,
@@ -346,19 +343,19 @@ def plot_cross_arm_overlay(
         alpha=0.8,
     )
 
-    # Relative CoG difference
+    # Relative CoG difference -- full range
     ax_dcog.axhline(0.0, color="black", linestyle=":", linewidth=0.8, alpha=0.6)
     ax_dcog.set_ylabel(
-        r"$\Delta \mathrm{CoG}/\mathrm{CoG}_\mathrm{ref}$ [%]",
+        r"$\Delta \mathrm{CoG} / \mathrm{CoG}_\mathrm{ref}$ [\%]",
         fontsize=panel_label_fs,
     )
     ax_dcog.grid(alpha=0.25)
     ax_dcog.tick_params(axis="both", labelsize=tick_fs)
     dcog_arr = np.asarray(dcog_values, dtype=float)
+    dcog_arr = dcog_arr[np.isfinite(dcog_arr)]
     if dcog_arr.size > 1:
-        lo, hi = robust_limits(dcog_arr, 2, 98)
-        span = max(0.5, max(abs(lo), abs(hi)))
-        ax_dcog.set_ylim(-span * 1.1, span * 1.1)
+        span = max(0.5, float(np.max(np.abs(dcog_arr))))
+        ax_dcog.set_ylim(-span * 1.08, span * 1.08)
 
     # x-axis label on the bottom panel only
     for ax in right_axes[:-1]:
@@ -375,7 +372,7 @@ def plot_cross_arm_overlay(
 
     # Final layout: shrink inter-column gap, widen left to avoid label clip.
     fig.subplots_adjust(
-        left=0.10, right=0.985, bottom=0.045, top=0.950, wspace=0.10, hspace=0.0
+        left=0.10, right=0.985, bottom=0.045, top=0.950, wspace=0.12, hspace=0.0
     )
     fig.savefig(output_path, dpi=150)
     plt.close(fig)
@@ -646,26 +643,31 @@ def _place_arm_legends(
         bright_corner_loc = "upper left"
         faint_corner_loc = "lower right"
 
+    compact_fs = max(8, int(legend_fs * 0.72))
     if first_group:
         leg1 = ax.legend(
             handles=_handles(first_group),
             loc=bright_corner_loc,
-            fontsize=legend_fs,
-            ncol=1,
-            framealpha=0.85,
-            labelspacing=0.28,
-            handlelength=1.6,
+            fontsize=compact_fs,
+            ncol=2,
+            framealpha=0.82,
+            labelspacing=0.22,
+            handlelength=1.2,
+            columnspacing=0.8,
+            borderpad=0.3,
         )
         ax.add_artist(leg1)
     if second_group:
         ax.legend(
             handles=_handles(second_group),
             loc=faint_corner_loc,
-            fontsize=legend_fs,
-            ncol=1,
-            framealpha=0.85,
-            labelspacing=0.28,
-            handlelength=1.6,
+            fontsize=compact_fs,
+            ncol=2,
+            framealpha=0.82,
+            labelspacing=0.22,
+            handlelength=1.2,
+            columnspacing=0.8,
+            borderpad=0.3,
         )
 
 
