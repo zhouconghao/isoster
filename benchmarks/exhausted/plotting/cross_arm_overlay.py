@@ -418,39 +418,37 @@ def _draw_scoreboard(
         status = str(r.get("status", "")).lower()
         severity = _as_float(r.get("flag_severity_max"), 0.0)
         score = _score(r)
+        runtime = _as_float(r.get("wall_time_fit_s"), float("nan"))
+        runtime_str = f"  {runtime:.2f}s" if np.isfinite(runtime) else ""
 
         arm_color = color_by_arm.get(arm_id, "#1f77b4")
         if status not in ("ok", "cached"):
             colour = SCORE_SKIPPED_COLOR
             bar_value = score_cap
             score_text = status.upper()
-            score_color = "black"
             score_weight = "normal"
         elif severity >= 2:
-            # Keep the arm color on the bar; mark the LABEL with bold red.
+            # Keep the arm color on the bar; mark the LABEL with bold black.
             colour = arm_color
             bar_value = score_cap
-            score_text = f"ERROR  {_fmt_score(score)}"
-            score_color = ERROR_LABEL_COLOR
+            score_text = f"ERROR  {_fmt_score(score)}{runtime_str}"
             score_weight = "bold"
         elif severity >= 1:
             colour = arm_color
             bar_value = min(score, score_cap)
-            score_text = _fmt_score(score)
-            score_color = SCORE_WARN_COLOR
+            score_text = f"{_fmt_score(score)}{runtime_str}"
             score_weight = "normal"
         else:
             colour = arm_color
             bar_value = min(score, score_cap)
-            score_text = _fmt_score(score)
-            score_color = "black"
+            score_text = f"{_fmt_score(score)}{runtime_str}"
             score_weight = "normal"
 
         labels.append(arm_id)
         bar_values.append(bar_value)
         bar_colors.append(colour)
         score_texts.append(score_text)
-        score_colors.append(score_color)
+        score_colors.append("black")
         score_weights.append(score_weight)
         flag_texts.append(_compact_flags(r.get("flags", "")))
 
@@ -467,7 +465,7 @@ def _draw_scoreboard(
     ax.invert_yaxis()
     ax.set_xlim(0, score_cap)
     ax.set_xlabel(
-        "composite score (lower wins)", fontsize=18
+        "Composite Score (Lower Value Wins)", fontsize=18
     )
     ax.tick_params(axis="x", labelsize=14)
     ax.set_title(
@@ -643,7 +641,7 @@ def _place_arm_legends(
         bright_corner_loc = "upper left"
         faint_corner_loc = "lower right"
 
-    compact_fs = max(8, int(legend_fs * 0.72))
+    compact_fs = max(8, int(round(legend_fs * 0.72 * 1.4)))
     if first_group:
         leg1 = ax.legend(
             handles=_handles(first_group),
