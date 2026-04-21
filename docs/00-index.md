@@ -12,6 +12,8 @@ Use this page as the entry point and map for project documentation.
 - `docs/05-testing.md`: testing and benchmark directives
 - `docs/06-qa-functions.md`: QA plotting functions, usage, options, and examples
 - `docs/07-lsb-features.md`: design and implementation of the LSB auto-lock and outer-region center regularization features
+- `docs/08-outer-regularization.md`: publication-grade reference for the outer-region Tikhonov regularization (math, algorithm, config, benchmarks)
+- `docs/09-exhausted-benchmark.md`: exhausted benchmark campaign framework reference (YAML schema, arms, output layout, scoring, adapter recipe)
 
 ## Agent-Internal Documents
 

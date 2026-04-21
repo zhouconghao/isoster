@@ -92,6 +92,7 @@ Follow these rules for all Python environment and dependency work in this reposi
 | `docs/06-qa-functions.md` | QA plotting functions: usage, options, and examples |
 | `docs/07-lsb-features.md` | Design + implementation notes for LSB auto-lock and outer-region center regularization |
 | `docs/08-outer-regularization.md` | Publication-grade reference for the outer-region Tikhonov regularization: math, algorithm, config, benchmarks |
+| `docs/09-exhausted-benchmark.md` | Exhausted benchmark campaign framework: YAML schema, arm sentinels, output layout, composite score, adapter recipe |
 
 ### Agent-internal docs (untracked, in `docs/agent/`)
 

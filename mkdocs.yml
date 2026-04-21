@@ -18,6 +18,8 @@ nav:
   - Testing: 05-testing.md
   - QA Functions: 06-qa-functions.md
   - LSB Features: 07-lsb-features.md
+  - Outer Regularization: 08-outer-regularization.md
+  - Exhausted Benchmark: 09-exhausted-benchmark.md
 
 markdown_extensions:
   - admonition
