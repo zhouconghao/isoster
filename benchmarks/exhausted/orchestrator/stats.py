@@ -189,6 +189,106 @@ def apply_composite_scores(
 
 
 # ---------------------------------------------------------------------------
+# Cross-tool score
+# ---------------------------------------------------------------------------
+#
+# The intra-tool composite score above penalizes axes that are not
+# tool-neutral: centroid drift (AutoProf forces one shared center by
+# construction, so it is zero regardless of fit quality), n_stop_m1 /
+# frac_stop_nonzero (AutoProf emits no photutils-style stop codes, so
+# both are zero by default). Ranking algorithms against each other with
+# those axes rewards structural design choices, not fit quality.
+#
+# The cross-tool score therefore only uses columns every fitter
+# populates identically:
+#   - resid_rms_{inner,mid,outer} (computed post-hoc from image - model
+#     by residual_zones.residual_zone_stats, independent of the fitter)
+#   - wall_time_fit_s
+#
+# ``cross_tool_score`` is the primary "Option B" formulation
+# (three-zone residual + runtime), and ``cross_tool_score_simple`` is a
+# minimal "Option A" variant (outer residual + runtime only) retained
+# as a publication-friendly sanity check.
+
+DEFAULT_CROSS_TOOL_WEIGHTS: dict[str, float] = {
+    "resid_inner": 1.0,
+    "resid_mid": 1.0,
+    "resid_outer": 2.0,
+    "wall_time": 0.1,
+}
+
+
+def compute_cross_tool_score(
+    row: dict[str, Any],
+    weights: dict[str, float] | None = None,
+    *,
+    image_sigma: float = 1.0,
+) -> float:
+    """Tool-neutral per-row score. Lower is better.
+
+    Only uses residual RMS per radial zone (normalized by image sigma)
+    and wall-clock time. Centroid drift and stop-code health are
+    omitted because not every tool populates them meaningfully.
+    Non-ok rows and severity-error rows sink to :data:`ERROR_FLAG_PENALTY`.
+    """
+    weights = weights if weights is not None else DEFAULT_CROSS_TOOL_WEIGHTS
+    status = str(row.get("status", "")).lower()
+    if status not in {"ok", "cached"}:
+        return ERROR_FLAG_PENALTY
+    severity = _as_float(row.get("flag_severity_max"), 0.0)
+    if severity >= SEVERITY_ERROR:
+        return ERROR_FLAG_PENALTY
+    sigma = max(float(image_sigma), MIN_SIGMA_VALUE)
+    fidelity = (
+        float(weights.get("resid_inner", 1.0))
+        * _as_float(row.get("resid_rms_inner"), 0.0)
+        / sigma
+        + float(weights.get("resid_mid", 1.0))
+        * _as_float(row.get("resid_rms_mid"), 0.0)
+        / sigma
+        + float(weights.get("resid_outer", 2.0))
+        * _as_float(row.get("resid_rms_outer"), 0.0)
+        / sigma
+    )
+    speed = float(weights.get("wall_time", 0.1)) * _as_float(
+        row.get("wall_time_fit_s"), 0.0
+    )
+    return float(fidelity + speed)
+
+
+def compute_cross_tool_score_simple(
+    row: dict[str, Any],
+    weights: dict[str, float] | None = None,
+    *,
+    image_sigma: float = 1.0,
+) -> float:
+    """Minimal "Option A" score: outer residual + runtime only.
+
+    Kept alongside the primary score so a publication table can show
+    both: the three-zone version for diagnosis, the outer-only version
+    for a single-number summary of where the fitters genuinely differ
+    (the LSB regime).
+    """
+    weights = weights if weights is not None else DEFAULT_CROSS_TOOL_WEIGHTS
+    status = str(row.get("status", "")).lower()
+    if status not in {"ok", "cached"}:
+        return ERROR_FLAG_PENALTY
+    severity = _as_float(row.get("flag_severity_max"), 0.0)
+    if severity >= SEVERITY_ERROR:
+        return ERROR_FLAG_PENALTY
+    sigma = max(float(image_sigma), MIN_SIGMA_VALUE)
+    fidelity = (
+        float(weights.get("resid_outer", 2.0))
+        * _as_float(row.get("resid_rms_outer"), 0.0)
+        / sigma
+    )
+    speed = float(weights.get("wall_time", 0.1)) * _as_float(
+        row.get("wall_time_fit_s"), 0.0
+    )
+    return float(fidelity + speed)
+
+
+# ---------------------------------------------------------------------------
 # Cross-arm tables
 # ---------------------------------------------------------------------------
 
@@ -404,13 +504,17 @@ def write_cross_tool_table(
     output_dir: Path,
     *,
     default_arm_per_tool: dict[str, str] | None = None,
+    cross_tool_weights: dict[str, float] | None = None,
 ) -> tuple[Path, Path] | None:
     """Pivot per-tool inventories to a tool-vs-galaxy table.
 
     Picks each tool's default arm (overridable via
-    ``default_arm_per_tool``) and, per galaxy, tabulates composite_score,
-    wall_time_fit_s, n_iso, combined_drift_pix, resid_rms_outer, flags.
-    Returns ``(csv_path, md_path)`` or ``None`` if fewer than two tools
+    ``default_arm_per_tool``) and, per galaxy, tabulates:
+      - ``composite_score`` (intra-tool; shown for continuity)
+      - ``cross_tool_score``        — primary tool-neutral (Option B)
+      - ``cross_tool_score_simple`` — outer-only variant (Option A)
+    along with the raw residuals, runtime, n_iso, and drift. Returns
+    ``(csv_path, md_path)`` or ``None`` if fewer than two tools
     contributed a row.
     """
     if default_arm_per_tool is None:
@@ -436,6 +540,15 @@ def write_cross_tool_table(
             chosen = _pick_arm_row(galaxy_rows, default_arm_per_tool.get(tool))
             if chosen is None:
                 continue
+            image_sigma = max(
+                _as_float(chosen.get("image_sigma_adu"), 1.0), MIN_SIGMA_VALUE
+            )
+            cross_score = compute_cross_tool_score(
+                chosen, cross_tool_weights, image_sigma=image_sigma
+            )
+            cross_score_simple = compute_cross_tool_score_simple(
+                chosen, cross_tool_weights, image_sigma=image_sigma
+            )
             rows.append(
                 {
                     "galaxy_id": galaxy_id,
@@ -443,10 +556,13 @@ def write_cross_tool_table(
                     "arm_id": chosen.get("arm_id", ""),
                     "status": chosen.get("status", ""),
                     "composite_score": _as_float(chosen.get("composite_score"), float("nan")),
+                    "cross_tool_score": cross_score,
+                    "cross_tool_score_simple": cross_score_simple,
                     "wall_time_fit_s": _as_float(chosen.get("wall_time_fit_s"), float("nan")),
                     "n_iso": int(chosen.get("n_iso", 0) or 0),
                     "combined_drift_pix": _as_float(chosen.get("combined_drift_pix"), float("nan")),
                     "resid_rms_inner": _as_float(chosen.get("resid_rms_inner"), float("nan")),
+                    "resid_rms_mid": _as_float(chosen.get("resid_rms_mid"), float("nan")),
                     "resid_rms_outer": _as_float(chosen.get("resid_rms_outer"), float("nan")),
                     "flags": chosen.get("flags", ""),
                 }
@@ -459,11 +575,14 @@ def write_cross_tool_table(
         "tool",
         "arm_id",
         "status",
+        "cross_tool_score",
+        "cross_tool_score_simple",
         "composite_score",
         "wall_time_fit_s",
         "n_iso",
         "combined_drift_pix",
         "resid_rms_inner",
+        "resid_rms_mid",
         "resid_rms_outer",
         "flags",
     )
@@ -500,6 +619,9 @@ def _pick_arm_row(
 __all__ = [
     "compute_composite_score",
     "apply_composite_scores",
+    "compute_cross_tool_score",
+    "compute_cross_tool_score_simple",
+    "DEFAULT_CROSS_TOOL_WEIGHTS",
     "write_per_galaxy_cross_arm_table",
     "write_per_tool_cross_arm_summary",
     "write_cross_tool_table",

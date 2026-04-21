@@ -95,3 +95,11 @@ summary:
     n_iso_completeness: 3.0
     # Speed (minor tie-breaker)
     wall_time: 0.1
+  # Tool-neutral score used by cross_tool_table. Residuals + runtime
+  # only, so every fitter is ranked on the same axes (centroid drift
+  # and stop-code counts are not populated uniformly across tools).
+  cross_tool_score_weights:
+    resid_inner: 1.0
+    resid_mid: 1.0
+    resid_outer: 2.0
+    wall_time: 0.1

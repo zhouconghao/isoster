@@ -83,8 +83,20 @@ def run_one_arm(
             data=np.asarray(bundle.mask, dtype=np.int16)
         ).writeto(mask_path, overwrite=True)
 
-    # 3) Build options JSON.
+    # 3) Build options JSON. A per-arm _fix_center_from sentinel can
+    # pin AutoProf's center to an external reference; absent that, we
+    # let AutoProf run its own centering pipeline (the recommended
+    # mode for the benchmark baseline).
     geom = bundle.initial_geometry
+    center_override, center_error = _resolve_center_override(
+        arm_delta=arm_delta or {},
+        arm_dir=output_dir,
+    )
+    if center_error is not None:
+        row["status"] = "skipped"
+        row["error_msg"] = center_error
+        _write_run_record(output_dir, {"status": "skipped", "reason": center_error})
+        return row
     options = _build_options(
         bundle=bundle,
         arm_delta=arm_delta,
@@ -92,6 +104,7 @@ def run_one_arm(
         mask_path=mask_path,
         save_dir=str(raw_dir),
         galaxy_tag=galaxy_tag,
+        center_override=center_override,
     )
     json_path = temp_dir / f"{galaxy_tag}_options.json"
     with json_path.open("w") as handle:
@@ -166,9 +179,17 @@ def run_one_arm(
         )
         return row
 
-    # Stamp centers onto every isophote (AutoProf reports a single center).
+    # Stamp centers onto every isophote. AutoProf writes a "center x:"
+    # line only when it actually ran its centering pipeline. With
+    # `ap_set_center` present, the pipeline is skipped and the .aux
+    # file only carries the round-tripped `option ap_set_center` line.
+    # Fall back to the value we passed in (initial_geometry) so the
+    # downstream model / QA / drift metric all see the correct pixel.
     cx = float(aux_info.get("center_x", np.nan))
     cy = float(aux_info.get("center_y", np.nan))
+    if not np.isfinite(cx) or not np.isfinite(cy):
+        cx = float(geom["x0"])
+        cy = float(geom["y0"])
     for iso in isophotes:
         if "x0" not in iso or not np.isfinite(iso.get("x0", np.nan)):
             iso["x0"] = cx
@@ -300,6 +321,7 @@ def run_one_arm(
             "autoprof_aux": aux_info,
             "autoprof_n_raw": n_raw,
             "autoprof_n_filtered": n_filtered,
+            "fix_center_override": center_override,
         },
     )
     return row
@@ -375,6 +397,7 @@ def _build_options(
     mask_path: Path | None,
     save_dir: str,
     galaxy_tag: str,
+    center_override: dict[str, float] | None = None,
 ) -> dict[str, Any]:
     cfg = dict(AUTOPROF_DEFAULTS)
     cfg.update(arm_delta or {})
@@ -403,13 +426,91 @@ def _build_options(
     if mask_path is not None:
         options["ap_mask_file"] = str(mask_path)
         options["ap_mask_hdu"] = 0
-    # Seed AutoProf's center with the adapter's initial x0/y0. That's
-    # the same convention our other fitters use.
-    options["ap_set_center"] = {"x": float(geom["x0"]), "y": float(geom["y0"])}
+    # By default, let AutoProf run its own centering pipeline — the
+    # fairest comparison is the tool used as recommended. The adapter's
+    # (x0, y0) is passed as `ap_guess_center` (a seed, *not* a fix) so
+    # the centering routine starts near the galaxy rather than at the
+    # image-center fallback. Only when an arm supplies a
+    # `_fix_center_from` sentinel do we hard-fix the center via
+    # `ap_set_center` (see _resolve_center_override).
+    options["ap_guess_center"] = {"x": float(geom["x0"]), "y": float(geom["y0"])}
+    if center_override is not None:
+        options["ap_set_center"] = {
+            "x": float(center_override["x"]),
+            "y": float(center_override["y"]),
+        }
     # Optional PA / ellipticity seeds from the adapter.
     options["ap_isoinit_pa_set"] = float(np.degrees(geom.get("pa", 0.0)))
     options["ap_isoinit_ellip_set"] = float(geom.get("eps", 0.2))
     return options
+
+
+def _resolve_center_override(
+    *,
+    arm_delta: dict[str, Any],
+    arm_dir: Path,
+) -> tuple[dict[str, float] | None, str | None]:
+    """Resolve the optional ``_fix_center_from`` sentinel on an arm.
+
+    Returns ``(center_dict, None)`` when the sentinel is honored,
+    ``(None, None)`` when the arm uses AutoProf's own centering, and
+    ``(None, error_msg)`` when the sentinel cannot be resolved (the
+    caller should mark the arm as ``status="skipped"``).
+
+    Supported sentinels:
+      - ``isoster_weighted``: intensity-weighted (x0, y0) over the
+        first 10 stop_code==0 isophotes of the companion
+        ``isoster/arms/ref_default/profile.fits``. Requires isoster to
+        have run first for the same galaxy.
+    """
+    source = arm_delta.get("_fix_center_from")
+    if source is None:
+        return None, None
+    source = str(source)
+    if source != "isoster_weighted":
+        return None, f"unknown _fix_center_from sentinel: {source!r}"
+    # arm_dir layout: <galaxy_dir>/autoprof/arms/<arm_id>/
+    galaxy_dir = arm_dir.parents[2]
+    isoster_profile = galaxy_dir / "isoster" / "arms" / "ref_default" / "profile.fits"
+    if not isoster_profile.is_file():
+        return None, (
+            "fix_center requires isoster ref_default profile at "
+            f"{isoster_profile} but it does not exist. Enable the isoster "
+            "tool in the campaign and make sure it runs before autoprof."
+        )
+    try:
+        with fits.open(isoster_profile) as hdul:
+            table = hdul[1].data
+            sma = np.asarray(table["sma"], dtype=float)
+            x0 = np.asarray(table["x0"], dtype=float)
+            y0 = np.asarray(table["y0"], dtype=float)
+            intens = np.asarray(table["intens"], dtype=float)
+            stop_code = np.asarray(table["stop_code"], dtype=int)
+    except Exception as exc:  # noqa: BLE001
+        return None, f"fix_center failed to read {isoster_profile}: {exc}"
+    order = np.argsort(sma)
+    x0 = x0[order]
+    y0 = y0[order]
+    intens = intens[order]
+    stop_code = stop_code[order]
+    valid = (
+        (stop_code == 0)
+        & np.isfinite(x0)
+        & np.isfinite(y0)
+        & np.isfinite(intens)
+        & (intens > 0.0)
+    )
+    pool_x = x0[valid][:10]
+    pool_y = y0[valid][:10]
+    pool_i = intens[valid][:10]
+    if pool_x.size == 0:
+        return None, "fix_center: no stop_code==0 isophotes in isoster ref_default"
+    weights = pool_i / pool_i.sum()
+    cx = float(np.sum(weights * pool_x))
+    cy = float(np.sum(weights * pool_y))
+    if not (np.isfinite(cx) and np.isfinite(cy)):
+        return None, "fix_center produced non-finite (cx, cy)"
+    return {"x": cx, "y": cy, "n_used": int(pool_x.size)}, None
 
 
 # ---------------------------------------------------------------------------
@@ -515,6 +616,18 @@ def _parse_aux_file(aux_path: Path) -> dict[str, float]:
                 parts = line.split(",")
                 info["center_x"] = float(parts[0].split(":")[1].strip().split()[0])
                 info["center_y"] = float(parts[1].split(":")[1].strip().split()[0])
+            except Exception:  # noqa: BLE001
+                pass
+        elif line.startswith("option ap_set_center:"):
+            # Written by AutoProf when ap_set_center is supplied and
+            # the fitting centering steps are skipped. Format example:
+            #   option ap_set_center: {'x': 566.0, 'y': 566.0}
+            try:
+                import ast
+                payload = line.split(":", 1)[1].strip()
+                parsed = ast.literal_eval(payload)
+                info["center_x"] = float(parsed["x"])
+                info["center_y"] = float(parsed["y"])
             except Exception:  # noqa: BLE001
                 pass
         elif line.startswith("background:"):

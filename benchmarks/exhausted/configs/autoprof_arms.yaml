@@ -5,9 +5,19 @@
 # ap_* options (the campaign fitter merges these into a defaults dict
 # before writing the options JSON).
 #
-# The sga_isoster "fixed_sga_center" arm is dropped because every adapter
-# in the campaign already provides an x0/y0; all AutoProf arms here are
-# effectively seeded with the adapter's initial center.
+# By design, no arm here hard-fixes the center by default: AutoProf is
+# meant to find its own via the pipeline_steps/Center.py routines, and
+# the benchmark is fairest when each tool runs in its recommended mode.
+# The `fix_center` arm is the one exception: it pins AutoProf's center
+# to an isoster-derived reference so we can isolate centering quality
+# from profile-extraction quality.
+#
+# Sentinel resolved by the fitter at run time:
+#   _fix_center_from: isoster_weighted
+#     Reads <galaxy_dir>/isoster/arms/ref_default/profile.fits and sets
+#     ap_set_center to the intensity-weighted (x0, y0) over the first
+#     10 isophotes with stop_code == 0. Arm is skipped if the isoster
+#     reference profile is absent (isoster must run before autoprof).
 
 arms:
 
@@ -35,5 +45,13 @@ arms:
     ap_isoclip: true
     ap_isoclip_nsigma: 5.0
     ap_regularize_scale: 2.0
+    ap_fit_limit: 2.0
+    ap_samplegeometricscale: 0.1
+
+  fix_center:
+    _fix_center_from: isoster_weighted
+    ap_isoclip: true
+    ap_isoclip_nsigma: 5.0
+    ap_regularize_scale: 1.0
     ap_fit_limit: 2.0
     ap_samplegeometricscale: 0.1
