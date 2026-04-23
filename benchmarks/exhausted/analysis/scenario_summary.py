@@ -489,6 +489,15 @@ def compute_prior_metrics(
 
     harm_stats = {name: _harm_stat(name) for name in harm_fields}
 
+    # Prior 2 applicability: when both low-order harmonics (A3 and A4)
+    # have zero valid outer-zone points, the arm did not fit harmonics
+    # there (e.g. `harm_disabled`, or sweeps that replace the default
+    # [3, 4] orders). Mark Prior 2 N/A so the arm is neither credited
+    # with a clean pass nor flagged as violating.
+    prior2_applicable = bool(
+        (harm_stats["a3"]["n"] > 0) or (harm_stats["a4"]["n"] > 0)
+    )
+
     # ---- Prior 3: 3-point local residual in outer zone --------------
     # Use only outer-zone rows so the triplet is built over contiguous
     # outer isophotes. The per-row residual is only defined where both
@@ -535,6 +544,7 @@ def compute_prior_metrics(
             "abs_a4n_median_outer": harm_stats["a4"]["abs_median"],
             "abs_b4n_median_outer": harm_stats["b4"]["abs_median"],
             "n_harm_outer": harm_stats["a4"]["n"],
+            "prior2_applicable": prior2_applicable,
             # Prior 3 — 3-point local residual, outer zone only
             "max_local_resid_eps_outer": max_eps_res,
             "max_local_resid_pa_outer_deg": max_pa_res_deg,
@@ -574,10 +584,16 @@ DEFAULT_THRESHOLDS: dict[str, float] = {
 def classify_violations(
     metrics: dict[str, Any],
     thresholds: dict[str, float] | None = None,
-) -> dict[str, bool]:
-    """Map metric values onto ``violates_<prior>`` booleans.
+) -> dict[str, Any]:
+    """Map metric values onto ``violates_<prior>`` flags.
 
-    Missing values (NaN) count as non-violation.
+    Returns booleans for Priors 1 and 3. ``violates_harmonics_outer``
+    is ``None`` when Prior 2 does not apply (``prior2_applicable ==
+    False``, e.g. an arm that fit no A3/A4 harmonics). Treating N/A
+    as ``None`` lets downstream drivers skip that arm in the Prior 2
+    clean-fraction numerator and denominator without crediting a
+    free pass. Missing finite values (NaN) still count as
+    non-violation.
     """
     th = dict(DEFAULT_THRESHOLDS)
     if thresholds:
@@ -595,6 +611,17 @@ def classify_violations(
             return False
         return v > th[key]
 
+    prior2_applicable = bool(metrics.get("prior2_applicable", True))
+    harmonics_viol: bool | None
+    if prior2_applicable:
+        harmonics_viol = any(
+            _gt(f"{name}_err_ratio_outer")
+            and _gt(f"abs_{name}_median_outer")
+            for name in ("a3n", "b3n", "a4n", "b4n")
+        )
+    else:
+        harmonics_viol = None
+
     return {
         "violates_drift_inner": _gt("drift_iw_inner_pix"),
         "violates_drift_mid": _gt("drift_iw_mid_pix"),
@@ -604,11 +631,7 @@ def classify_violations(
             or _gt("drift_iw_mid_pix")
             or _gt("drift_iw_outer_pix")
         ),
-        "violates_harmonics_outer": any(
-            _gt(f"{name}_err_ratio_outer")
-            and _gt(f"abs_{name}_median_outer")
-            for name in ("a3n", "b3n", "a4n", "b4n")
-        ),
+        "violates_harmonics_outer": harmonics_viol,
         "violates_geometry_outer": (
             _gt("max_local_resid_eps_outer")
             or _gt("max_local_resid_pa_outer_deg")

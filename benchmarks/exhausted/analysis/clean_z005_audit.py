@@ -124,7 +124,11 @@ def write_audit_csv(rows: list[dict[str, Any]], outfile: Path) -> None:
 def _aggregate_violation_rates(
     rows: list[dict[str, Any]],
 ) -> tuple[list[str], np.ndarray, dict[str, int]]:
-    """Return (arm_order, rates[n_arms, n_priors], n_galaxies_per_arm)."""
+    """Return (arm_order, rates[n_arms, n_priors], n_galaxies_per_arm).
+
+    ``violates_harmonics_outer == None`` is treated as N/A and
+    excluded from both numerator and denominator of the per-arm rate.
+    """
     prior_cols = [c for c, _ in PRIOR_LABELS]
     per_arm_viol: dict[str, list[list[bool]]] = defaultdict(
         lambda: [[] for _ in PRIOR_LABELS]
@@ -134,14 +138,20 @@ def _aggregate_violation_rates(
             continue
         arm = r["arm_id"]
         for j, col in enumerate(prior_cols):
-            per_arm_viol[arm][j].append(bool(r.get(col, False)))
+            val = r.get(col, False)
+            if val is None:
+                continue
+            per_arm_viol[arm][j].append(bool(val))
     arm_order = sorted(per_arm_viol.keys())
-    rates = np.zeros((len(arm_order), len(PRIOR_LABELS)), dtype=float)
+    rates = np.full((len(arm_order), len(PRIOR_LABELS)), np.nan, dtype=float)
     n_per_arm: dict[str, int] = {}
     for i, arm in enumerate(arm_order):
         for j in range(len(PRIOR_LABELS)):
             vs = per_arm_viol[arm][j]
-            rates[i, j] = float(np.mean(vs)) if vs else float("nan")
+            if vs:
+                rates[i, j] = float(np.mean(vs))
+        # Galaxy count uses the drift column (always defined) as the
+        # denominator reference.
         n_per_arm[arm] = len(per_arm_viol[arm][0])
     return arm_order, rates, n_per_arm
 
@@ -339,15 +349,18 @@ def write_worst_cases_summary(
         )
 
     gal_agg: dict[str, dict[str, int]] = defaultdict(
-        lambda: {"drift": 0, "harm": 0, "geom": 0, "n": 0}
+        lambda: {"drift": 0, "harm": 0, "harm_n": 0, "geom": 0, "n": 0}
     )
     for r in ok_rows:
         d = gal_agg[r["galaxy_id"]]
         d["n"] += 1
         if bool(r.get("violates_drift_any", False)):
             d["drift"] += 1
-        if bool(r.get("violates_harmonics_outer", False)):
-            d["harm"] += 1
+        harm_val = r.get("violates_harmonics_outer", False)
+        if harm_val is not None:
+            d["harm_n"] += 1
+            if bool(harm_val):
+                d["harm"] += 1
         if bool(r.get("violates_geometry_outer", False)):
             d["geom"] += 1
     gal_rank = sorted(
@@ -399,9 +412,10 @@ def write_worst_cases_summary(
         )
         for i, (gid, d) in enumerate(gal_rank, start=1):
             total = d["drift"] + d["harm"] + d["geom"]
+            denom_total = 2 * d["n"] + d["harm_n"]
             h.write(
-                f"| {i} | {gid} | {total}/{3*d['n']} "
-                f"| {d['drift']}/{d['n']} | {d['harm']}/{d['n']} "
+                f"| {i} | {gid} | {total}/{denom_total} "
+                f"| {d['drift']}/{d['n']} | {d['harm']}/{d['harm_n']} "
                 f"| {d['geom']}/{d['n']} |\n"
             )
 
@@ -497,26 +511,34 @@ def write_arm_shortlist(rows: list[dict[str, Any]], outfile: Path,
     for r in ok_rows:
         per_arm[r["arm_id"]].append(r)
 
+    def _rate(arm_rows: list[dict[str, Any]], col: str) -> float:
+        """Mean over rows where the flag is not N/A (None)."""
+        pool = [bool(r[col]) for r in arm_rows
+                if col in r and r[col] is not None]
+        return float(np.mean(pool)) if pool else float("nan")
+
     entries: list[dict[str, Any]] = []
     for arm_id, arm_rows in per_arm.items():
         n = len(arm_rows)
-        viol_rates = {
-            col: float(np.mean([bool(r.get(col, False)) for r in arm_rows]))
-            if n else float("nan")
-            for col in prior_cols
-        }
+        harm_rate = _rate(arm_rows, "violates_harmonics_outer")
+        drift_rate = _rate(arm_rows, "violates_drift_any")
+        geom_rate = _rate(arm_rows, "violates_geometry_outer")
+        # A galaxy is "clean-all" if none of the applicable priors fire.
+        # None-valued flags contribute neither a pass nor a fail; the
+        # galaxy can still be clean if its other priors pass.
         n_clean_all = sum(
             1 for r in arm_rows
-            if not any(bool(r.get(col, False)) for col in prior_cols)
+            if not any(bool(r.get(col)) for col in prior_cols
+                       if r.get(col) is not None)
         )
         entries.append({
             "arm_id": arm_id,
             "n_galaxies": n,
             "n_clean_all": n_clean_all,
             "clean_fraction": n_clean_all / n if n else 0.0,
-            "drift_rate": viol_rates["violates_drift_any"],
-            "harmonics_rate": viol_rates["violates_harmonics_outer"],
-            "geometry_rate": viol_rates["violates_geometry_outer"],
+            "drift_rate": drift_rate,
+            "harmonics_rate": harm_rate,
+            "geometry_rate": geom_rate,
         })
     entries.sort(key=lambda e: (-e["n_clean_all"], e["arm_id"]))
     n_max = max((e["n_galaxies"] for e in entries), default=0)
@@ -534,12 +556,14 @@ def write_arm_shortlist(rows: list[dict[str, Any]], outfile: Path,
             "| arm | clean_fraction | n_clean/N | drift | harm | geom |\n"
             "|---|---|---|---|---|---|\n"
         )
+        def _fmt(v: float) -> str:
+            return f"{v:.2f}" if np.isfinite(v) else "N/A"
         for e in entries:
             handle.write(
                 f"| {e['arm_id']} | {e['clean_fraction']:.3f} "
                 f"| {int(e['n_clean_all'])}/{int(e['n_galaxies'])} "
-                f"| {e['drift_rate']:.2f} | {e['harmonics_rate']:.2f} "
-                f"| {e['geometry_rate']:.2f} |\n"
+                f"| {_fmt(e['drift_rate'])} | {_fmt(e['harmonics_rate'])} "
+                f"| {_fmt(e['geometry_rate'])} |\n"
             )
         handle.write("\n## Arms at or above shortlist threshold\n\n")
         short = [e for e in entries if e["clean_fraction"] >= min_clean_fraction]

@@ -129,7 +129,11 @@ def write_csv(rows: list[dict[str, Any]], outfile: Path) -> None:
 def _arm_scenario_matrix(
     rows: list[dict[str, Any]], column: str, scenarios: list[str]
 ) -> tuple[list[str], np.ndarray, np.ndarray]:
-    """Return ``(arm_order, rates[n_arms, n_scenarios], n[n_arms, n_scenarios])``."""
+    """Return ``(arm_order, rates[n_arms, n_scenarios], n[n_arms, n_scenarios])``.
+
+    ``None`` flags (Prior 2 N/A when the arm did not fit harmonics)
+    are excluded from both numerator and denominator of the cell rate.
+    """
     per_key: dict[tuple[str, str], list[bool]] = defaultdict(list)
     arm_set: set[str] = set()
     for r in rows:
@@ -138,7 +142,10 @@ def _arm_scenario_matrix(
         arm = r["arm_id"]
         sc = r["scenario"]
         arm_set.add(arm)
-        per_key[(arm, sc)].append(bool(r.get(column, False)))
+        val = r.get(column)
+        if val is None:
+            continue
+        per_key[(arm, sc)].append(bool(val))
     arm_order = sorted(arm_set)
     rates = np.full((len(arm_order), len(scenarios)), np.nan, dtype=float)
     counts = np.zeros((len(arm_order), len(scenarios)), dtype=int)
@@ -198,19 +205,23 @@ def write_arm_ranking(
     for r in ok:
         per_arm_all[r["arm_id"]].append(r)
 
+    def _rate(arm_rows: list[dict[str, Any]], col: str) -> float:
+        """Mean over rows whose flag is not None (N/A excluded)."""
+        pool = [bool(r[col]) for r in arm_rows
+                if col in r and r[col] is not None]
+        return float(np.mean(pool)) if pool else float("nan")
+
+    def _is_clean(r: dict[str, Any]) -> bool:
+        """Galaxy is clean when no applicable prior fires."""
+        return not any(bool(r.get(c)) for c in prior_cols
+                       if r.get(c) is not None)
+
     def _entries(arm_rows_map: dict[str, list[dict[str, Any]]]) -> list[dict[str, Any]]:
         out = []
         for arm, arm_rows in arm_rows_map.items():
             n = len(arm_rows)
-            clean = sum(
-                1 for r in arm_rows
-                if not any(bool(r.get(c, False)) for c in prior_cols)
-            )
-            rates = {
-                c: float(np.mean([bool(r.get(c, False)) for r in arm_rows]))
-                if n else float("nan")
-                for c in prior_cols
-            }
+            clean = sum(1 for r in arm_rows if _is_clean(r))
+            rates = {c: _rate(arm_rows, c) for c in prior_cols}
             out.append({
                 "arm_id": arm,
                 "n": n,
@@ -234,7 +245,7 @@ def write_arm_ranking(
         arm = r["arm_id"]
         sc = r["scenario"]
         per_arm_per_sc[arm][sc]["n"] += 1
-        if not any(bool(r.get(c, False)) for c in prior_cols):
+        if _is_clean(r):
             per_arm_per_sc[arm][sc]["n_clean"] += 1
 
     with outfile.open("w") as h:
@@ -249,13 +260,15 @@ def write_arm_ranking(
             "| arm | clean_frac | n_clean/N | rate(drift) | rate(harm) | rate(geom) |\n"
             "|---|---|---|---|---|---|\n"
         )
+        def _fmt(v: float) -> str:
+            return f"{v:.2f}" if np.isfinite(v) else "N/A"
         for e in overall:
             h.write(
                 f"| {e['arm_id']} | {e['clean_frac']:.3f} "
                 f"| {e['n_clean']}/{e['n']} "
-                f"| {e['rate_violates_drift_any']:.2f} "
-                f"| {e['rate_violates_harmonics_outer']:.2f} "
-                f"| {e['rate_violates_geometry_outer']:.2f} |\n"
+                f"| {_fmt(e['rate_violates_drift_any'])} "
+                f"| {_fmt(e['rate_violates_harmonics_outer'])} "
+                f"| {_fmt(e['rate_violates_geometry_outer'])} |\n"
             )
 
         h.write("\n## 2. Clean-fraction matrix (arm × scenario)\n\n")
