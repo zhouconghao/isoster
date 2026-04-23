@@ -28,8 +28,8 @@ tools:
 # Each entry expands into one arm with id "harm_higher_orders::<nums joined by _>".
 # Default is a single list; add more to grow the matrix.
 isoster_harmonic_sweeps:
-  - [5, 6]
-  # - [5, 6, 7, 8]
+  - [3, 4, 5, 6]
+  # - [3, 4, 5, 6, 7, 8]
 
 # --- Datasets ---
 # Each dataset references an adapter under benchmarks/exhausted/adapters/.

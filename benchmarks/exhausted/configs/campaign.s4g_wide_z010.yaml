@@ -13,7 +13,9 @@ tools:
     venv_python: /tmp/autoprof_venv/bin/python
     timeout: 300
 isoster_harmonic_sweeps:
-- - 5
+- - 3
+  - 4
+  - 5
   - 6
 datasets:
   s4g:
