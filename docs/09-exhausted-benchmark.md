@@ -326,10 +326,45 @@ Requirements:
 
 Reference implementations:
 
-- `adapters/huang2013.py` — multi-Sersic mock directory layout.
+- `adapters/huang2013.py` — multi-Sersic mock directory layout
+  (`<galaxy>_mockNNN.fits` per directory).
+- `adapters/huang2013_scenarios.py` — scenario grid layout
+  (`<galaxy>_{clean|wide|deep}_z{005|020|035|050}.fits`). Accepts
+  optional `depths` and `redshift_tags` constructor kwargs to narrow
+  the enumeration at the YAML level. Emits `galaxy_id` as
+  `<galaxy>/<depth>_z<zzz>` so `safe_galaxy_id` produces one flat
+  output directory per scenario.
+- `adapters/s4g_scenarios.py` — same layout as the Huang2013 scenario
+  adapter but emits `dataset_name="s4g"`. Thin subclass; no new logic.
 - `adapters/local_fits.py` — explicit FITS paths listed in the YAML.
 
 Register in the campaign YAML by setting `adapter: my_dataset`.
+
+### Scenario mock driver
+
+`benchmarks/exhausted/campaigns/run_mock_campaigns.py` wraps the
+orchestrator with a compact CLI for the depth x redshift grids. It
+generates a campaign YAML from flag values and hands it to
+`run_campaign` (the YAML is still snapshotted to the output directory,
+so every run remains reproducible from disk):
+
+```bash
+# 2-galaxy smoke, dry-run only.
+uv run python -m benchmarks.exhausted.campaigns.run_mock_campaigns \
+    --dataset huang2013 --depth wide --redshift 020 \
+    --select IC1459 NGC1600 --tools isoster,autoprof \
+    --max-parallel 2 --dry-run
+
+# Real run. All scenarios for one galaxy, three tools.
+uv run python -m benchmarks.exhausted.campaigns.run_mock_campaigns \
+    --dataset s4g --depth all --redshift all \
+    --select ESO026-001 --tools all --max-parallel 4
+```
+
+Default roots: `/Volumes/galaxy/isophote/huang2013` and
+`/Volumes/galaxy/isophote/s4g_mock`. Override with `--root-huang2013`
+/ `--root-s4g`. Pass `--write-yaml PATH` to also persist the generated
+YAML for later reuse via the plain `orchestrator.cli` entry point.
 
 ## 7. AutoProf Setup
 
