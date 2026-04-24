@@ -576,8 +576,15 @@ DEFAULT_THRESHOLDS: dict[str, float] = {
     "abs_a4n_median_outer": 0.01,
     "abs_b4n_median_outer": 0.01,
     # Prior 3 — 3-point local residual beyond 2 * R_ref.
-    "max_local_resid_eps_outer": 0.05,
-    "max_local_resid_pa_outer_deg": 8.0,
+    # Calibrated in Phase F.c.3 against the worst-scenario p95 of the
+    # best-behaving arm (isoster reg_outer_damp): eps p95 = 0.019 at
+    # wide_z050 (x 1.3 safety -> 0.025); pa p95 = 3.96 deg at wide_z050
+    # (x 1.25 safety -> 5 deg). Tighter than the F.0 empirical placeholders
+    # (0.05 eps / 8 deg) so the metric discriminates more sharply within
+    # the middle of the arm pack while still giving the regularization
+    # trio room above p95.
+    "max_local_resid_eps_outer": 0.025,
+    "max_local_resid_pa_outer_deg": 5.0,
 }
 
 
