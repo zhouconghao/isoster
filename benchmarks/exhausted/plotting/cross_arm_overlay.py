@@ -47,6 +47,8 @@ from isoster.plotting import (
     set_x_limits_with_right_margin,
 )
 
+from .cross_tool_comparison import DEFAULT_ARM_PER_TOOL
+
 SMA_MIN_PIX = 1.5
 X_AXIS_MIN = SMA_MIN_PIX ** 0.25  # ≈ 1.1067
 
@@ -62,6 +64,7 @@ def plot_cross_arm_overlay(
     sb_zeropoint: float | None = None,
     pixel_scale_arcsec: float | None = None,
     title: str | None = None,
+    tool_name: str | None = None,
 ) -> Path | None:
     """Render the cross-arm overlay to ``output_path``.
 
@@ -69,6 +72,13 @@ def plot_cross_arm_overlay(
     Each row must carry ``arm_id``, ``status``, ``flag_severity_max``,
     ``composite_score``, and a ``profile_path`` for arms that ran
     successfully.
+
+    ``tool_name`` selects the "default arm" whose 1-D curves get error
+    bars drawn so the viewer has a typical-uncertainty reference
+    (``ref_default`` for isoster, ``baseline_median`` for photutils,
+    ``baseline`` for autoprof — see
+    :data:`DEFAULT_ARM_PER_TOOL`). When ``None`` no error bars are
+    drawn (back-compat with callers that have not been updated).
 
     Returns ``output_path`` on success, ``None`` if no arm has a
     loadable profile (degenerate case — no plot produced).
@@ -177,9 +187,14 @@ def plot_cross_arm_overlay(
                 if np.any(np.isfinite(_ref_cog_raw) & (_ref_cog_raw > 0)):
                     ref_cog = _ref_cog_raw
 
+    default_arm_id = (
+        DEFAULT_ARM_PER_TOOL.get(tool_name) if tool_name is not None else None
+    )
+
     for row in plottable:
         arm_id = str(row["arm_id"])
         color = color_by_arm[arm_id]
+        is_default = default_arm_id is not None and arm_id == default_arm_id
         try:
             profile = _load_profile(row["profile_path"])
         except (FileNotFoundError, OSError):
@@ -194,31 +209,68 @@ def plot_cross_arm_overlay(
         x = sma[keep] ** 0.25
         all_x.append(x)
 
-        # SB panel
+        # SB panel. Error bars on the default arm only (typical uncertainty
+        # reference for the whole galaxy).
         intens = np.asarray(profile["intens"], dtype=float)[keep]
         mu = _to_surface_brightness(intens, sb_zeropoint, pixel_scale_arcsec)
-        _plot_line(ax_sb, x, mu, color, arm_id)
+        intens_err_arr = profile.get("intens_err")
+        if is_default and intens_err_arr is not None:
+            intens_err = np.asarray(intens_err_arr, dtype=float)[keep]
+            mu_err = _sb_error_from_intens_err(
+                intens, intens_err, sb_zeropoint, pixel_scale_arcsec
+            )
+            _plot_line(ax_sb, x, mu, color, arm_id, y_err=mu_err)
+        else:
+            _plot_line(ax_sb, x, mu, color, arm_id)
         sb_values.extend(mu[np.isfinite(mu)].tolist())
 
-        # Center offset combined: dr = sqrt(dx^2 + dy^2)
+        # Center offset combined: dr = sqrt(dx^2 + dy^2).
         x0 = np.asarray(profile["x0"], dtype=float)[keep]
         y0 = np.asarray(profile["y0"], dtype=float)[keep]
         med_x0 = float(np.nanmedian(x0))
         med_y0 = float(np.nanmedian(y0))
         dr = np.sqrt((x0 - med_x0) ** 2 + (y0 - med_y0) ** 2)
-        _plot_line(ax_cen, x, dr, color, arm_id)
+        if is_default:
+            # Propagate x0_err, y0_err to dr_err via quadrature on the
+            # scaled difference-from-median components.
+            x0_err_arr = profile.get("x0_err")
+            y0_err_arr = profile.get("y0_err")
+            if x0_err_arr is not None and y0_err_arr is not None:
+                xe = np.asarray(x0_err_arr, dtype=float)[keep]
+                ye = np.asarray(y0_err_arr, dtype=float)[keep]
+                with np.errstate(divide="ignore", invalid="ignore"):
+                    dr_err = np.where(
+                        dr > 0,
+                        np.sqrt(((x0 - med_x0) * xe) ** 2 + ((y0 - med_y0) * ye) ** 2) / dr,
+                        np.nan,
+                    )
+                _plot_line(ax_cen, x, dr, color, arm_id, y_err=dr_err)
+            else:
+                _plot_line(ax_cen, x, dr, color, arm_id)
+        else:
+            _plot_line(ax_cen, x, dr, color, arm_id)
         dr_values.extend(dr[np.isfinite(dr)].tolist())
 
-        # Axis ratio b/a = 1 - eps
+        # Axis ratio b/a = 1 - eps. Error propagates as eps_err.
         eps = np.asarray(profile["eps"], dtype=float)[keep]
         ba = 1.0 - eps
-        _plot_line(ax_ba, x, ba, color, arm_id)
+        if is_default and "eps_err" in profile:
+            ba_err = np.asarray(profile["eps_err"], dtype=float)[keep]
+            _plot_line(ax_ba, x, ba, color, arm_id, y_err=ba_err)
+        else:
+            _plot_line(ax_ba, x, ba, color, arm_id)
         ba_values.extend(ba[np.isfinite(ba)].tolist())
 
-        # PA, double-angle-unwrapped degrees
+        # PA, double-angle-unwrapped degrees.
         pa_rad = np.asarray(profile["pa"], dtype=float)[keep]
         pa_deg = normalize_pa_degrees(np.degrees(pa_rad))
-        _plot_line(ax_pa, x, pa_deg, color, arm_id)
+        if is_default and "pa_err" in profile:
+            pa_err_deg = np.degrees(
+                np.asarray(profile["pa_err"], dtype=float)[keep]
+            )
+            _plot_line(ax_pa, x, pa_deg, color, arm_id, y_err=pa_err_deg)
+        else:
+            _plot_line(ax_pa, x, pa_deg, color, arm_id)
         pa_values_finite.extend(pa_deg[np.isfinite(pa_deg)].tolist())
 
         # Relative-difference panels (intensity + CoG) vs. the score winner.
@@ -253,7 +305,9 @@ def plot_cross_arm_overlay(
     # --- panel cosmetics -------------------------------------------------
     panel_label_fs = 21
     tick_fs = 16
-    legend_fs = 16
+    # 25 % shrink from the previous 16 to keep the legend off the profile
+    # as the arm count grew from 23 to 27+.
+    legend_fs = 12
 
     # SB panel
     ax_sb.set_ylabel(
@@ -585,18 +639,71 @@ def _compact_flags(flags_field: Any) -> str:
 
 
 def _plot_line(
-    ax, x: np.ndarray, y: np.ndarray, color: Any, label: str, linestyle: str = "-"
+    ax,
+    x: np.ndarray,
+    y: np.ndarray,
+    color: Any,
+    label: str,
+    linestyle: str = "-",
+    *,
+    y_err: np.ndarray | None = None,
 ) -> None:
-    ax.plot(
-        x,
-        y,
-        color=color,
-        linestyle=linestyle,
-        linewidth=1.4,
-        alpha=0.9,
-        marker=".",
-        markersize=4,
-    )
+    """Draw one arm's line. When ``y_err`` is given, overlay error bars
+    (used for the tool's default arm to set a typical-uncertainty
+    reference; every other arm draws without error bars to keep the
+    overlay readable).
+    """
+    if y_err is not None:
+        ax.errorbar(
+            x,
+            y,
+            yerr=y_err,
+            color=color,
+            linestyle=linestyle,
+            linewidth=1.4,
+            alpha=0.9,
+            marker=".",
+            markersize=4,
+            elinewidth=0.7,
+            capsize=0,
+            ecolor=color,
+            errorevery=1,
+        )
+    else:
+        ax.plot(
+            x,
+            y,
+            color=color,
+            linestyle=linestyle,
+            linewidth=1.4,
+            alpha=0.9,
+            marker=".",
+            markersize=4,
+        )
+
+
+def _sb_error_from_intens_err(
+    intens: np.ndarray,
+    intens_err: np.ndarray,
+    zeropoint: float | None,
+    pixel_scale_arcsec: float | None,
+) -> np.ndarray:
+    """Propagate ``intens_err`` to ``mu_err`` via ``dμ/dI = -2.5 / (I ln 10)``.
+
+    The constant pixel-area factor cancels in the derivative so the
+    zeropoint / pixel-scale arguments are only used to decide whether we
+    are in SB mode (finite zp) or log10-intensity mode (fallback).
+    """
+    out = np.full_like(intens, np.nan, dtype=float)
+    mask = (intens > 0) & np.isfinite(intens_err) & (intens_err >= 0)
+    if not np.any(mask):
+        return out
+    if zeropoint is None or pixel_scale_arcsec is None:
+        # log10(I) mode: dμ/dI = 1 / (I ln 10)
+        out[mask] = intens_err[mask] / (intens[mask] * np.log(10.0))
+    else:
+        out[mask] = 2.5 * intens_err[mask] / (intens[mask] * np.log(10.0))
+    return out
 
 
 def _place_arm_legends(
