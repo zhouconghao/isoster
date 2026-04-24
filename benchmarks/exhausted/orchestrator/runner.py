@@ -508,6 +508,7 @@ def _run_tool_on_galaxy(
                 sb_zeropoint=bundle.metadata.sb_zeropoint,
                 pixel_scale_arcsec=bundle.metadata.pixel_scale_arcsec,
                 title=f"{bundle.metadata.galaxy_id}  |  {tool_plan.name}",
+                tool_name=tool_plan.name,
             )
         except Exception as exc:  # noqa: BLE001 - plot failures must not abort runs
             overlay_path.with_suffix(".png.err.txt").write_text(

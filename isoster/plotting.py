@@ -49,6 +49,51 @@ MONOCHROME_STOP_COLORS = {
 }
 
 
+def _normalize_harmonic_for_plot(harm, sma, grad, intens):
+    """Bender-convention normalization for plotting: ``-A_n / (a * dI/da)``.
+
+    This is the plotting counterpart to ``benchmarks.exhausted.analysis.
+    scenario_summary.normalize_harmonic``. The two agree on the formula but
+    the plot version is deliberately permissive about masking: it only
+    drops non-finite values and zero denominators, so the viewer can see
+    the noise distribution. The audit version uses a relative floor to
+    suppress points near profile turnovers.
+
+    Gradient fallback: when ``grad`` is non-finite on a point, use the
+    local finite-difference of ``intens`` vs ``sma`` (required for the
+    autoprof tool, which ships ``grad == NaN``).
+
+    Returns a float array the same shape as ``harm``, with NaN where
+    the normalization is undefined.
+    """
+    harm = np.asarray(harm, dtype=float)
+    sma = np.asarray(sma, dtype=float)
+    grad = np.asarray(grad, dtype=float)
+    intens = np.asarray(intens, dtype=float)
+    # Local finite-difference fallback for rows missing grad.
+    if np.isfinite(sma).sum() >= 2 and np.isfinite(intens).sum() >= 2:
+        # Sort by sma, unique-ify, compute np.gradient, map back.
+        order = np.argsort(sma)
+        s_sorted = sma[order]
+        v_sorted = intens[order]
+        good = np.isfinite(s_sorted) & np.isfinite(v_sorted)
+        if good.sum() >= 2:
+            uniq = np.concatenate(([True], np.diff(s_sorted[good]) > 0))
+            s_u = s_sorted[good][uniq]
+            v_u = v_sorted[good][uniq]
+            if s_u.size >= 2:
+                g_u = np.gradient(v_u, s_u)
+                fallback = np.full_like(sma, np.nan)
+                idx_back = np.where(good)[0][uniq]
+                fallback[order[idx_back]] = g_u
+                grad = np.where(np.isfinite(grad), grad, fallback)
+    denom = sma * grad
+    out = np.full_like(harm, np.nan, dtype=float)
+    valid = np.isfinite(harm) & np.isfinite(denom) & (denom != 0.0)
+    out[valid] = -harm[valid] / denom[valid]
+    return out
+
+
 def _validate_sb_inputs(sb_zeropoint, pixel_scale_arcsec):
     """Repo convention: ``sb_zeropoint`` and ``pixel_scale_arcsec`` are
     always supplied together and never pre-combined. Callers pass the two
@@ -229,7 +274,8 @@ def build_method_profile(
         }
         if "stop_code" in data[0]:
             profile["stop_codes"] = np.array([iso.get("stop_code", 0) for iso in data])
-        for key in ("x0", "y0", "intens_err", "rms", "eps_err", "pa_err", "x0_err", "y0_err"):
+        for key in ("x0", "y0", "intens_err", "rms", "eps_err", "pa_err",
+                    "x0_err", "y0_err", "grad"):
             if key in data[0]:
                 profile[key] = np.array([iso.get(key, np.nan) for iso in data])
         # Preserve harmonic coefficients (a3, b3, a4, b4, ...)
@@ -262,6 +308,7 @@ def build_method_profile(
             "pa_err",
             "x0_err",
             "y0_err",
+            "grad",
         ):
             if key in data and isinstance(data[key], np.ndarray):
                 out_key = "stop_codes" if key == "stop_code" else key
@@ -759,7 +806,16 @@ def plot_qa_summary(
     i_b3 = get_arr("b3")
     i_a4 = get_arr("a4")
     i_b4 = get_arr("b4")
+    i_grad = get_arr("grad")
     i_stop = get_arr("stop_code", 0).astype(int)
+
+    # Normalized harmonics (Bender convention): A_n_norm = -A_n / (a * dI/da).
+    # All harmonic plotting in this repo uses the normalized form; see
+    # CLAUDE.md for the long-term rule.
+    i_a3n = _normalize_harmonic_for_plot(i_a3, i_sma, i_grad, i_intens)
+    i_b3n = _normalize_harmonic_for_plot(i_b3, i_sma, i_grad, i_intens)
+    i_a4n = _normalize_harmonic_for_plot(i_a4, i_sma, i_grad, i_intens)
+    i_b4n = _normalize_harmonic_for_plot(i_b4, i_sma, i_grad, i_intens)
 
     # Derived columns
     x_axis = i_sma**0.25
@@ -775,8 +831,10 @@ def plot_qa_summary(
     i_dx = i_x0 - median_x0
     i_dy = i_y0 - median_y0
 
-    # Determine panel count: base 5 + optional harmonics + optional CoG
-    has_harmonics = np.any(np.isfinite(i_a3)) or np.any(np.isfinite(i_a4))
+    # Determine panel count: base 5 + optional harmonics + optional CoG.
+    # Use normalized values so arms that cannot normalize (all grad==0 /
+    # NaN) still skip the panel rather than emit an empty/misleading one.
+    has_harmonics = np.any(np.isfinite(i_a3n)) or np.any(np.isfinite(i_a4n))
     has_cog = any("cog" in r for r in isoster_res)
 
     n_panels = 4  # SB, centroid, b/a, PA
@@ -1089,50 +1147,50 @@ def plot_qa_summary(
 
         ax_harm.scatter(
             x_axis[valid_mask],
-            i_a3[valid_mask],
+            i_a3n[valid_mask],
             s=20,
             marker="o",
             facecolors="#1f77b4",
             edgecolors="#1f77b4",
             alpha=0.7,
-            label="A3",
+            label=r"$A_3^{\mathrm{n}}$",
         )
         ax_harm.scatter(
             x_axis[valid_mask],
-            i_b3[valid_mask],
+            i_b3n[valid_mask],
             s=20,
             marker="s",
             facecolors="none",
             edgecolors="#1f77b4",
             alpha=0.7,
-            label="B3",
+            label=r"$B_3^{\mathrm{n}}$",
         )
         ax_harm.scatter(
             x_axis[valid_mask],
-            i_a4[valid_mask],
+            i_a4n[valid_mask],
             s=20,
             marker="^",
             facecolors="#d62728",
             edgecolors="#d62728",
             alpha=0.7,
-            label="A4",
+            label=r"$A_4^{\mathrm{n}}$",
         )
         ax_harm.scatter(
             x_axis[valid_mask],
-            i_b4[valid_mask],
+            i_b4n[valid_mask],
             s=20,
             marker="D",
             facecolors="none",
             edgecolors="#d62728",
             alpha=0.7,
-            label="B4",
+            label=r"$B_4^{\mathrm{n}}$",
         )
         harm_values = np.concatenate(
             [
-                i_a3[valid_mask],
-                i_b3[valid_mask],
-                i_a4[valid_mask],
-                i_b4[valid_mask],
+                i_a3n[valid_mask],
+                i_b3n[valid_mask],
+                i_a4n[valid_mask],
+                i_b4n[valid_mask],
             ]
         )
         set_axis_limits_from_finite_values(
@@ -1142,7 +1200,7 @@ def plot_qa_summary(
             min_margin=0.005,
         )
         ax_harm.axhline(0.0, color="gray", linestyle=":", linewidth=0.8, alpha=0.6)
-        ax_harm.set_ylabel("A/B harmonics")
+        ax_harm.set_ylabel(r"$A_n$ or $B_n$ (norm)")
         ax_harm.legend(loc="upper right", fontsize=12, ncol=4)
         ax_harm.grid(alpha=0.25)
 
