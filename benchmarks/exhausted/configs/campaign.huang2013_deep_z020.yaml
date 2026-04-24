@@ -1,0 +1,58 @@
+campaign_name: huang2013_deep_z020
+output_root: /Volumes/galaxy/isophote/huang2013/_campaigns
+tools:
+  isoster:
+    enabled: true
+    arms_file: benchmarks/exhausted/configs/isoster_arms.yaml
+  photutils:
+    enabled: true
+    arms_file: benchmarks/exhausted/configs/photutils_arms.yaml
+  autoprof:
+    enabled: true
+    arms_file: benchmarks/exhausted/configs/autoprof_arms.yaml
+    venv_python: /tmp/autoprof_venv/bin/python
+    timeout: 300
+isoster_harmonic_sweeps:
+- - 3
+  - 4
+  - 5
+  - 6
+datasets:
+  huang2013:
+    enabled: true
+    adapter: huang2013_scenarios
+    root: /Volumes/galaxy/isophote/huang2013
+    depths:
+    - deep
+    redshift_tags:
+    - '020'
+qa:
+  per_galaxy_qa: true
+  cross_arm_overlay: true
+  cross_tool_comparison: true
+  summary_grids: false
+  residual_models: true
+execution:
+  max_parallel_galaxies: 4
+  skip_existing: true
+  dry_run: false
+  fail_fast: false
+summary:
+  per_galaxy_inventory: true
+  per_tool_cross_arm_table: true
+  cross_tool_table: true
+  composite_score_weights:
+    resid_inner: 1.0
+    resid_mid: 1.0
+    resid_outer: 2.0
+    centroid_drift: 1.0
+    centroid_tol_pix: 2.0
+    n_stop_m1: 2.0
+    frac_stop_nonzero: 5.0
+    n_iso_completeness: 3.0
+    wall_time: 0.1
+  cross_tool_score_weights:
+    resid_inner: 1.0
+    resid_mid: 1.0
+    resid_outer: 2.0
+    wall_time: 0.1

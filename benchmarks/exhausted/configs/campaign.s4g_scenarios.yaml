@@ -1,0 +1,98 @@
+# Exhausted benchmark campaign for the S4G-like scenario grid.
+#
+# Layout matches Huang2013 scenarios, but against
+# /Volumes/galaxy/isophote/s4g_mock. As of 2026-04-22 the S4G-like set
+# is 300 galaxies and ships only two redshift tags: z005 and z010
+# (both with depths clean/wide/deep). Every image is >=77 px per side
+# at wide_z010 and >=143 px at wide_z005, so AutoProf's default
+# centering stays within the frame and the small-image fallback in
+# autoprof_fitter.py rarely fires.
+#
+# Default select: runs a two-galaxy smoke at wide_z010 (the tighter
+# regime). Comment it out + expand depths / redshift_tags at the
+# bottom for a production sweep.
+
+campaign_name: "mock_s4g_scenarios_smoke"
+output_root: "outputs/benchmark_exhausted"
+
+tools:
+  isoster:
+    enabled: true
+    arms_file: benchmarks/exhausted/configs/isoster_arms.yaml
+  photutils:
+    enabled: false
+    arms_file: benchmarks/exhausted/configs/photutils_arms.yaml
+  autoprof:
+    enabled: true
+    arms_file: benchmarks/exhausted/configs/autoprof_arms.yaml
+    venv_python: "/tmp/autoprof_venv/bin/python"
+    timeout: 300
+
+isoster_harmonic_sweeps:
+  - [3, 4, 5, 6]
+
+datasets:
+  s4g:
+    enabled: true
+    adapter: s4g_scenarios
+    root: "/Volumes/galaxy/isophote/s4g_mock"
+    depths: ["wide"]
+    redshift_tags: ["010"]
+    select:
+      - "ESO012-010/wide_z010"
+      - "ESO027-001/wide_z010"
+
+qa:
+  per_galaxy_qa: true
+  cross_arm_overlay: true
+  cross_tool_comparison: true
+  summary_grids: false
+  residual_models: true
+
+execution:
+  max_parallel_galaxies: 2
+  skip_existing: true
+  dry_run: false
+  fail_fast: false
+
+summary:
+  per_galaxy_inventory: true
+  per_tool_cross_arm_table: true
+  cross_tool_table: true
+  composite_score_weights:
+    resid_inner: 1.0
+    resid_mid: 1.0
+    resid_outer: 2.0
+    centroid_drift: 1.0
+    centroid_tol_pix: 2.0
+    n_stop_m1: 2.0
+    frac_stop_nonzero: 5.0
+    n_iso_completeness: 3.0
+    wall_time: 0.1
+  cross_tool_score_weights:
+    resid_inner: 1.0
+    resid_mid: 1.0
+    resid_outer: 2.0
+    wall_time: 0.1
+
+# -----------------------------------------------------------------------
+# Production sweep template — recommended command for the full-sample
+# run, analogous to the huang2013_wide_z020 sweep already committed to
+# disk. Output lands under the external volume's _campaigns/ sibling
+# so raw galaxy directories stay untouched.
+#
+# uv run python -m benchmarks.exhausted.campaigns.run_mock_campaigns \
+#     --dataset s4g --depth wide --redshift 010 \
+#     --tools isoster,photutils,autoprof \
+#     --max-parallel 4 --skip-existing true \
+#     --campaign-name s4g_wide_z010 \
+#     --output-root /Volumes/galaxy/isophote/s4g_mock/_campaigns \
+#     --write-yaml benchmarks/exhausted/configs/campaign.s4g_wide_z010.yaml
+#
+# Full 2-redshift * 3-depth matrix (~6x this command):
+# uv run python -m benchmarks.exhausted.campaigns.run_mock_campaigns \
+#     --dataset s4g --depth all --redshift all \
+#     --tools isoster,photutils,autoprof --max-parallel 4 \
+#     --campaign-name s4g_all_scenarios \
+#     --output-root /Volumes/galaxy/isophote/s4g_mock/_campaigns
+# -----------------------------------------------------------------------

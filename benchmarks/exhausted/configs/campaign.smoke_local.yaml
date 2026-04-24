@@ -21,7 +21,7 @@ tools:
     timeout: 300
 
 isoster_harmonic_sweeps:
-  - [5, 6]
+  - [3, 4, 5, 6]
 
 datasets:
   local_fits:

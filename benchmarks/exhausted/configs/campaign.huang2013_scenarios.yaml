@@ -1,0 +1,98 @@
+# Exhausted benchmark campaign for the Huang2013 scenario grid.
+#
+# Scenario axes per galaxy (stored at /Volumes/galaxy/isophote/huang2013):
+#   depth   in {clean, wide, deep}
+#   redshift in {z005, z020, z035, z050}
+# Only combinations that exist on disk are run (clean typically only at z005).
+#
+# The default select: list is intentionally small so this YAML drives a
+# cheap smoke. Comment it out + enable the depth/redshift_tag filters at
+# the bottom of the file for a production sweep.
+
+campaign_name: "mock_huang2013_scenarios_smoke"
+output_root: "outputs/benchmark_exhausted"
+
+tools:
+  isoster:
+    enabled: true
+    arms_file: benchmarks/exhausted/configs/isoster_arms.yaml
+  photutils:
+    enabled: false
+    arms_file: benchmarks/exhausted/configs/photutils_arms.yaml
+  autoprof:
+    enabled: true
+    arms_file: benchmarks/exhausted/configs/autoprof_arms.yaml
+    venv_python: "/tmp/autoprof_venv/bin/python"
+    timeout: 300
+
+isoster_harmonic_sweeps:
+  - [3, 4, 5, 6]
+
+datasets:
+  huang2013:
+    enabled: true
+    adapter: huang2013_scenarios
+    root: "/Volumes/galaxy/isophote/huang2013"
+    # Adapter-level filters: narrow the scenario enumeration without
+    # having to enumerate every <galaxy>/<depth>_z<zzz> in select:.
+    depths: ["wide"]
+    redshift_tags: ["020"]
+    # Two-galaxy smoke allowlist. Remove to run every galaxy the
+    # adapter enumerates under the filters above.
+    select:
+      - "IC1459/wide_z020"
+      - "NGC1600/wide_z020"
+
+qa:
+  per_galaxy_qa: true
+  cross_arm_overlay: true
+  cross_tool_comparison: true
+  summary_grids: false
+  residual_models: true
+
+execution:
+  max_parallel_galaxies: 2
+  skip_existing: true
+  dry_run: false
+  fail_fast: false
+
+summary:
+  per_galaxy_inventory: true
+  per_tool_cross_arm_table: true
+  cross_tool_table: true
+  composite_score_weights:
+    resid_inner: 1.0
+    resid_mid: 1.0
+    resid_outer: 2.0
+    centroid_drift: 1.0
+    centroid_tol_pix: 2.0
+    n_stop_m1: 2.0
+    frac_stop_nonzero: 5.0
+    n_iso_completeness: 3.0
+    wall_time: 0.1
+  cross_tool_score_weights:
+    resid_inner: 1.0
+    resid_mid: 1.0
+    resid_outer: 2.0
+    wall_time: 0.1
+
+# -----------------------------------------------------------------------
+# Production sweep template (uncomment, adjust campaign_name, drop the
+# smoke select: above, and expand depths/redshift_tags as needed).
+#
+# campaign_name: "mock_huang2013_scenarios_full"
+# tools:
+#   isoster:   {enabled: true, arms_file: benchmarks/exhausted/configs/isoster_arms.yaml}
+#   photutils: {enabled: true, arms_file: benchmarks/exhausted/configs/photutils_arms.yaml}
+#   autoprof:  {enabled: true, arms_file: benchmarks/exhausted/configs/autoprof_arms.yaml,
+#               venv_python: "/tmp/autoprof_venv/bin/python", timeout: 300}
+# datasets:
+#   huang2013:
+#     enabled: true
+#     adapter: huang2013_scenarios
+#     root: "/Volumes/galaxy/isophote/huang2013"
+#     depths: ["clean", "wide", "deep"]
+#     redshift_tags: ["005", "020", "035", "050"]
+# execution:
+#   max_parallel_galaxies: 4
+# -----------------------------------------------------------------------

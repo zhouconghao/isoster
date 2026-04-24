@@ -40,6 +40,94 @@ from ..analysis.residual_zones import residual_zone_stats
 _VENV_PROBE_CACHE: dict[str, str] = {}
 
 
+# ---------------------------------------------------------------------------
+# Small-image fallback — retry-on-failure knob pack
+# ---------------------------------------------------------------------------
+#
+# Two AutoProf pipeline steps are known to crash on small cutouts (<= ~50 px
+# per side) with the stock defaults:
+#
+#   * ``Center_HillClimb`` (``autoprof/pipeline_steps/Center.py``): builds
+#     ``sampleradii = linspace(1, ap_centeringring, ap_centeringring) *
+#     psf_fwhm``; the outermost ring is at ``10 * psf_fwhm`` = 40 px with
+#     defaults. On a 33x33 image the ring is fully outside the frame,
+#     ``_iso_extract`` returns an empty array, and ``np.quantile(..., 0.85)``
+#     raises ``IndexError: index -1 is out of bounds for axis 0 with size 0``.
+#
+#   * ``Isophote_Extract._Generate_Profile`` (``pipeline_steps/
+#     Isophote_Extract.py`` line ~168): when the last extracted ring falls
+#     entirely outside the image, all samples are masked and
+#     ``np.interp(theta, [], [], ...)`` raises
+#     ``ValueError: array of sample points is empty``. Preceding log line:
+#     ``WARNING: Entire Isophote is Masked!``.
+#
+# The fallback here is narrow on purpose: it fires only after the first
+# attempt fails with one of the two signatures above, and it injects the
+# smallest knob set that keeps AutoProf within the image:
+#
+#   * ``ap_centeringring`` = safe ring count from image half-extent / PSF,
+#     so no centering ring extends beyond the frame.
+#   * ``ap_truncate_evaluation = True`` — documented AutoProf stop condition
+#     that terminates profile extraction once the ellipse escapes the image.
+#   * ``ap_extractfull = False`` — belt-and-braces: never extract past the
+#     fit limit.
+#
+# Anything else (the arm delta, isoclip knobs, center override) is left
+# untouched, so we preserve the arm semantics as far as possible.
+
+
+SMALL_IMAGE_FAILURE_SIGNATURES: tuple[tuple[str, ...], ...] = (
+    ("Center_HillClimb", "index -1 is out of bounds"),
+    ("_Generate_Profile", "array of sample points is empty"),
+    ("Entire Isophote is Masked",),
+)
+
+
+def _read_autoprof_log(log_path: Path | None) -> str:
+    """Return the autoprof.log contents if present, else an empty string."""
+    if log_path is None or not log_path.is_file():
+        return ""
+    try:
+        return log_path.read_text(errors="replace")
+    except OSError:
+        return ""
+
+
+def _detect_small_image_failure(stderr: str, log_text: str) -> str | None:
+    """Return a short tag describing which small-image signature matched, or None."""
+    hay = (stderr or "") + "\n" + (log_text or "")
+    for signature in SMALL_IMAGE_FAILURE_SIGNATURES:
+        if all(needle in hay for needle in signature):
+            return "::".join(signature)
+    return None
+
+
+def _small_image_fallback_delta(
+    image_shape: tuple[int, ...],
+    psf_fwhm_px: float = 4.0,
+) -> dict[str, Any]:
+    """Image-size-aware AutoProf knobs safe for small cutouts.
+
+    AutoProf's hill-climb builds ``ap_centeringring`` rings at spacing
+    ``psf_fwhm``, so the outermost sits at ``ring_count * psf_fwhm`` pixels
+    from the seed center. With a default ``psf_fwhm=4`` and a 33x33 image
+    (half-extent 16 px), the default ``ap_centeringring=10`` puts the last
+    ring at 40 px — always outside the frame. We drop it to the largest
+    value that keeps every ring inside the frame minus one-PSF safety
+    margin.
+    """
+    half_extent = min(image_shape[:2]) // 2
+    # Each ring is at r = i * psf_fwhm (i=1..N). Largest safe N satisfies
+    # N * psf_fwhm <= half_extent - psf_fwhm. Floor to int, clamp >=2.
+    ring_budget = int((half_extent - psf_fwhm_px) // max(psf_fwhm_px, 1.0))
+    safe_ring_count = max(2, min(10, ring_budget))
+    return {
+        "ap_centeringring": safe_ring_count,
+        "ap_truncate_evaluation": True,
+        "ap_extractfull": False,
+    }
+
+
 def run_one_arm(
     bundle: GalaxyBundle,
     arm_id: str,
@@ -110,23 +198,54 @@ def run_one_arm(
     with json_path.open("w") as handle:
         json.dump(options, handle, indent=2)
 
-    # 4) Subprocess invocation.
+    # 4) Subprocess invocation. On failure with a known small-image
+    # signature we merge a narrow fallback-knob pack into options and
+    # retry exactly once. This keeps every other scenario running with
+    # AutoProf's stock behavior.
     worker_script = Path(__file__).with_name("autoprof_worker.py")
-    fit_start = time.perf_counter()
-    try:
-        proc = subprocess.run(
-            [venv_python, str(worker_script), str(json_path)],
-            capture_output=True,
-            text=True,
-            timeout=timeout,
-        )
-        rc = proc.returncode
-        stderr = proc.stderr
-    except subprocess.TimeoutExpired:
-        rc, stderr = -1, f"timeout after {timeout}s"
-    wall_fit = time.perf_counter() - fit_start
-
+    autoprof_log_path = raw_dir / f"{galaxy_tag}_autoprof.log"
     status_path = raw_dir / f"{galaxy_tag}_status.json"
+
+    def _invoke_once() -> tuple[int, str, float]:
+        fit_start = time.perf_counter()
+        try:
+            proc_ = subprocess.run(
+                [venv_python, str(worker_script), str(json_path)],
+                capture_output=True,
+                text=True,
+                timeout=timeout,
+            )
+            return proc_.returncode, proc_.stderr, time.perf_counter() - fit_start
+        except subprocess.TimeoutExpired:
+            return -1, f"timeout after {timeout}s", time.perf_counter() - fit_start
+
+    rc, stderr, wall_fit = _invoke_once()
+    small_image_fallback: dict[str, Any] | None = None
+    small_image_signature: str | None = None
+    if rc != 0:
+        signature = _detect_small_image_failure(
+            stderr, _read_autoprof_log(autoprof_log_path)
+        )
+        if signature is not None:
+            small_image_signature = signature
+            small_image_fallback = _small_image_fallback_delta(image.shape)
+            options.update(small_image_fallback)
+            with json_path.open("w") as handle:
+                json.dump(options, handle, indent=2)
+            # Clear prior status / log so the retry's state is unambiguous;
+            # keep the first-attempt log for audit under a suffix.
+            if status_path.is_file():
+                status_path.unlink()
+            if autoprof_log_path.is_file():
+                autoprof_log_path.rename(
+                    autoprof_log_path.with_name(autoprof_log_path.name + ".attempt1")
+                )
+            rc, stderr, extra_wall = _invoke_once()
+            wall_fit += extra_wall
+    fallback_record = {
+        "small_image_fallback": small_image_fallback,
+        "small_image_signature": small_image_signature,
+    }
     if rc == -1:
         row["status"] = "failed"
         row["error_msg"] = stderr
@@ -134,7 +253,8 @@ def run_one_arm(
         row["wall_time_total_s"] = float(time.perf_counter() - total_start)
         _write_run_record(
             output_dir,
-            {"status": "failed", "error_msg": stderr, "wall_time_fit_s": float(wall_fit)},
+            {"status": "failed", "error_msg": stderr, "wall_time_fit_s": float(wall_fit),
+             **fallback_record},
         )
         return row
     if rc != 0 and not status_path.is_file():
@@ -144,7 +264,7 @@ def run_one_arm(
         row["wall_time_total_s"] = float(time.perf_counter() - total_start)
         _write_run_record(
             output_dir,
-            {"status": "failed", "error_msg": row["error_msg"]},
+            {"status": "failed", "error_msg": row["error_msg"], **fallback_record},
         )
         return row
 
@@ -156,7 +276,7 @@ def run_one_arm(
             row["error_msg"] = str(status_data.get("error_msg", "unknown autoprof error"))
             row["wall_time_fit_s"] = float(wall_fit)
             row["wall_time_total_s"] = float(time.perf_counter() - total_start)
-            _write_run_record(output_dir, {"status": "failed", **status_data})
+            _write_run_record(output_dir, {"status": "failed", **status_data, **fallback_record})
             return row
 
     # 5) Parse AutoProf outputs.
@@ -205,6 +325,8 @@ def run_one_arm(
         "autoprof_aux": aux_info,
         "autoprof_n_raw": n_raw,
         "autoprof_n_filtered": n_filtered,
+        "small_image_fallback": small_image_fallback,
+        "small_image_signature": small_image_signature,
     }
 
     profile_path = output_dir / "profile.fits"
@@ -322,6 +444,8 @@ def run_one_arm(
             "autoprof_n_raw": n_raw,
             "autoprof_n_filtered": n_filtered,
             "fix_center_override": center_override,
+            "small_image_fallback": small_image_fallback,
+            "small_image_signature": small_image_signature,
         },
     )
     return row

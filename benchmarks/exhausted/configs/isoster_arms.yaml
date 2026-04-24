@@ -62,6 +62,11 @@ arms:
   harm_isofit_original:
     simultaneous_harmonics: true
     isofit_mode: original
+  harm_disabled:
+    harmonic_orders: []
+  harm_simul_ea:
+    simultaneous_harmonics: true
+    use_eccentric_anomaly: true
   # harm_higher_orders::* is expanded from the campaign YAML.
 
   # G6 - convergence
@@ -69,6 +74,8 @@ arms:
     use_lazy_gradient: false
   conv_scale_sqrt:
     convergence_scaling: sqrt_sma
+  step_1_2:
+    astep: 0.2
 
   # G7 - regularization
   reg_central_on:
@@ -81,6 +88,14 @@ arms:
     use_outer_center_regularization: true
     outer_reg_mode: damping
     outer_reg_strength: 8.0
+  reg_outer_center_heavy_5x:
+    use_outer_center_regularization: true
+    outer_reg_mode: damping
+    outer_reg_strength: 2.0
+    outer_reg_weights:
+      center: 5.0
+      eps: 1.0
+      pa: 1.0
   lsb_autolock:
     lsb_auto_lock: true
 
