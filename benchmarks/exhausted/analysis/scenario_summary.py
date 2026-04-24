@@ -562,7 +562,7 @@ DEFAULT_THRESHOLDS: dict[str, float] = {
     # Prior 1 — intensity-weighted centroid, per zone.
     "drift_iw_inner_pix": 0.5,
     "drift_iw_mid_pix": 0.5,
-    "drift_iw_outer_pix": 2.0,  # ~ 0.5 * HSC PSF FWHM (4.17 px); calibrate later
+    "drift_iw_outer_pix": 0.5,  # calibrated on F.a: ref_default p95 hits ~1.15 px at wide_z050; 0.5 is a defensible "drift is visible" bar
     # Prior 2 — outer-zone normalized harmonics vs formal errors.
     # A violation requires BOTH the err-ratio threshold AND the absolute
     # |A_n_norm| floor to fire, so tiny |A4n| with optimistic formal
