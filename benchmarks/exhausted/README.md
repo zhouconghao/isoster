@@ -15,11 +15,14 @@ AutoProf 1.3.4 pins `numpy<2` and `photutils==1.5` and cannot coexist
 with the main `uv` env. The fitter runs it via subprocess. When the
 venv is absent, autoprof arms skip cleanly with a regeneration hint.
 
+Use a stable location (not `/tmp`, which macOS prunes periodically and
+will silently strip individual `.py` files mid-campaign):
+
 ```bash
-python -m venv /tmp/autoprof_venv
-/tmp/autoprof_venv/bin/pip install --upgrade pip
-/tmp/autoprof_venv/bin/pip install 'autoprof==1.3.4'
-/tmp/autoprof_venv/bin/python -c "from autoprof.Pipeline import Isophote_Pipeline; print('ok')"
+mkdir -p ~/.venvs && python -m venv ~/.venvs/autoprof_venv
+~/.venvs/autoprof_venv/bin/pip install --upgrade pip
+~/.venvs/autoprof_venv/bin/pip install 'autoprof==1.3.4'
+~/.venvs/autoprof_venv/bin/python -c "from autoprof.Pipeline import Isophote_Pipeline; print('ok')"
 ```
 
 Override the path in the campaign YAML with `tools.autoprof.venv_python`.

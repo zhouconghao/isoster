@@ -22,7 +22,7 @@ tools:
   autoprof:
     enabled: false
     arms_file: benchmarks/exhausted/configs/autoprof_arms.yaml    # Phase D
-    venv_python: "/tmp/autoprof_venv/bin/python"
+    venv_python: "~/.venvs/autoprof_venv/bin/python"
 
 # --- Parameterized isoster arms ---
 # Each entry expands into one arm with id "harm_higher_orders::<nums joined by _>".

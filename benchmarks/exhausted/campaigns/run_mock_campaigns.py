@@ -67,7 +67,7 @@ TOOL_ARMS_FILES = {
 }
 
 DEFAULT_OUTPUT_ROOT = "outputs/benchmark_exhausted"
-DEFAULT_AUTOPROF_VENV = "/tmp/autoprof_venv/bin/python"
+DEFAULT_AUTOPROF_VENV = "~/.venvs/autoprof_venv/bin/python"
 DEFAULT_AUTOPROF_TIMEOUT = 300
 
 
