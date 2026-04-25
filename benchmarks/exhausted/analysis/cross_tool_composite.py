@@ -70,6 +70,12 @@ def load_audit_rows(csv_path: Path) -> list[dict[str, Any]]:
             rec: dict[str, Any] = dict(raw)
             for col, _ in PRIOR_COLS:
                 rec[col] = _parse_bool_or_none(raw.get(col, ""))
+            # Phase F.c.4 diagnostic, same tri-state (True / False / None)
+            # as violates_harmonics_outer. Absent from pre-F.c.4 CSVs
+            # where the loader will record None.
+            rec["prior2_regularization_induced"] = _parse_bool_or_none(
+                raw.get("prior2_regularization_induced", "")
+            )
             rows.append(rec)
     return rows
 
@@ -83,6 +89,24 @@ def _rate_and_count(rows: list[dict[str, Any]], col: str) -> tuple[float, int]:
 
 def _is_clean(r: dict[str, Any]) -> bool:
     return not any(bool(r.get(c)) for c, _ in PRIOR_COLS if r.get(c) is not None)
+
+
+def _harm_rate_excl_reg(rows: list[dict[str, Any]]) -> float:
+    """Prior 2 violation rate after dropping rows flagged
+    ``prior2_regularization_induced``. Used to surface the "defect"
+    component of a regularization arm's harmonic signal separately
+    from the expected component.
+    """
+    pool: list[bool] = []
+    for r in rows:
+        vh = r.get("violates_harmonics_outer")
+        if vh is None:
+            continue
+        induced = r.get("prior2_regularization_induced")
+        if induced is True:
+            continue  # excluded by design
+        pool.append(bool(vh))
+    return float(np.mean(pool)) if pool else float("nan")
 
 
 def _per_arm_entries(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -101,6 +125,7 @@ def _per_arm_entries(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
             "n": n,
             "n_clean": clean,
             "clean_frac": clean / n if n else 0.0,
+            "harm_rate_excl_reg": _harm_rate_excl_reg(arm_rows),
             **{f"rate_{k}": v for k, v in rates.items()},
         })
     out.sort(key=lambda e: (-e["n_clean"], e["arm_id"]))
@@ -138,8 +163,14 @@ def write_pooled_ranking(
         h.write("# huang2013 cross-tool pooled ranking\n\n")
         h.write(
             "Top arms per tool, pooled across 9 scenarios x 93 galaxies = "
-            "837 galaxies per arm. `rate(harm) = N/A` means the tool does not "
-            "produce scorable A3/A4 errors (autoprof).\n\n"
+            "837 galaxies per arm. `rate(harm) = N/A` means the tool does "
+            "not produce scorable A3/A4 errors (autoprof). "
+            "`harm_excl_reg` excludes rows flagged "
+            "`prior2_regularization_induced` (same galaxy's reference arm "
+            "has |A_n_norm| below 0.02 AND this arm is >= 2x larger — "
+            "the violation is expected from the arm's regularization, "
+            "not a defect). Gap between `harm` and `harm_excl_reg` = "
+            "fraction of the arm's Prior 2 hits that are by design.\n\n"
         )
 
         def _fmt(v: float) -> str:
@@ -150,8 +181,9 @@ def write_pooled_ranking(
                 continue
             h.write(f"## {tool} — top {top_k}\n\n")
             h.write(
-                "| rank | arm | clean_frac | n_clean/N | drift | harm | geom |\n"
-                "|---|---|---|---|---|---|---|\n"
+                "| rank | arm | clean_frac | n_clean/N | drift | harm "
+                "| harm_excl_reg | geom |\n"
+                "|---|---|---|---|---|---|---|---|\n"
             )
             for i, e in enumerate(entries[tool], start=1):
                 h.write(
@@ -159,6 +191,7 @@ def write_pooled_ranking(
                     f"| {e['n_clean']}/{e['n']} "
                     f"| {_fmt(e['rate_violates_drift_any'])} "
                     f"| {_fmt(e['rate_violates_harmonics_outer'])} "
+                    f"| {_fmt(e['harm_rate_excl_reg'])} "
                     f"| {_fmt(e['rate_violates_geometry_outer'])} |\n"
                 )
             h.write("\n")

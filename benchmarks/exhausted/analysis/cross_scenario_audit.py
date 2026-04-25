@@ -72,7 +72,19 @@ def collect_campaign_rows(
     dataset: str,
     tool: str,
 ) -> list[dict[str, Any]]:
-    """Walk one campaign dir and return one row per (galaxy, arm)."""
+    """Walk one campaign dir and return one row per (galaxy, arm).
+
+    For each galaxy, the tool's default arm
+    (:data:`DEFAULT_ARM_PER_TOOL`) is scored first; its metrics become
+    the per-galaxy reference passed into every subsequent arm's
+    :func:`classify_violations` call so the Prior 2 diagnostic
+    (``prior2_regularization_induced``) can compare each arm's
+    ``|A_n_norm|`` against the data-driven floor set by the default.
+    """
+    # Imported lazily to avoid a circular import at module load.
+    from ..plotting.cross_tool_comparison import DEFAULT_ARM_PER_TOOL
+
+    default_arm = DEFAULT_ARM_PER_TOOL.get(tool)
     rows: list[dict[str, Any]] = []
     for gdir in list_campaign_galaxies(campaign_dir, dataset):
         try:
@@ -80,7 +92,15 @@ def collect_campaign_rows(
         except (FileNotFoundError, KeyError, ValueError) as exc:
             print(f"[warn] {gdir.name}: manifest skipped ({exc})", file=sys.stderr)
             continue
-        for arm_id in list_arms(gdir, tool):
+        arm_ids = list_arms(gdir, tool)
+        # Build the per-galaxy reference metrics first (if the default
+        # arm ran successfully on this galaxy).
+        reference_metrics: dict[str, Any] | None = None
+        if default_arm is not None and default_arm in arm_ids:
+            ref_profile = load_arm_profile(gdir, tool, default_arm)
+            if ref_profile is not None:
+                reference_metrics = compute_prior_metrics(ref_profile, manifest)
+        for arm_id in arm_ids:
             profile = load_arm_profile(gdir, tool, arm_id)
             record = load_arm_record(gdir, tool, arm_id)
             status = (record or {}).get("status", "unknown")
@@ -89,7 +109,9 @@ def collect_campaign_rows(
                 if profile is not None
                 else {}
             )
-            viol = classify_violations(metrics)
+            viol = classify_violations(
+                metrics, reference_metrics=reference_metrics,
+            )
             row: dict[str, Any] = {
                 "scenario": scenario,
                 "galaxy_id": manifest.galaxy_id,

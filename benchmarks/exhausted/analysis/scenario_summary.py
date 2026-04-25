@@ -588,9 +588,81 @@ DEFAULT_THRESHOLDS: dict[str, float] = {
 }
 
 
+def flag_prior2_regularization_induced(
+    metrics: dict[str, Any],
+    reference_metrics: dict[str, Any] | None,
+    *,
+    factor_ratio: float = 2.0,
+    reference_floor: float = 0.02,
+) -> bool | None:
+    """Mark a Prior 2 violation as "regularization-induced" when the same
+    galaxy's |A_n_norm| on the tool's reference arm is small AND the
+    current arm's |A_n_norm| is at least ``factor_ratio`` times larger.
+
+    Returns:
+      - ``False`` when there is no Prior 2 violation (nothing to annotate).
+      - ``None`` when Prior 2 is N/A for this arm OR no reference is
+        available (cannot decide).
+      - ``True`` when the violation is attributable to regularization:
+        the data itself has low |A_n_norm| (reference is below
+        ``reference_floor``) but this arm's value is ``factor_ratio`` x
+        or more. The diagnostic is evaluated per harmonic order
+        (a3n, b3n, a4n, b4n); it fires when *any* order shows the
+        induced pattern.
+
+    Calibration note: ``reference_floor = 0.02`` is set slightly above
+    the 0.01 dual-criterion floor in ``DEFAULT_THRESHOLDS`` so a
+    reference arm flagged as clean on the data still counts as
+    "low |A_n_norm|". ``factor_ratio = 2.0`` matches the intuition
+    that regularization injects a ~2-5x harmonic signal on mocks with
+    no genuine harmonic content.
+    """
+    if metrics.get("prior2_applicable") is False:
+        return None
+    if reference_metrics is None:
+        return None
+    # Was there a Prior 2 violation at all?
+    th = DEFAULT_THRESHOLDS
+    violated = False
+    for name in ("a3n", "b3n", "a4n", "b4n"):
+        er = metrics.get(f"{name}_err_ratio_outer")
+        am = metrics.get(f"abs_{name}_median_outer")
+        try:
+            er_f = float(er) if er is not None else float("nan")
+            am_f = float(am) if am is not None else float("nan")
+        except (TypeError, ValueError):
+            continue
+        if (
+            np.isfinite(er_f) and np.isfinite(am_f)
+            and er_f > th[f"{name}_err_ratio_outer"]
+            and am_f > th[f"abs_{name}_median_outer"]
+        ):
+            violated = True
+            break
+    if not violated:
+        return False
+    # Does the reference arm (default, same galaxy) have a small
+    # |A_n_norm| that *this* arm's ratio blows past?
+    for name in ("a3n", "b3n", "a4n", "b4n"):
+        here = metrics.get(f"abs_{name}_median_outer")
+        there = reference_metrics.get(f"abs_{name}_median_outer")
+        try:
+            here_f = float(here) if here is not None else float("nan")
+            there_f = float(there) if there is not None else float("nan")
+        except (TypeError, ValueError):
+            continue
+        if not (np.isfinite(here_f) and np.isfinite(there_f)):
+            continue
+        if there_f < reference_floor and here_f > factor_ratio * max(there_f, 1e-6):
+            return True
+    return False
+
+
 def classify_violations(
     metrics: dict[str, Any],
     thresholds: dict[str, float] | None = None,
+    *,
+    reference_metrics: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Map metric values onto ``violates_<prior>`` flags.
 
@@ -601,6 +673,13 @@ def classify_violations(
     clean-fraction numerator and denominator without crediting a
     free pass. Missing finite values (NaN) still count as
     non-violation.
+
+    ``reference_metrics`` is the same-galaxy metrics dict from the
+    tool's default arm (``DEFAULT_ARM_PER_TOOL``); when supplied,
+    the returned dict also carries ``prior2_regularization_induced``
+    per :func:`flag_prior2_regularization_induced` semantics. Callers
+    that omit this kwarg receive ``None`` for the diagnostic (same
+    N/A convention as ``violates_harmonics_outer``).
     """
     th = dict(DEFAULT_THRESHOLDS)
     if thresholds:
@@ -629,6 +708,10 @@ def classify_violations(
     else:
         harmonics_viol = None
 
+    reg_induced = flag_prior2_regularization_induced(
+        metrics, reference_metrics
+    )
+
     return {
         "violates_drift_inner": _gt("drift_iw_inner_pix"),
         "violates_drift_mid": _gt("drift_iw_mid_pix"),
@@ -639,6 +722,7 @@ def classify_violations(
             or _gt("drift_iw_outer_pix")
         ),
         "violates_harmonics_outer": harmonics_viol,
+        "prior2_regularization_induced": reg_induced,
         "violates_geometry_outer": (
             _gt("max_local_resid_eps_outer")
             or _gt("max_local_resid_pa_outer_deg")
