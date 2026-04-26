@@ -156,14 +156,22 @@ def _per_scenario_per_arm(
 
 
 def write_pooled_ranking(
-    tools: dict[str, list[dict[str, Any]]], outfile: Path, top_k: int = 8,
+    tools: dict[str, list[dict[str, Any]]],
+    outfile: Path,
+    top_k: int = 8,
+    dataset: str = "huang2013",
 ) -> None:
     entries = {t: _per_arm_entries(rows)[:top_k] for t, rows in tools.items()}
+    pool_n = (
+        max((e["n"] for tool_entries in entries.values() for e in tool_entries),
+            default=0)
+    )
     with outfile.open("w") as h:
-        h.write("# huang2013 cross-tool pooled ranking\n\n")
+        h.write(f"# {dataset} cross-tool pooled ranking\n\n")
         h.write(
-            "Top arms per tool, pooled across 9 scenarios x 93 galaxies = "
-            "837 galaxies per arm. `rate(harm) = N/A` means the tool does "
+            f"Top arms per tool, pooled across the {dataset} scenario grid "
+            f"(N ≈ {pool_n} galaxies per arm in the deepest pool). "
+            "`rate(harm) = N/A` means the tool does "
             "not produce scorable A3/A4 errors (autoprof). "
             "`harm_excl_reg` excludes rows flagged "
             "`prior2_regularization_induced` (same galaxy's reference arm "
@@ -198,7 +206,9 @@ def write_pooled_ranking(
 
 
 def write_best_arm_matrix(
-    tools: dict[str, list[dict[str, Any]]], outfile: Path,
+    tools: dict[str, list[dict[str, Any]]],
+    outfile: Path,
+    dataset: str = "huang2013",
 ) -> None:
     """For each (tool, scenario), best arm by clean-fraction."""
     per_tool_sc = {
@@ -209,7 +219,7 @@ def write_best_arm_matrix(
         key=_scenario_sort_key,
     )
     with outfile.open("w") as h:
-        h.write("# huang2013 best arm per (tool, scenario)\n\n")
+        h.write(f"# {dataset} best arm per (tool, scenario)\n\n")
         h.write(
             "Cell format: `arm (clean_frac)` where clean_frac is the "
             "fraction of galaxies that pass all applicable priors for "
@@ -239,7 +249,9 @@ def write_best_arm_matrix(
 
 
 def write_best_available(
-    tools: dict[str, list[dict[str, Any]]], outfile: Path,
+    tools: dict[str, list[dict[str, Any]]],
+    outfile: Path,
+    dataset: str = "huang2013",
 ) -> None:
     """Per scenario, the single best (tool, arm) across every tool."""
     per_tool_sc = {
@@ -250,7 +262,7 @@ def write_best_available(
         key=_scenario_sort_key,
     )
     with outfile.open("w") as h:
-        h.write("# huang2013 best-available per scenario\n\n")
+        h.write(f"# {dataset} best-available per scenario\n\n")
         h.write(
             "For each scenario, the single `(tool, arm)` with the highest "
             "clean-fraction across all three tools. The margin column is the "
@@ -287,7 +299,9 @@ def write_best_available(
 
 
 def write_heatmap_pdf(
-    tools: dict[str, list[dict[str, Any]]], outfile: Path,
+    tools: dict[str, list[dict[str, Any]]],
+    outfile: Path,
+    dataset: str = "huang2013",
 ) -> None:
     """3 rows (tool) x 9 cols (scenario). Cell = each tool's best arm
     clean-fraction at that scenario.
@@ -327,7 +341,7 @@ def write_heatmap_pdf(
     ax.set_yticks(range(len(tool_order)))
     ax.set_yticklabels(tool_order, fontsize=11)
     ax.set_title(
-        "huang2013 cross-tool: best arm's clean-fraction by (tool, scenario)"
+        f"{dataset} cross-tool: best arm's clean-fraction by (tool, scenario)"
     )
     for i in range(len(tool_order)):
         for j in range(len(scenarios)):
@@ -373,6 +387,11 @@ def main(argv: list[str] | None = None) -> int:
         help="Output dir (default: <analysis-root>/cross_tool_composite).",
     )
     parser.add_argument("--top-k", type=int, default=8)
+    parser.add_argument(
+        "--dataset",
+        default="huang2013",
+        help="Dataset label used in report titles (huang2013 | s4g | …).",
+    )
     args = parser.parse_args(argv)
 
     tools: dict[str, list[dict[str, Any]]] = {}
@@ -396,16 +415,19 @@ def main(argv: list[str] | None = None) -> int:
     out_dir.mkdir(parents=True, exist_ok=True)
 
     write_pooled_ranking(tools, out_dir / "cross_tool_pooled_ranking.md",
-                         top_k=args.top_k)
+                         top_k=args.top_k, dataset=args.dataset)
     print(f"  wrote {out_dir / 'cross_tool_pooled_ranking.md'}")
 
-    write_best_arm_matrix(tools, out_dir / "cross_tool_best_arm_matrix.md")
+    write_best_arm_matrix(tools, out_dir / "cross_tool_best_arm_matrix.md",
+                          dataset=args.dataset)
     print(f"  wrote {out_dir / 'cross_tool_best_arm_matrix.md'}")
 
-    write_best_available(tools, out_dir / "cross_tool_best_available.md")
+    write_best_available(tools, out_dir / "cross_tool_best_available.md",
+                         dataset=args.dataset)
     print(f"  wrote {out_dir / 'cross_tool_best_available.md'}")
 
-    write_heatmap_pdf(tools, out_dir / "cross_tool_heatmap.pdf")
+    write_heatmap_pdf(tools, out_dir / "cross_tool_heatmap.pdf",
+                      dataset=args.dataset)
     print(f"  wrote {out_dir / 'cross_tool_heatmap.pdf'}")
 
     print(f"\nDone. Artifacts under: {out_dir}")
