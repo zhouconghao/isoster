@@ -22,7 +22,7 @@ tools:
   autoprof:
     enabled: true
     arms_file: benchmarks/exhausted/configs/autoprof_arms.yaml
-    venv_python: "/tmp/autoprof_venv/bin/python"
+    venv_python: "~/.venvs/autoprof_venv/bin/python"
     timeout: 300
 
 isoster_harmonic_sweeps:
@@ -85,7 +85,7 @@ summary:
 #   isoster:   {enabled: true, arms_file: benchmarks/exhausted/configs/isoster_arms.yaml}
 #   photutils: {enabled: true, arms_file: benchmarks/exhausted/configs/photutils_arms.yaml}
 #   autoprof:  {enabled: true, arms_file: benchmarks/exhausted/configs/autoprof_arms.yaml,
-#               venv_python: "/tmp/autoprof_venv/bin/python", timeout: 300}
+#               venv_python: "~/.venvs/autoprof_venv/bin/python", timeout: 300}
 # datasets:
 #   huang2013:
 #     enabled: true

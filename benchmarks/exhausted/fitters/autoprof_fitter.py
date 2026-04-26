@@ -206,11 +206,13 @@ def run_one_arm(
     autoprof_log_path = raw_dir / f"{galaxy_tag}_autoprof.log"
     status_path = raw_dir / f"{galaxy_tag}_status.json"
 
+    venv_python_resolved = str(Path(venv_python).expanduser())
+
     def _invoke_once() -> tuple[int, str, float]:
         fit_start = time.perf_counter()
         try:
             proc_ = subprocess.run(
-                [venv_python, str(worker_script), str(json_path)],
+                [venv_python_resolved, str(worker_script), str(json_path)],
                 capture_output=True,
                 text=True,
                 timeout=timeout,
@@ -460,40 +462,43 @@ def _probe_venv(venv_python: str) -> str | None:
     """Return ``None`` if the venv can import autoprof; otherwise a skip reason.
 
     Result cached per ``venv_python`` path so only the first arm on the
-    first galaxy pays the probe cost.
+    first galaxy pays the probe cost. ``~`` is expanded via
+    :meth:`Path.expanduser` so YAMLs and CLI args can use ``~/.venvs/...``.
     """
-    cached = _VENV_PROBE_CACHE.get(venv_python)
+    venv_path = Path(venv_python).expanduser()
+    cache_key = str(venv_path)
+    cached = _VENV_PROBE_CACHE.get(cache_key)
     if cached == "OK":
         return None
     if cached is not None:
         return cached
-    if not Path(venv_python).is_file():
+    if not venv_path.is_file():
         reason = (
-            f"autoprof venv python not found: {venv_python}. "
-            f"Create it with `python -m venv {Path(venv_python).parents[1]}` "
+            f"autoprof venv python not found: {venv_path}. "
+            f"Create it with `python -m venv {venv_path.parents[1]}` "
             f"and `pip install autoprof`, then re-run."
         )
-        _VENV_PROBE_CACHE[venv_python] = reason
+        _VENV_PROBE_CACHE[cache_key] = reason
         return reason
     try:
         proc = subprocess.run(
-            [venv_python, "-c", "import autoprof; print('ok')"],
+            [str(venv_path), "-c", "import autoprof; print('ok')"],
             capture_output=True,
             text=True,
             timeout=30,
         )
     except Exception as exc:  # noqa: BLE001
         reason = f"autoprof probe crashed: {exc}"
-        _VENV_PROBE_CACHE[venv_python] = reason
+        _VENV_PROBE_CACHE[cache_key] = reason
         return reason
     if proc.returncode != 0:
         reason = (
             "autoprof import failed inside venv "
-            f"({venv_python}): {proc.stderr.strip()[:200]}"
+            f"({venv_path}): {proc.stderr.strip()[:200]}"
         )
-        _VENV_PROBE_CACHE[venv_python] = reason
+        _VENV_PROBE_CACHE[cache_key] = reason
         return reason
-    _VENV_PROBE_CACHE[venv_python] = "OK"
+    _VENV_PROBE_CACHE[cache_key] = "OK"
     return None
 
 

@@ -102,7 +102,7 @@ def _iter_inventory_rows(
     for campaign_dir in sorted(campaign_root.iterdir()):
         if not campaign_dir.is_dir() or campaign_dir.name.startswith("_"):
             continue
-        scenario = campaign_dir.name.removeprefix("huang2013_")
+        scenario = campaign_dir.name.removeprefix(f"{dataset}_")
         ds_dir = campaign_dir / dataset
         if not ds_dir.is_dir():
             continue
@@ -325,9 +325,10 @@ def write_efficiency(
     outfile: Path,
     top_k: int = 5,
     t_ref_s: float = float("nan"),
+    dataset: str = "huang2013",
 ) -> None:
     with outfile.open("w") as h:
-        h.write("# huang2013 cross-tool efficiency (runtime)\n\n")
+        h.write(f"# {dataset} cross-tool efficiency (runtime)\n\n")
         h.write(
             "`wall_time_fit_s` is the per-arm fit wall time as recorded in "
             "each arm's `inventory.fits` row (campaign-level field). "
@@ -359,13 +360,16 @@ def write_efficiency(
 
 
 def write_residuals(
-    rows: list[dict[str, Any]], outfile: Path, top_k: int = 5,
+    rows: list[dict[str, Any]],
+    outfile: Path,
+    top_k: int = 5,
+    dataset: str = "huang2013",
 ) -> None:
     with outfile.open("w") as h:
-        h.write("# huang2013 cross-tool residual quality (noise-normalized)\n\n")
+        h.write(f"# {dataset} cross-tool residual quality (noise-normalized)\n\n")
         h.write(
             "Each entry is the **median** of `resid_rms_zone / image_sigma_adu` "
-            "pooled across 9 scenarios × 93 galaxies. Value of 1.0 means the "
+            f"pooled across the {dataset} scenario grid. Value of 1.0 means the "
             "residual RMS in that zone matches the per-image noise; values < 1.0 "
             "indicate sub-noise residuals, > 1.0 indicates systematic mismatch.\n\n"
             "Per tool: top-k arms by Phase F.c.2 `clean_frac`, with their "
@@ -399,9 +403,10 @@ def write_combined(
     top_k_per_tool: int = 5,
     global_top: int = 15,
     t_ref_s: float = float("nan"),
+    dataset: str = "huang2013",
 ) -> None:
     with outfile.open("w") as h:
-        h.write("# huang2013 cross-tool combined score\n\n")
+        h.write(f"# {dataset} cross-tool combined score\n\n")
         h.write(
             "Combined score (lower = better):\n\n"
             "    combined = w_in · R_in/σ + w_mid · R_mid/σ + w_out · R_out/σ\n"
@@ -546,10 +551,12 @@ def main(argv: list[str] | None = None) -> int:
     write_efficiency(
         rows, out_dir / "cross_tool_efficiency.md",
         top_k=args.top_k_per_tool, t_ref_s=t_ref_s,
+        dataset=args.dataset,
     )
     print(f"  wrote {out_dir / 'cross_tool_efficiency.md'}")
     write_residuals(
-        rows, out_dir / "cross_tool_residuals.md", top_k=args.top_k_per_tool,
+        rows, out_dir / "cross_tool_residuals.md",
+        top_k=args.top_k_per_tool, dataset=args.dataset,
     )
     print(f"  wrote {out_dir / 'cross_tool_residuals.md'}")
     write_combined(
@@ -558,6 +565,7 @@ def main(argv: list[str] | None = None) -> int:
         top_k_per_tool=args.top_k_per_tool,
         global_top=args.global_top,
         t_ref_s=t_ref_s,
+        dataset=args.dataset,
     )
     print(f"  wrote {out_dir / 'cross_tool_combined.md'}")
     write_full_csv(rows, out_dir / "cross_tool_extended_table.csv")

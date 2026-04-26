@@ -1,5 +1,5 @@
-campaign_name: huang2013_deep_z035
-output_root: /Volumes/galaxy/isophote/huang2013/_campaigns
+campaign_name: s4g_wide_z005
+output_root: /Volumes/galaxy/isophote/s4g_mock/_campaigns
 tools:
   isoster:
     enabled: true
@@ -18,14 +18,14 @@ isoster_harmonic_sweeps:
   - 5
   - 6
 datasets:
-  huang2013:
+  s4g:
     enabled: true
-    adapter: huang2013_scenarios
-    root: /Volumes/galaxy/isophote/huang2013
+    adapter: s4g_scenarios
+    root: /Volumes/galaxy/isophote/s4g_mock
     depths:
-    - deep
+    - wide
     redshift_tags:
-    - '035'
+    - '005'
 qa:
   per_galaxy_qa: true
   cross_arm_overlay: true

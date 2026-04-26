@@ -53,9 +53,11 @@ PRIOR_COLS = [
     ("violates_geometry_outer", "Prior 3: eps/PA local residual"),
 ]
 
-SCENARIO_RE = re.compile(r"huang2013_(?P<depth>clean|wide|deep)_z(?P<z>\d{3})$")
+SCENARIO_RE = re.compile(
+    r"(?:huang2013|s4g)_(?P<depth>clean|wide|deep)_z(?P<z>\d{3})$"
+)
 DEPTH_ORDER = ("clean", "wide", "deep")
-REDSHIFT_ORDER = ("005", "020", "035", "050")
+REDSHIFT_ORDER = ("005", "010", "020", "035", "050")
 
 
 def scenario_key(campaign_dir: Path) -> str:
