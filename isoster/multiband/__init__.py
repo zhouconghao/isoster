@@ -15,5 +15,18 @@ design record.
 
 from .config_mb import IsosterConfigMB
 from .driver_mb import fit_image_multiband
+from .utils_mb import (
+    isophote_results_mb_from_fits,
+    isophote_results_mb_to_astropy_table,
+    isophote_results_mb_to_fits,
+    load_bands_from_hdus,
+)
 
-__all__ = ["IsosterConfigMB", "fit_image_multiband"]
+__all__ = [
+    "IsosterConfigMB",
+    "fit_image_multiband",
+    "isophote_results_mb_to_fits",
+    "isophote_results_mb_from_fits",
+    "isophote_results_mb_to_astropy_table",
+    "load_bands_from_hdus",
+]
