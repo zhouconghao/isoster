@@ -1,10 +1,12 @@
 # Multi-Band Isoster (Experimental)
 
-> **Status: experimental, Stage-1.** API and output schema are subject to
-> change. No CLI integration. ASDF I/O, ISOFIT, LSB auto-lock, and outer-
-> center regularization are not supported in Stage 1. See
-> `docs/agent/plan-2026-04-29-multiband-feasibility.md` for the locked
-> design record.
+> **Status: experimental, Stage-1 shipped on `feat/multiband-feasibility`
+> on 2026-04-30.** API and output schema are subject to change before
+> the feature is merged to `main`. No CLI integration. ASDF I/O, ISOFIT,
+> LSB auto-lock, and outer-center regularization are not supported in
+> Stage 1. See `docs/agent/plan-2026-04-29-multiband-feasibility.md`
+> for the locked design record (24 decisions captured from a structured
+> interview before any code was written).
 
 ## What it does
 
@@ -33,7 +35,20 @@ shared geometric harmonic coefficients). Solved once per iteration in
 WLS or OLS mode. Per-band weights `w_b` enter as `√w_b` row scaling on
 each band's block.
 
-## Public API (placeholder — body filled when implementation lands)
+## Performance
+
+On the asteris denoised dataset (768×768 cutouts, 74 isophotes, all five
+HSC bands), the joint multi-band fit runs in **~2× single-band wall
+time end-to-end** (0.49 s for B=5 vs 0.25 s for single-band on i-band,
+including FITS I/O). This is well within the Stage-1 quality bar of
+≤2.5× and reflects two key optimizations: (1) the
+``(N × (B+4))`` joint design matrix builder is numba-accelerated with
+a NumPy fallback (``isoster/multiband/numba_kernels_mb.py``); (2) the
+driver pre-resolves image / mask / variance arrays once per fit and
+threads them through every per-iteration sampler call instead of
+re-allocating per call. See decision D19 in the plan doc.
+
+## Public API
 
 ```python
 from isoster.multiband import fit_image_multiband, IsosterConfigMB
@@ -104,12 +119,104 @@ single-band fields.
 delegates to `fit_image` and returns the legacy single-band schema
 unmodified, with an informational warning.
 
-## Worked example (placeholder)
+## Worked example
 
 See `examples/example_asteris_denoised/run_isoster_multiband.py` for the
 end-to-end Stage-1 demo: joint multi-band fit on the asteris denoised
-HSC coadds of object 37484563299062823, with the existing i-band
-single-band result loaded as a geometry-overlay reference.
+HSC coadds of object 37484563299062823. The script loads all five HSC
+bands of denoised cutouts, the existing object mask (built by
+`build_object_mask.py` on the noisy cutout), and per-band uniform-
+variance maps from the sigma-clipped sky RMS. It runs the joint
+multi-band fit, writes a Schema-1 FITS result and the composite QA
+PNG to `outputs/example_asteris_denoised/<id>/`, and prints a geometry
+sanity check against the existing i-band single-band reference fit
+(loaded from the same outputs directory).
+
+Typical sanity-check output on object 37484563299062823:
+
+```
+geometry sanity vs i-band reference (median over valid rings):
+  eps:  multi-band=0.123   i-band=0.118
+  pa:   multi-band=139.65 deg   i-band=144.96 deg
+```
+
+The small offset between multi-band and i-band-only geometries is
+expected: the joint fit pools harmonic-coefficient information across
+all five bands, so the recovered `pa` is a band-weighted compromise
+rather than the i-band-specific solution. The two are in family — a
+real bias would manifest as a shift of several degrees or a larger
+ellipticity discrepancy.
+
+## Algorithm notes
+
+### Joint design matrix (decision D2)
+
+For one isophote with B bands and N kept samples, the joint solver
+fits a single ``(B + 4)``-parameter least-squares system per iteration:
+
+```
+[ 1_g 0   0   sin(φ) cos(φ) sin(2φ) cos(2φ) ] [I0_g]    [intens_g]
+[ 0   1_r 0   sin(φ) cos(φ) sin(2φ) cos(2φ) ] [I0_r]  = [intens_r]
+[ 0   0   1_i sin(φ) cos(φ) sin(2φ) cos(2φ) ] [I0_i]    [intens_i]
+                                            [A1   ]
+                                            [B1   ]
+                                            [A2   ]
+                                            [B2   ]
+```
+
+Per-band weights `w_b` enter as `√w_b` row scaling on each band's
+block; in WLS mode they compose with per-pixel inverse variance as
+`w_b / variance_<b>(pixel)`. With B=1 and `w_b = 1` the joint solver
+reduces to the existing single-band 5-parameter system bit-for-bit
+(verified by `test_joint_solver_b1_matches_single_band_solver`).
+
+### Combined gradient (decision D10)
+
+The geometry-update math (Jedrzejewski 1987) requires a single radial
+gradient. For multi-band the driver computes per-band gradients
+separately and combines them with the same per-band weights:
+
+```
+gradient_joint = Σ_b w_b · grad_b / Σ_b w_b
+σ²_joint       = Σ_b w_b² · σ_b² / (Σ_b w_b)²    (independent measurements)
+```
+
+Plugged into the standard geometry-update formulas; the gradient-error
+gate (`maxgerr`) reads `σ_joint / |gradient_joint|`.
+
+### Sample-validity rule (decision D9)
+
+A sample on the ellipse is dropped from the joint solve if **any**
+band's mask flags it, **any** band has NaN at that location, or
+**any** band's variance is non-positive after sanitization. This
+guarantees that every band's row block in the joint design matrix has
+the same `N` samples, which the joint solve requires. Edge cases where
+one bad band drops samples in all bands are a known revisit item.
+
+### Sigma clipping (decision D9)
+
+Each band is clipped independently against its own intensity
+statistics; the surviving sample masks are AND-ed across bands and
+applied uniformly. Reduces to single-band exactly when B=1.
+
+## Testing
+
+Multi-band tests live under `tests/multiband/`:
+
+| Module | Cases | Coverage |
+|---|---|---|
+| `test_config_mb.py` | 27 | band-name regex, duplicate detection, reference-band membership, band_weights validation, integrator restriction, SMA/iteration consistency. |
+| `test_sampling_mb.py` | 16 | B=1 numerical parity with single-band sampler, shared-validity (per-band masks, NaN, non-positive variance), all-masked degeneracy, mask broadcasting, variance all-or-nothing rejection, joint design matrix kernel parity. |
+| `test_fitting_mb.py` | 12 | joint solver coefficient recovery, B=1 single-band parity, WLS exact covariance, band-weight scaling, per-band sigma clip + AND, fit_isophote_mb planted-galaxy recovery (within Stage-1 thresholds), too-few-points → stop_code=3, B=1 schema, ref-mode fallback, forced photometry, mixed-variance rejection. |
+| `test_driver_mb.py` | 10 | B=1 → single-band delegation, B=2 end-to-end recovery, WLS variance-mode tagging, band_weights passthrough, ref-mode end-to-end, missing config, image / shape / variance-list mismatches, FIRST_FEW_ISOPHOTE_FAILURE. |
+| `test_utils_mb.py` | 7 | per-band column presence, FITS round-trip, PrimaryHDU multi-band keywords, WLS round-trip, load_bands_from_hdus. |
+| `test_plotting_mb.py` | 4 | composite QA renders without exception, with SB constants, missing-bands error, image-count mismatch. |
+
+Run with:
+
+```bash
+uv run pytest tests/multiband/ -v
+```
 
 ## Caveats
 
