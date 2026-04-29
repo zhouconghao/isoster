@@ -14,5 +14,6 @@ design record.
 """
 
 from .config_mb import IsosterConfigMB
+from .driver_mb import fit_image_multiband
 
-__all__ = ["IsosterConfigMB"]
+__all__ = ["IsosterConfigMB", "fit_image_multiband"]
