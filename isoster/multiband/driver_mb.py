@@ -31,6 +31,7 @@ from .fitting_mb import (
     extract_forced_photometry_mb,
     fit_isophote_mb,
 )
+from .sampling_mb import prepare_inputs
 
 ACCEPTABLE_STOP_CODES = {0, 1, 2}
 
@@ -306,6 +307,13 @@ def fit_image_multiband(
     variance_mode = "wls" if variance_maps is not None else "ols"
     config.variance_mode = variance_mode
 
+    # Pre-resolve image / mask / variance arrays exactly once and reuse
+    # across every per-isophote call. This is the dominant performance
+    # win identified in Stage-1 benchmarking (decision D19).
+    image_stack, masks_resolved, var_stack = prepare_inputs(
+        images, masks, variance_maps,
+    )
+
     h, w = np.asarray(images[0]).shape
     x0 = config.x0 if config.x0 is not None else w / 2.0
     y0 = config.y0 if config.y0 is not None else h / 2.0
@@ -322,6 +330,7 @@ def fit_image_multiband(
     start_geometry = {"x0": x0, "y0": y0, "eps": config.eps, "pa": config.pa}
     first_iso = fit_isophote_mb(
         images, masks, sma0, start_geometry, config, variance_maps=variance_maps,
+        image_stack=image_stack, masks_resolved=masks_resolved, var_stack=var_stack,
     )
 
     retry_log: List[Dict[str, object]] = []
@@ -333,6 +342,7 @@ def fit_image_multiband(
             retry_geom = {"x0": x0, "y0": y0, "eps": eps_try, "pa": pa_try}
             cand = fit_isophote_mb(
                 images, masks, sma0_try, retry_geom, config, variance_maps=variance_maps,
+                image_stack=image_stack, masks_resolved=masks_resolved, var_stack=var_stack,
             )
             retry_log.append({
                 "attempt": attempt_idx,
@@ -359,6 +369,7 @@ def fit_image_multiband(
             probe_iso = fit_isophote_mb(
                 images, masks, probe_sma, start_geometry, config,
                 variance_maps=variance_maps,
+                image_stack=image_stack, masks_resolved=masks_resolved, var_stack=var_stack,
             )
             failed_initial.append(probe_iso)
             if _is_acceptable(probe_iso):
@@ -399,6 +410,7 @@ def fit_image_multiband(
                 going_inwards=True,
                 previous_geometry=current_geom,
                 variance_maps=variance_maps,
+                image_stack=image_stack, masks_resolved=masks_resolved, var_stack=var_stack,
             )
             inwards_results.append(next_iso)
             if _is_acceptable(next_iso) or config.permissive_geometry:
@@ -425,6 +437,7 @@ def fit_image_multiband(
                 images, masks, current_sma, current_geom, config,
                 previous_geometry=current_geom,
                 variance_maps=variance_maps,
+                image_stack=image_stack, masks_resolved=masks_resolved, var_stack=var_stack,
             )
             outwards_results.append(next_iso)
             if _is_acceptable(next_iso) or config.permissive_geometry:

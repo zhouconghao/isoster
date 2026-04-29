@@ -33,6 +33,8 @@ from .numba_kernels_mb import build_joint_design_matrix
 from .sampling_mb import (
     MultiIsophoteData,
     extract_isophote_data_multi,
+    extract_isophote_data_multi_prepared,
+    prepare_inputs,
 )
 
 
@@ -249,13 +251,13 @@ def _per_band_sigma_clip(
 
 
 def compute_joint_gradient(
-    images: Sequence[NDArray[np.floating]],
-    masks: Union[None, NDArray[np.bool_], Sequence[Optional[NDArray[np.bool_]]]],
+    image_stack: NDArray[np.float64],
+    masks_resolved: List[Optional[NDArray[np.float64]]],
+    var_stack: Optional[NDArray[np.float64]],
     geometry: Dict[str, float],
     config: IsosterConfigMB,
     band_weights_arr: NDArray[np.float64],
     previous_gradient: Optional[float] = None,
-    variance_maps: Union[None, NDArray[np.floating], Sequence[NDArray[np.floating]]] = None,
     current_data: Optional[MultiIsophoteData] = None,
 ) -> Tuple[float, Optional[float], List[float], List[Optional[float]]]:
     """
@@ -283,10 +285,9 @@ def compute_joint_gradient(
     if current_data is not None:
         data_c = current_data
     else:
-        data_c = extract_isophote_data_multi(
-            images, masks, x0, y0, sma, eps, pa,
+        data_c = extract_isophote_data_multi_prepared(
+            image_stack, masks_resolved, var_stack, x0, y0, sma, eps, pa,
             use_eccentric_anomaly=config.use_eccentric_anomaly,
-            variance_maps=variance_maps,
         )
 
     if data_c.intens.shape[1] == 0:
@@ -300,10 +301,9 @@ def compute_joint_gradient(
     else:
         gradient_sma = sma * (1.0 + config.astep)
 
-    data_g = extract_isophote_data_multi(
-        images, masks, x0, y0, gradient_sma, eps, pa,
+    data_g = extract_isophote_data_multi_prepared(
+        image_stack, masks_resolved, var_stack, x0, y0, gradient_sma, eps, pa,
         use_eccentric_anomaly=config.use_eccentric_anomaly,
-        variance_maps=variance_maps,
     )
 
     if data_g.intens.shape[1] == 0:
@@ -516,6 +516,10 @@ def fit_isophote_mb(
     going_inwards: bool = False,
     previous_geometry: Optional[Dict[str, float]] = None,
     variance_maps: Union[None, NDArray[np.floating], Sequence[NDArray[np.floating]]] = None,
+    *,
+    image_stack: Optional[NDArray[np.float64]] = None,
+    masks_resolved: Optional[List[Optional[NDArray[np.float64]]]] = None,
+    var_stack: Optional[NDArray[np.float64]] = None,
 ) -> Dict[str, object]:
     """
     Fit a single multi-band isophote at the given semi-major axis.
@@ -531,17 +535,17 @@ def fit_isophote_mb(
     band_weights_arr = np.array([band_weights[b] for b in bands], dtype=np.float64)
     debug = bool(config.debug)
 
-    # Pre-resolve masks once (to float64) for use across iterations. We
-    # piggyback on the single-band helper because mask handling in the
-    # sampler accepts any list shape including pre-resolved float arrays.
-    if isinstance(masks, np.ndarray):
-        masks_resolved: Union[None, NDArray[np.float64], List[Optional[NDArray[np.float64]]]] = (
-            _prepare_mask_float(masks)
+    # Pre-resolve image / mask / variance arrays once. The driver
+    # passes pre-resolved arrays through to amortize the cost across
+    # all isophote iterations; standalone callers (and the existing
+    # tests) hit the resolver here instead.
+    if image_stack is None or masks_resolved is None:
+        image_stack, masks_resolved, var_stack = prepare_inputs(
+            images, masks, variance_maps,
         )
-    elif masks is None:
-        masks_resolved = None
-    else:
-        masks_resolved = [_prepare_mask_float(m) if m is not None else None for m in masks]
+    elif var_stack is None and variance_maps is not None:
+        # Caller passed image_stack and masks but not var_stack: resolve.
+        _, _, var_stack = prepare_inputs(images, masks, variance_maps)
 
     x0 = start_geometry["x0"]
     y0 = start_geometry["y0"]
@@ -585,10 +589,10 @@ def fit_isophote_mb(
 
     for i in range(config.maxit):
         niter = i + 1
-        data = extract_isophote_data_multi(
-            images, masks_resolved, x0, y0, sma, eps, pa,
+        data = extract_isophote_data_multi_prepared(
+            image_stack, masks_resolved, var_stack,
+            x0, y0, sma, eps, pa,
             use_eccentric_anomaly=config.use_eccentric_anomaly,
-            variance_maps=variance_maps,
         )
         last_data = data
         total_points = data.valid_count
@@ -683,9 +687,8 @@ def fit_isophote_mb(
         ):
             geom = {"x0": x0, "y0": y0, "sma": sma, "eps": eps, "pa": pa}
             grad_joint, grad_err_joint, per_band_grad, per_band_err = compute_joint_gradient(
-                images, masks_resolved, geom, config, band_weights_arr,
+                image_stack, masks_resolved, var_stack, geom, config, band_weights_arr,
                 previous_gradient=previous_gradient,
-                variance_maps=variance_maps,
                 current_data=data,
             )
             cached_gradient = grad_joint

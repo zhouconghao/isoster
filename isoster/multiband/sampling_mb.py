@@ -13,7 +13,7 @@ D6/D7/D9 for the validity rule and D19 for the vectorization choice.
 """
 
 from collections import namedtuple
-from typing import List, Optional, Sequence, Union
+from typing import List, Optional, Sequence, Tuple, Union
 
 import numpy as np
 from numpy.typing import NDArray
@@ -165,6 +165,117 @@ def _resolve_variance_maps(
             )
         out.append(v.astype(np.float64))
     return out
+
+
+def extract_isophote_data_multi_prepared(
+    image_stack: NDArray[np.float64],
+    masks_resolved: List[Optional[NDArray[np.float64]]],
+    var_stack: Optional[NDArray[np.float64]],
+    x0: float,
+    y0: float,
+    sma: float,
+    eps: float,
+    pa: float,
+    use_eccentric_anomaly: bool = False,
+) -> MultiIsophoteData:
+    """
+    Fast-path multi-band sampler for callers that pre-resolved the inputs.
+
+    The driver layer hits this function once per isophote-fit iteration
+    (and twice per gradient call), so the per-call cost dominates the
+    total fit time. Pre-resolving the (B, H, W) image stack, the per-
+    band float64 mask list, and the (B, H, W) variance stack once at
+    the driver level avoids repeated ``np.stack`` and ``astype`` calls
+    in every iteration. Decision D19 (performance budget).
+
+    Parameters mirror :func:`extract_isophote_data_multi` except that
+    the inputs are already in the canonical layout the sampler uses
+    internally:
+
+    - ``image_stack``: ``(B, H, W)`` float64.
+    - ``masks_resolved``: list of length ``B``, each entry either a
+      ``(H, W)`` float64 array (1.0 = bad, 0.0 = good) or ``None``.
+    - ``var_stack``: ``(B, H, W)`` float64 or ``None``.
+    """
+    n_bands = image_stack.shape[0]
+    n_samples = max(64, int(2.0 * np.pi * sma))
+
+    x_coords, y_coords, psi, phi = compute_ellipse_coords(
+        n_samples, sma, eps, pa, x0, y0, use_eccentric_anomaly
+    )
+    coords = np.vstack([y_coords, x_coords]).astype(np.float64, copy=False)
+
+    intens_full = np.empty((n_bands, n_samples), dtype=np.float64)
+    for b in range(n_bands):
+        intens_full[b] = map_coordinates(
+            image_stack[b], coords, order=1, mode="constant", cval=np.nan
+        )
+
+    valid = np.ones(n_samples, dtype=bool)
+    for b in range(n_bands):
+        valid &= ~np.isnan(intens_full[b])
+        m_b = masks_resolved[b]
+        if m_b is not None:
+            mask_vals = map_coordinates(m_b, coords, order=0, mode="constant", cval=1.0)
+            valid &= mask_vals < 0.5
+
+    var_full: Optional[NDArray[np.float64]] = None
+    if var_stack is not None:
+        var_full = np.empty((n_bands, n_samples), dtype=np.float64)
+        for b in range(n_bands):
+            v = map_coordinates(
+                var_stack[b], coords, order=1, mode="constant", cval=np.nan
+            )
+            var_full[b] = v
+            valid &= np.isfinite(v) & (v > 0.0)
+
+    n_valid = int(np.sum(valid))
+    intens_kept = intens_full[:, valid]
+    var_kept: Optional[NDArray[np.float64]]
+    var_kept = var_full[:, valid] if var_full is not None else None
+
+    if use_eccentric_anomaly:
+        angles_kept = psi[valid]
+        phi_kept = phi[valid]
+    else:
+        angles_kept = phi[valid]
+        phi_kept = phi[valid]
+
+    return MultiIsophoteData(
+        angles=angles_kept,
+        phi=phi_kept,
+        intens=intens_kept,
+        radii=np.full(n_valid, sma, dtype=np.float64),
+        variances=var_kept,
+        n_samples=n_samples,
+        valid_count=n_valid,
+    )
+
+
+def prepare_inputs(
+    images: Sequence[NDArray[np.floating]],
+    masks: Union[None, NDArray[np.bool_], Sequence[Optional[NDArray[np.bool_]]]],
+    variance_maps: Union[None, NDArray[np.floating], Sequence[NDArray[np.floating]]],
+) -> Tuple[
+    NDArray[np.float64],
+    List[Optional[NDArray[np.float64]]],
+    Optional[NDArray[np.float64]],
+]:
+    """
+    One-shot input resolver for the driver/fitting hot path.
+
+    Returns ``(image_stack, masks_resolved, var_stack)`` ready for
+    repeated use by :func:`extract_isophote_data_multi_prepared`. The
+    expensive astype/stack operations happen here exactly once.
+    """
+    image_stack = _stack_images(images)
+    n_bands, h, w = image_stack.shape
+    masks_resolved = _resolve_masks(masks, n_bands, h, w)
+    var_list = _resolve_variance_maps(variance_maps, n_bands, h, w)
+    var_stack: Optional[NDArray[np.float64]] = None
+    if var_list is not None:
+        var_stack = np.stack(var_list, axis=0)
+    return image_stack, masks_resolved, var_stack
 
 
 def _sample_image_stack(
