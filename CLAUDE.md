@@ -94,6 +94,7 @@ Follow these rules for all Python environment and dependency work in this reposi
 | `docs/07-lsb-features.md` | Design + implementation notes for LSB auto-lock and outer-region center regularization |
 | `docs/08-outer-regularization.md` | Publication-grade reference for the outer-region Tikhonov regularization: math, algorithm, config, benchmarks |
 | `docs/09-exhausted-benchmark.md` | Exhausted benchmark campaign framework: YAML schema, arm sentinels, output layout, composite score, adapter recipe |
+| `docs/10-multiband.md` | Multi-band isoster (experimental): joint free fit replacing forced photometry; API, Schema 1 column reference, joint-solver math, demo |
 
 ### Agent-internal docs (untracked, in `docs/agent/`)
 
