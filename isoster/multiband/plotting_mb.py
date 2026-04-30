@@ -283,7 +283,8 @@ def _plot_sb_profile(
                 x[m], mu, yerr=mu_err,
                 color=_band_color(b_idx), label=b,
                 marker="o", ms=6.0, mfc=_band_color(b_idx), mec="white",
-                mew=0.6, lw=0, elinewidth=0.9, capsize=0, alpha=0.95,
+                mew=0.6, lw=0, elinewidth=1.4, capsize=2.5, capthick=1.2,
+                alpha=0.95,
             )
             # Per-band I=0 reference line (dashed, same color).
             mu_zero = _asinh_mu_at_zero(
