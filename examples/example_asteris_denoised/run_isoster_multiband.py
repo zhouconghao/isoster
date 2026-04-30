@@ -207,6 +207,24 @@ def main() -> int:
     plt.close(fig)
     print(f"  wrote {qa_path}")
 
+    # Companion artifact without the sky-offset post-process so the user
+    # can compare the residual mosaics side by side. Inside the fitted
+    # SMA range the residual is mathematically identical between the
+    # two; the difference is visible only at the cutout corners (where
+    # build_isoster_model uses fill=0 outside max isophote SMA).
+    qa_no_sky_path = out_dir / f"{obj_id}_multiband_qa_no_sky.png"
+    fig_no_sky = plot_qa_summary_mb(
+        result, images,
+        sb_zeropoint=SB_ZEROPOINT,
+        pixel_scale_arcsec=PIXEL_SCALE_ARCSEC,
+        softening_per_band=softening_per_band,
+        object_mask=mask,
+        output_path=qa_no_sky_path,
+        title=title + " (no sky correction)",
+    )
+    plt.close(fig_no_sky)
+    print(f"  wrote {qa_no_sky_path}")
+
     # 8. Optional: print a brief comparison vs the existing i-band single-band
     #    reference fit (geometry sanity check).
     ref_isophotes = _load_reference_isophotes(obj_id)
