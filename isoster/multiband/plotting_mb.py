@@ -29,7 +29,7 @@ from __future__ import annotations
 import logging
 import warnings
 from pathlib import Path
-from typing import Dict, List, Optional, Sequence, Union
+from typing import Dict, List, Optional, Sequence, Tuple, Union
 
 import matplotlib
 import matplotlib.pyplot as plt
@@ -38,6 +38,7 @@ from matplotlib.axes import Axes
 from matplotlib.colors import ListedColormap
 from matplotlib.figure import Figure
 from matplotlib.patches import Ellipse
+from matplotlib.ticker import MaxNLocator
 from numpy.typing import NDArray
 
 from ..model import build_isoster_model
@@ -102,6 +103,71 @@ def _asinh_mu_at_zero(zeropoint: float, pixel_scale_arcsec: float, scale: float)
     """``mu_asinh(I=0) = zp - 2.5 * log10(scale / pixarea)``."""
     pixarea = pixel_scale_arcsec * pixel_scale_arcsec
     return float(zeropoint - 2.5 * np.log10(scale / pixarea))
+
+
+# ---------------------------------------------------------------------------
+# Post-process: subtract per-band outermost-ring sky residual
+# ---------------------------------------------------------------------------
+
+
+def subtract_outermost_sky_offset(
+    result: dict, n_outer: int = 5,
+) -> Tuple[dict, Dict[str, float]]:
+    """
+    Subtract the per-band outer-ring sky plateau from the joint fit's I0_b.
+
+    The joint solver fits each band's intensity along an isophote as
+    ``I0_b + harmonic_terms`` (decision D11). In the LSB outskirt where the
+    galaxy signal drops below the per-band sky residual, ``I0_b`` saturates
+    at the local sky residual rather than going to zero — a flat plateau
+    visible on the SB profile's outermost rings.
+
+    This helper estimates that plateau as the median ``I0_b`` over the
+    outermost ``n_outer`` valid isophotes (per band) and returns a copy of
+    the result dict with the offset subtracted from every isophote's
+    ``intens_<b>``. The corresponding ``intens_err_<b>`` is unchanged.
+
+    Returns
+    -------
+    corrected_result, sky_offsets
+        - ``corrected_result`` is a shallow copy of ``result`` with new
+          ``isophotes`` list. The original is not modified.
+        - ``sky_offsets`` is a ``{band: offset}`` dict for downstream use
+          (e.g., subtracting the same offset from the band image when
+          building the residual mosaic).
+    """
+    bands = list(result.get("bands", []))
+    isophotes = list(result["isophotes"])
+    valid = [
+        iso for iso in isophotes
+        if bool(iso.get("valid", True)) and float(iso.get("sma", 0.0)) > 0.0
+    ]
+    valid_sorted = sorted(valid, key=lambda iso: float(iso["sma"]))
+    outer = valid_sorted[-n_outer:] if len(valid_sorted) >= n_outer else valid_sorted
+
+    sky_offsets: Dict[str, float] = {}
+    for b in bands:
+        vals: List[float] = []
+        for iso in outer:
+            v = iso.get(f"intens_{b}")
+            if v is not None and np.isfinite(float(v)):
+                vals.append(float(v))
+        sky_offsets[b] = float(np.median(vals)) if vals else 0.0
+
+    new_isophotes: List[dict] = []
+    for iso in isophotes:
+        new_iso = dict(iso)
+        for b in bands:
+            key = f"intens_{b}"
+            v = new_iso.get(key)
+            if v is not None and np.isfinite(float(v)):
+                new_iso[key] = float(v) - sky_offsets[b]
+        new_isophotes.append(new_iso)
+
+    new_result = dict(result)
+    new_result["isophotes"] = new_isophotes
+    new_result["sky_offsets"] = sky_offsets
+    return new_result, sky_offsets
 
 
 # ---------------------------------------------------------------------------
@@ -236,7 +302,7 @@ def _plot_sb_profile(
             all_y_for_ylim.append(np.asarray(mu, dtype=np.float64))
 
     if has_sb:
-        ax.set_ylabel(r"$\mu$ [mag/arcsec$^2$]")
+        ax.set_ylabel(r"$\mu_{\rm asinh}$ [mag/arcsec$^2$] (Lupton+1999)")
         ax.invert_yaxis()
     else:
         ax.set_ylabel(r"$\log_{10}\,I$")
@@ -487,10 +553,31 @@ def plot_qa_summary_mb(
         except ValueError:
             reference_band_idx = 0
 
-    fig = plt.figure(figsize=figsize, constrained_layout=True)
+    # No constrained_layout — it overrides our hspace=0 inner gridspec
+    # requests. Explicit outer margins ensure labels still fit.
+    fig = plt.figure(figsize=figsize, constrained_layout=False)
 
-    # Outer 2x2 grid with equal cells.
-    outer = fig.add_gridspec(2, 2, hspace=0.10, wspace=0.10)
+    # Outer 2x2 grid with equal-width columns. Tight outer margins so
+    # the four blocks share the figure cleanly.
+    outer = fig.add_gridspec(
+        2, 2,
+        hspace=0.18, wspace=0.10,
+        left=0.06, right=0.985, top=0.94, bottom=0.06,
+    )
+
+    # Pre-compute the shared x-range so the SB / harmonic / geometry
+    # blocks line up edge-to-edge in the same column.
+    sma_arr = np.array([float(iso["sma"]) for iso in isophotes], dtype=np.float64)
+    valid_arr = np.array([bool(iso.get("valid", True)) for iso in isophotes])
+    x_for_range = _xaxis_arcsec_pow(sma_arr, pix)
+    x_finite = x_for_range[valid_arr & np.isfinite(x_for_range)]
+    if x_finite.size:
+        x_lo = float(np.min(x_finite))
+        x_hi = float(np.max(x_finite))
+        x_pad = 0.03 * max(x_hi - x_lo, 1e-3)
+        shared_xlim = (x_lo - x_pad, x_hi + x_pad)
+    else:
+        shared_xlim = None
 
     # --- Top-left: SB profile -------------------------------------------------
     ax_sb = fig.add_subplot(outer[0, 0])
@@ -499,9 +586,12 @@ def plot_qa_summary_mb(
         ax_sb.set_xlabel(r"$\mathrm{SMA}^{0.25}$  [arcsec$^{0.25}$]", fontsize=12)
     else:
         ax_sb.set_xlabel(r"$\mathrm{SMA}^{0.25}$  [pix$^{0.25}$]", fontsize=12)
+    if shared_xlim is not None:
+        ax_sb.set_xlim(shared_xlim)
 
     # --- Top-right: image + residual mosaic (2x3) ----------------------------
-    gs_mosaic = outer[0, 1].subgridspec(2, 3, hspace=0.18, wspace=0.05)
+    # Tight inter-cell spacing — these are images, not 1-D plots.
+    gs_mosaic = outer[0, 1].subgridspec(2, 3, hspace=0.06, wspace=0.04)
     # Cell (0, 0): reference-band cutout with isophote ellipses.
     ax_img = fig.add_subplot(gs_mosaic[0, 0])
     _plot_image_with_isophotes(
@@ -535,8 +625,8 @@ def plot_qa_summary_mb(
             continue
         _plot_residual_panel(ax_r, images[b_idx], model, b, mask=object_mask)
 
-    # --- Bottom-left: harmonics stack (4 panels, share x, hspace=0) ---------
-    gs_harm = outer[1, 0].subgridspec(4, 1, hspace=0)
+    # --- Bottom-left: harmonics stack (4 panels, share x, no gap) -----------
+    gs_harm = outer[1, 0].subgridspec(4, 1, hspace=0.0)
     ax_a3 = fig.add_subplot(gs_harm[0])
     ax_b3 = fig.add_subplot(gs_harm[1], sharex=ax_a3)
     ax_a4 = fig.add_subplot(gs_harm[2], sharex=ax_a3)
@@ -547,13 +637,22 @@ def plot_qa_summary_mb(
     _plot_harmonic(ax_b4, "b4", r"$B_4 / (a\,dI/da)$", isophotes, bands, pix)
     for ax in (ax_a3, ax_b3, ax_a4):
         plt.setp(ax.get_xticklabels(), visible=False)
+    # Prune the tick labels at panel boundaries so stacked panels look
+    # truly seamless: top panel hides its lowest tick, middle panels
+    # hide both extremes, bottom panel hides its uppermost tick.
+    ax_a3.yaxis.set_major_locator(MaxNLocator(prune="lower", nbins=4))
+    ax_b3.yaxis.set_major_locator(MaxNLocator(prune="both", nbins=4))
+    ax_a4.yaxis.set_major_locator(MaxNLocator(prune="both", nbins=4))
+    ax_b4.yaxis.set_major_locator(MaxNLocator(prune="upper", nbins=4))
     if pixel_scale_arcsec is not None:
         ax_b4.set_xlabel(r"$\mathrm{SMA}^{0.25}$  [arcsec$^{0.25}$]", fontsize=12)
     else:
         ax_b4.set_xlabel(r"$\mathrm{SMA}^{0.25}$  [pix$^{0.25}$]", fontsize=12)
+    if shared_xlim is not None:
+        ax_b4.set_xlim(shared_xlim)  # propagates to a3/b3/a4 via sharex
 
-    # --- Bottom-right: geometry stack (3 panels, share x, hspace=0) ---------
-    gs_geom = outer[1, 1].subgridspec(3, 1, hspace=0)
+    # --- Bottom-right: geometry stack (3 panels, share x, no gap) -----------
+    gs_geom = outer[1, 1].subgridspec(3, 1, hspace=0.0)
     ax_eps = fig.add_subplot(gs_geom[0])
     ax_pa = fig.add_subplot(gs_geom[1], sharex=ax_eps)
     ax_ctr = fig.add_subplot(gs_geom[2], sharex=ax_eps)
@@ -562,13 +661,23 @@ def plot_qa_summary_mb(
     _plot_center(ax_ctr, isophotes, pix)
     for ax in (ax_eps, ax_pa):
         plt.setp(ax.get_xticklabels(), visible=False)
+    ax_eps.yaxis.set_major_locator(MaxNLocator(prune="lower", nbins=4))
+    ax_pa.yaxis.set_major_locator(MaxNLocator(prune="both", nbins=4))
+    ax_ctr.yaxis.set_major_locator(MaxNLocator(prune="upper", nbins=4))
     if pixel_scale_arcsec is not None:
         ax_ctr.set_xlabel(r"$\mathrm{SMA}^{0.25}$  [arcsec$^{0.25}$]", fontsize=12)
     else:
         ax_ctr.set_xlabel(r"$\mathrm{SMA}^{0.25}$  [pix$^{0.25}$]", fontsize=12)
+    if shared_xlim is not None:
+        ax_ctr.set_xlim(shared_xlim)  # propagates to eps/pa via sharex
+
+    # Align y-axis labels in each column so the SB / harmonic / geometry
+    # blocks share a single label x-coordinate per column.
+    fig.align_ylabels([ax_sb, ax_a3, ax_b3, ax_a4, ax_b4])
+    fig.align_ylabels([ax_eps, ax_pa, ax_ctr])
 
     if title is not None:
-        fig.suptitle(title, fontsize=13)
+        fig.suptitle(title, fontsize=13, y=0.995)
 
     if output_path is not None:
         fig.savefig(output_path, dpi=120, bbox_inches="tight")

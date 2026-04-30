@@ -15,6 +15,10 @@ design record.
 
 from .config_mb import IsosterConfigMB
 from .driver_mb import fit_image_multiband
+from .plotting_mb import (
+    plot_qa_summary_mb,
+    subtract_outermost_sky_offset,
+)
 from .utils_mb import (
     isophote_results_mb_from_fits,
     isophote_results_mb_to_astropy_table,
@@ -29,4 +33,6 @@ __all__ = [
     "isophote_results_mb_from_fits",
     "isophote_results_mb_to_astropy_table",
     "load_bands_from_hdus",
+    "plot_qa_summary_mb",
+    "subtract_outermost_sky_offset",
 ]

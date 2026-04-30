@@ -45,6 +45,7 @@ from isoster.multiband import (  # noqa: E402
     IsosterConfigMB,
     fit_image_multiband,
     isophote_results_mb_to_fits,
+    subtract_outermost_sky_offset,
 )
 from isoster.multiband.plotting_mb import plot_qa_summary_mb  # noqa: E402
 
@@ -179,8 +180,23 @@ def main() -> int:
     softening_per_band = {b: max(s, 1e-6) for b, s in sky_rms_per_band.items()}
     qa_path = out_dir / f"{obj_id}_multiband_qa.png"
     title = f"asteris {obj_id} - multiband joint fit (5 bands)"
+
+    # Post-process: subtract per-band outer-ring sky residual so the SB
+    # profile reflects the galaxy signal rather than asymptoting to the
+    # per-band I0_b plateau (decision D11 / Stage-2+ revisit). Subtract
+    # the same offset from each band's image so the residual mosaic
+    # remains image - model in matched units.
+    n_outer_for_sky = 8
+    result_sky_corr, sky_offsets = subtract_outermost_sky_offset(
+        result, n_outer=n_outer_for_sky,
+    )
+    print(f"  sky offsets from outermost {n_outer_for_sky} rings:")
+    for b in DEMO_BANDS:
+        print(f"    {b}: {sky_offsets[b]:+.6g}")
+    images_sky_corr = [im - sky_offsets[b] for im, b in zip(images, DEMO_BANDS)]
+
     fig = plot_qa_summary_mb(
-        result, images,
+        result_sky_corr, images_sky_corr,
         sb_zeropoint=SB_ZEROPOINT,
         pixel_scale_arcsec=PIXEL_SCALE_ARCSEC,
         softening_per_band=softening_per_band,
