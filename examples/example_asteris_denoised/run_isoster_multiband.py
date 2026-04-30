@@ -184,6 +184,7 @@ def main() -> int:
         sb_zeropoint=SB_ZEROPOINT,
         pixel_scale_arcsec=PIXEL_SCALE_ARCSEC,
         softening_per_band=softening_per_band,
+        object_mask=mask,
         output_path=qa_path,
         title=title,
     )
