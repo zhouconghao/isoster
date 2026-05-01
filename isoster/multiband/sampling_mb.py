@@ -289,49 +289,58 @@ def _sample_along_ellipse(
             image_stack[b], coords, order=1, mode="constant", cval=np.nan
         )
 
-    # Per-band validity rule: a sample passes if image is finite, mask
-    # is False (or absent), and variance (when given) is finite-positive
-    # AFTER sanitization. Built once per band so loose_validity can use
-    # the per-band masks while shared-validity ANDs them.
-    per_band_valid = np.ones((n_bands, n_samples), dtype=bool)
-    for b in range(n_bands):
-        per_band_valid[b] &= ~np.isnan(intens_full[b])
-        m_b = masks_resolved[b]
-        if m_b is not None:
-            mask_vals = map_coordinates(m_b, coords, order=0, mode="constant", cval=1.0)
-            per_band_valid[b] &= mask_vals < 0.5
-
     var_full: Optional[NDArray[np.float64]] = None
     if var_stack is not None:
         var_full = np.empty((n_bands, n_samples), dtype=np.float64)
         for b in range(n_bands):
-            v = map_coordinates(
+            var_full[b] = map_coordinates(
                 var_stack[b], coords, order=1, mode="constant", cval=np.nan
             )
-            var_full[b] = v
-            per_band_valid[b] &= np.isfinite(v) & (v > 0.0)
 
-    # Intersection mask: samples kept by every band. Always computed —
-    # it backs the legacy 2-D ``intens`` view in both modes.
-    valid_intersect = np.all(per_band_valid, axis=0)
-    n_valid_intersect = int(np.sum(valid_intersect))
-    intens_intersect = intens_full[:, valid_intersect]
-    var_intersect: Optional[NDArray[np.float64]] = (
-        var_full[:, valid_intersect] if var_full is not None else None
-    )
-    angles_intersect = angle_full[valid_intersect]
-    phi_intersect = phi[valid_intersect]
-    radii_intersect = np.full(n_valid_intersect, sma, dtype=np.float64)
-    n_valid_per_band = per_band_valid.sum(axis=1).astype(np.int64)
+    # When the user passed a single mask via the broadcast convenience
+    # path, ``_resolve_masks`` populates every entry of
+    # ``masks_resolved`` with the *same* ndarray.  Calling
+    # ``map_coordinates`` once and reusing the sampled values across
+    # all bands trims B-1 expensive scipy calls per sampler
+    # invocation; on B=5 with ~75 isophotes that recovers ~25% of the
+    # multi-band sampler runtime.
+    mask_cache: dict[int, NDArray[np.float64]] = {}
+    def _sample_mask(m_b: NDArray[np.float64]) -> NDArray[np.float64]:
+        key = id(m_b)
+        cached = mask_cache.get(key)
+        if cached is None:
+            cached = map_coordinates(
+                m_b, coords, order=0, mode="constant", cval=1.0
+            )
+            mask_cache[key] = cached
+        return cached
 
     if not loose_validity:
-        # Shared-validity layout.  Per-band fields stay None so callers
-        # can branch on ``intens_per_band is None`` to detect the mode.
+        # Shared-validity fast path: a single ``(N,)`` valid mask
+        # accumulated band-by-band.  Avoids allocating a ``(B, N)``
+        # per-band-valid matrix; matches the Stage-1 baseline performance.
+        valid = np.ones(n_samples, dtype=bool)
+        for b in range(n_bands):
+            valid &= ~np.isnan(intens_full[b])
+            m_b = masks_resolved[b]
+            if m_b is not None:
+                valid &= _sample_mask(m_b) < 0.5
+        if var_full is not None:
+            for b in range(n_bands):
+                valid &= np.isfinite(var_full[b]) & (var_full[b] > 0.0)
+        n_valid_intersect = int(np.sum(valid))
+        intens_intersect = intens_full[:, valid]
+        var_intersect: Optional[NDArray[np.float64]] = (
+            var_full[:, valid] if var_full is not None else None
+        )
+        angles_intersect = angle_full[valid]
+        phi_intersect = phi[valid]
+        n_valid_per_band = np.full(n_bands, n_valid_intersect, dtype=np.int64)
         return MultiIsophoteData(
             angles=angles_intersect,
             phi=phi_intersect,
             intens=intens_intersect,
-            radii=radii_intersect,
+            radii=np.full(n_valid_intersect, sma, dtype=np.float64),
             variances=var_intersect,
             n_samples=n_samples,
             valid_count=n_valid_intersect,
@@ -341,7 +350,27 @@ def _sample_along_ellipse(
             n_valid_per_band=n_valid_per_band,
         )
 
-    # Loose-validity layout.  Build per-band kept arrays.
+    # Loose-validity layout: per-band validity masks so the fitter can
+    # keep each band's own surviving samples instead of the AND.
+    per_band_valid = np.ones((n_bands, n_samples), dtype=bool)
+    for b in range(n_bands):
+        per_band_valid[b] &= ~np.isnan(intens_full[b])
+        m_b = masks_resolved[b]
+        if m_b is not None:
+            per_band_valid[b] &= _sample_mask(m_b) < 0.5
+        if var_full is not None:
+            per_band_valid[b] &= np.isfinite(var_full[b]) & (var_full[b] > 0.0)
+
+    valid_intersect = np.all(per_band_valid, axis=0)
+    n_valid_intersect = int(np.sum(valid_intersect))
+    n_valid_per_band = per_band_valid.sum(axis=1).astype(np.int64)
+    intens_intersect = intens_full[:, valid_intersect]
+    var_intersect = (
+        var_full[:, valid_intersect] if var_full is not None else None
+    )
+    angles_intersect = angle_full[valid_intersect]
+    phi_intersect = phi[valid_intersect]
+
     intens_per_band: List[NDArray[np.float64]] = [
         intens_full[b, per_band_valid[b]] for b in range(n_bands)
     ]
@@ -358,7 +387,7 @@ def _sample_along_ellipse(
         angles=angles_intersect,
         phi=phi_intersect,
         intens=intens_intersect,
-        radii=radii_intersect,
+        radii=np.full(n_valid_intersect, sma, dtype=np.float64),
         variances=var_intersect,
         n_samples=n_samples,
         valid_count=n_valid_intersect,

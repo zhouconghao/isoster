@@ -183,21 +183,109 @@ def warmup_numba_mb() -> None:
         return
     phi = np.linspace(0.0, 2.0 * np.pi, 64)
     _ = _build_joint_design_matrix_numba(phi, 2)
+    # Warm the jagged-builder kernel for both normalize=False and =True.
+    n_per_band = np.array([64, 60], dtype=np.int64)
+    band_offsets = np.array([0, 64], dtype=np.int64)
+    phi_concat = np.concatenate([phi, phi[:60]])
+    _ = _build_joint_design_matrix_jagged_numba(
+        phi_concat, band_offsets, n_per_band, 2, False,
+    )
+    _ = _build_joint_design_matrix_jagged_numba(
+        phi_concat, band_offsets, n_per_band, 2, True,
+    )
+
+
+@njit(cache=True)
+def _build_joint_design_matrix_jagged_numba(
+    phi_concat: NDArray[np.float64],
+    band_offsets: NDArray[np.int64],
+    n_per_band: NDArray[np.int64],
+    n_bands: int,
+    normalize: bool,
+) -> NDArray[np.float64]:
+    """Numba-JIT inner kernel for ``build_joint_design_matrix_jagged``.
+
+    Operates on a single concatenated ``phi`` vector with per-band
+    offsets so numba does not have to deal with a Python list of
+    arrays of varying length (lists of arrays are not first-class
+    numba types).
+    """
+    n_total = int(phi_concat.shape[0])
+    n_cols = n_bands + 4
+    A = np.zeros((n_total, n_cols), dtype=np.float64)
+    for b in range(n_bands):
+        n_b = int(n_per_band[b])
+        if n_b == 0:
+            continue
+        offset = int(band_offsets[b])
+        if normalize:
+            scale = np.sqrt(1.0 / n_b)
+        else:
+            scale = 1.0
+        for i in range(n_b):
+            row = offset + i
+            p = phi_concat[row]
+            A[row, b] = scale
+            A[row, n_bands + 0] = scale * np.sin(p)
+            A[row, n_bands + 1] = scale * np.cos(p)
+            A[row, n_bands + 2] = scale * np.sin(2.0 * p)
+            A[row, n_bands + 3] = scale * np.cos(2.0 * p)
+    return A
+
+
+def _build_joint_design_matrix_jagged_numpy(
+    phi_concat: NDArray[np.float64],
+    band_offsets: NDArray[np.int64],
+    n_per_band: NDArray[np.int64],
+    n_bands: int,
+    normalize: bool,
+) -> NDArray[np.float64]:
+    """NumPy fallback (used when numba is unavailable / disabled)."""
+    n_total = int(phi_concat.shape[0])
+    n_cols = n_bands + 4
+    A = np.zeros((n_total, n_cols), dtype=np.float64)
+    for b in range(n_bands):
+        n_b = int(n_per_band[b])
+        if n_b == 0:
+            continue
+        offset = int(band_offsets[b])
+        scale = float(np.sqrt(1.0 / n_b)) if normalize else 1.0
+        rng = slice(offset, offset + n_b)
+        p = phi_concat[rng]
+        A[rng, b] = scale
+        A[rng, n_bands + 0] = scale * np.sin(p)
+        A[rng, n_bands + 1] = scale * np.cos(p)
+        A[rng, n_bands + 2] = scale * np.sin(2.0 * p)
+        A[rng, n_bands + 3] = scale * np.cos(2.0 * p)
+    return A
+
+
+_build_joint_design_matrix_jagged_impl = (
+    _build_joint_design_matrix_jagged_numba
+    if NUMBA_AVAILABLE
+    else _build_joint_design_matrix_jagged_numpy
+)
 
 
 def build_joint_design_matrix_jagged(
     phi_per_band,
     n_bands: int,
     normalize: bool = False,
-):
+) -> NDArray[np.floating]:
     """
-    Build the loose-validity jagged joint design matrix (pure NumPy).
+    Build the loose-validity jagged joint design matrix.
 
     Used by the D9 backport when ``IsosterConfigMB.loose_validity=True``
-    and per-band kept-sample counts ``N_b`` differ. Each band b contributes
-    ``N_b`` rows; the per-band intercept column for band b is 1 on those
-    rows and 0 elsewhere; the shared geometric block uses each band's own
-    angle array.
+    and per-band kept-sample counts ``N_b`` differ. Each band b
+    contributes ``N_b`` rows; the per-band intercept column for band b
+    is 1 on those rows and 0 elsewhere; the shared geometric block
+    uses each band's own angle array.
+
+    The hot-loop kernel is numba-accelerated (with a NumPy fallback
+    when numba is unavailable). The Python-level wrapper concatenates
+    the jagged ``phi_per_band`` list into a single 1-D array with
+    per-band offsets so the kernel does not have to handle Python
+    lists of variable-length arrays.
 
     Parameters
     ----------
@@ -234,29 +322,16 @@ def build_joint_design_matrix_jagged(
         )
 
     n_per_band = np.array([int(p.size) for p in phi_per_band], dtype=np.int64)
-    n_total = int(n_per_band.sum())
-    n_cols = n_bands + 4
-    A = np.zeros((n_total, n_cols), dtype=np.float64)
-
-    row = 0
-    for b in range(n_bands):
-        n_b = int(n_per_band[b])
-        if n_b == 0:
-            continue
-        scale = 1.0
-        if normalize:
-            # `√(1/N_b)` row-scaling — equivalent to dividing the band's
-            # contribution to A^T A by N_b. Bands with more samples then
-            # contribute the same total weight as bands with fewer.
-            scale = float(np.sqrt(1.0 / n_b))
-        # Per-band intercept indicator column (column b).
-        A[row:row + n_b, b] = scale
-        # Shared geometric block — uses band b's own kept angles.
-        p = phi_per_band[b]
-        A[row:row + n_b, n_bands + 0] = scale * np.sin(p)
-        A[row:row + n_b, n_bands + 1] = scale * np.cos(p)
-        A[row:row + n_b, n_bands + 2] = scale * np.sin(2.0 * p)
-        A[row:row + n_b, n_bands + 3] = scale * np.cos(2.0 * p)
-        row += n_b
-
-    return A
+    band_offsets = np.empty(n_bands, dtype=np.int64)
+    band_offsets[0] = 0
+    if n_bands > 1:
+        band_offsets[1:] = np.cumsum(n_per_band)[:-1]
+    if int(n_per_band.sum()) == 0:
+        # All bands empty — return a zero-row matrix of correct width.
+        return np.zeros((0, n_bands + 4), dtype=np.float64)
+    phi_concat = np.concatenate(
+        [np.asarray(p, dtype=np.float64) for p in phi_per_band]
+    )
+    return _build_joint_design_matrix_jagged_impl(
+        phi_concat, band_offsets, n_per_band, n_bands, normalize,
+    )

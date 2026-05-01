@@ -284,12 +284,11 @@ def fit_first_and_second_harmonics_joint_loose(
     wls_mode = variances_per_band is not None
 
     # Per-row band weights & per-pixel WLS weights composed together.
-    if wls_mode:
-        var_concat = np.concatenate(variances_per_band)  # type: ignore[arg-type]
     band_weight_per_row = np.concatenate(
         [np.full(n_per_band[b], band_weights_arr[b], dtype=np.float64) for b in range(n_bands)]
     )
     if wls_mode:
+        var_concat = np.concatenate(variances_per_band)  # type: ignore[arg-type]
         w_eff = band_weight_per_row / var_concat
     else:
         w_eff = band_weight_per_row
@@ -709,31 +708,25 @@ def _compute_parameter_errors_from_joint(
     try:
         if use_exact_covariance:
             covariance = cov_full
+        elif isinstance(intens_per_band, np.ndarray):
+            # OLS shared-validity: scale the (A^T A)^-1 covariance by the
+            # residual variance of the joint fit (rectangular flatten).
+            model_per_band_local = evaluate_joint_model(angles, coeffs, n_bands)
+            residuals = (intens_per_band - model_per_band_local).reshape(-1)
+            ddof = n_geom_params
+            if len(residuals) <= ddof:
+                return 0.0, 0.0, 0.0, 0.0
+            var_residual = float(np.var(residuals, ddof=ddof))
+            if var_residual_floor is not None:
+                var_residual = max(var_residual, var_residual_floor)
+            covariance = cov_full * var_residual
         else:
-            # OLS: scale the (A^T A)^-1 covariance by the residual variance
-            # of the joint fit. Under shared validity the residuals are a
-            # rectangular (B, N) array we flatten; under loose validity
-            # they are jagged per-band arrays we concatenate.
-            if isinstance(intens_per_band, np.ndarray):
-                model_per_band_local = evaluate_joint_model(angles, coeffs, n_bands)
-                residuals = (intens_per_band - model_per_band_local).reshape(-1)
-            else:
-                # Loose-validity: each band has its own kept angles, which
-                # the caller has not threaded through. Conservatively skip
-                # the OLS rescale and use the as-built (A^T A)^-1 — it is
-                # already shape-correct and the dropped-band rows are
-                # zero, so they contribute nothing. The geometric block
-                # is unaffected.
-                covariance = cov_full
-                residuals = None
-            if residuals is not None:
-                ddof = n_geom_params
-                if len(residuals) <= ddof:
-                    return 0.0, 0.0, 0.0, 0.0
-                var_residual = float(np.var(residuals, ddof=ddof))
-                if var_residual_floor is not None:
-                    var_residual = max(var_residual, var_residual_floor)
-                covariance = cov_full * var_residual
+            # OLS loose-validity: each band has its own kept angles which
+            # the caller has not threaded through. Conservatively skip the
+            # OLS rescale and use the as-built (A^T A)^-1 — it is already
+            # shape-correct and dropped-band rows are zero, so they
+            # contribute nothing. The geometric block is unaffected.
+            covariance = cov_full
         errors = np.sqrt(np.diagonal(covariance))
 
         sig_a1_sq = float(errors[n_bands] ** 2)
@@ -1161,7 +1154,11 @@ def fit_isophote_mb(
         # RMS of the joint model fit (per-band-stacked residuals).
         # Under loose validity, ``intens_per_band`` is a jagged list and
         # the bands sample at potentially different angles, so we
-        # evaluate the model per band on each band's own kept angles.
+        # evaluate the model per band on each band's own *post-clip*
+        # kept angles (must match the post-clip intensities; using the
+        # pre-clip ``data.phi_per_band`` here silently produces shape
+        # mismatches that turn the residual concat into NaN, which then
+        # blocks the convergence test from ever firing).
         if loose_validity:
             model_per_band_loose: List[NDArray[np.float64]] = []
             residual_chunks: List[NDArray[np.float64]] = []
@@ -1169,34 +1166,33 @@ def fit_isophote_mb(
                 float(coeffs[n_bands]), float(coeffs[n_bands + 1]),
                 float(coeffs[n_bands + 2]), float(coeffs[n_bands + 3]),
             )
+            phi_post_clip = last_phi_per_band_loose or []
+            intens_post_clip = last_intens_per_band_loose or []
             for b_idx in range(n_bands):
-                # Use the band's own kept angles regardless of whether it
-                # survived the threshold (the residual is meaningful
-                # whenever the band has any samples).
-                p_b = data.phi_per_band[b_idx]  # type: ignore[index]
-                if config.use_eccentric_anomaly:
-                    # angle for harmonic evaluation = psi when EA mode
-                    # is on; the sampler stored EA in the legacy
-                    # ``angles`` field, so reconstruct via phi+the
-                    # per-band kept indices is overkill — fall back to
-                    # phi (regular mode harmonic eval) which is what
-                    # ``evaluate_joint_model`` uses internally.
-                    pass
-                if p_b.size == 0 or np.isnan(coeffs[b_idx]):
+                if (
+                    b_idx >= len(phi_post_clip)
+                    or phi_post_clip[b_idx].size == 0
+                    or np.isnan(coeffs[b_idx])
+                ):
                     model_per_band_loose.append(np.empty(0, dtype=np.float64))
                     continue
+                p_b = phi_post_clip[b_idx]
                 m_b = (
                     float(coeffs[b_idx])
                     + A1c * np.sin(p_b) + B1c * np.cos(p_b)
                     + A2c * np.sin(2.0 * p_b) + B2c * np.cos(2.0 * p_b)
                 )
                 model_per_band_loose.append(m_b)
-                # Use the post-clip kept intens for the residual.
-                if last_intens_per_band_loose is not None:
-                    i_b = last_intens_per_band_loose[b_idx]
-                    if i_b.size == m_b.size:
-                        residual_chunks.append(i_b - m_b)
-            rms = float(np.std(np.concatenate(residual_chunks))) if residual_chunks else float("nan")
+                i_b = intens_post_clip[b_idx]
+                # Both arrays now come from the same post-clip kept set
+                # so the size match is guaranteed; the explicit check
+                # is a defensive guard.
+                if i_b.size == m_b.size:
+                    residual_chunks.append(i_b - m_b)
+            rms = (
+                float(np.std(np.concatenate(residual_chunks)))
+                if residual_chunks else float("nan")
+            )
             model_per_band = model_per_band_loose  # type: ignore[assignment]
         else:
             model_per_band = evaluate_joint_model(angles, coeffs, n_bands)
