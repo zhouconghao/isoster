@@ -35,6 +35,16 @@ shared geometric harmonic coefficients). Solved once per iteration in
 WLS or OLS mode. Per-band weights `w_b` enter as `√w_b` row scaling on
 each band's block.
 
+When ``IsosterConfigMB.fix_per_band_background_to_zero=True`` (D11
+backport), the leading ``B`` per-band intercept columns are dropped
+from the design matrix; the solve becomes a 4-column shared
+``(A1, B1, A2, B2)`` system. Per-band ``intens_<b>`` is then reported
+as the band's ring-mean intensity (IVW under WLS, simple mean under
+OLS), and ``intens_err_<b>`` is the band's own SEM. Use this when
+inputs have well-subtracted sky and the joint solver's free ``I0_b``
+is being driven by sky residual rather than galaxy structure.
+Mutually exclusive with ``harmonic_combination='ref'``.
+
 ## Performance
 
 On the asteris denoised dataset (768×768 cutouts, 74 isophotes, all five
@@ -77,6 +87,12 @@ result = fit_image_multiband(
   "no bad pixels in that band."
 - `variance_maps`: all-or-nothing. Either `None` (full OLS), a single
   `(H, W)` ndarray (broadcast), or a `list[ndarray]` of length B.
+  NaN/inf values are replaced with `1e30` (near-zero WLS weight);
+  non-positive values are clamped to `1e-30` (near-infinite WLS weight)
+  with a `RuntimeWarning` advising the user to mask those pixels
+  instead. The sanitization mirrors single-band semantics; users who
+  want bad pixels excluded from the fit must add them to `masks` —
+  sanitization alone does not drop samples.
 - `bands`: list of strings, regex `^[A-Za-z][A-Za-z0-9_]*$`, no
   duplicates. Strings appear verbatim as column suffixes (`intens_g`,
   `intens_r`, ...).
