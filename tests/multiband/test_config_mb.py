@@ -194,3 +194,55 @@ def test_maxsma_below_sma0_emits_warning():
         warnings.simplefilter("always")
         IsosterConfigMB(bands=["g"], reference_band="g", sma0=10.0, maxsma=5.0)
     assert any("only one isophote" in str(item.message) for item in w)
+
+
+# ---------------------------------------------------------------------------
+# D9 backport — loose validity
+# ---------------------------------------------------------------------------
+
+
+def test_loose_validity_defaults_off_with_neutral_thresholds():
+    cfg = IsosterConfigMB(bands=["g", "r"], reference_band="g")
+    assert cfg.loose_validity is False
+    assert cfg.loose_validity_min_per_band_count == 6
+    assert cfg.loose_validity_min_per_band_frac == 0.2
+    assert cfg.loose_validity_band_normalization == "none"
+
+
+def test_loose_validity_band_normalization_requires_loose_validity():
+    """`per_band_count` is meaningless under shared validity (N_b all equal)."""
+    with pytest.raises(ValidationError) as exc_info:
+        IsosterConfigMB(
+            bands=["g", "r"], reference_band="g",
+            loose_validity=False,
+            loose_validity_band_normalization="per_band_count",
+        )
+    assert "loose_validity=True" in str(exc_info.value)
+
+
+def test_loose_validity_band_normalization_accepted_with_loose_validity():
+    cfg = IsosterConfigMB(
+        bands=["g", "r"], reference_band="g",
+        loose_validity=True,
+        loose_validity_band_normalization="per_band_count",
+    )
+    assert cfg.loose_validity is True
+    assert cfg.loose_validity_band_normalization == "per_band_count"
+
+
+def test_loose_validity_compatible_with_fix_per_band_background_to_zero():
+    cfg = IsosterConfigMB(
+        bands=["g", "r"], reference_band="g",
+        loose_validity=True,
+        fix_per_band_background_to_zero=True,
+    )
+    assert cfg.loose_validity and cfg.fix_per_band_background_to_zero
+
+
+def test_loose_validity_compatible_with_ref_mode():
+    cfg = IsosterConfigMB(
+        bands=["g", "r"], reference_band="g",
+        loose_validity=True,
+        harmonic_combination="ref",
+    )
+    assert cfg.loose_validity and cfg.harmonic_combination == "ref"

@@ -265,6 +265,10 @@ def _fit_central_pixel_mb(
         if debug:
             for key in _PER_BAND_DEBUG_KEYS:
                 row[f"{key}_{b}"] = float("nan")
+        # D9 backport: per-band surviving-sample count. The central pixel
+        # is a single point, not a ring, so a value of 1 (or 0 if masked)
+        # is the most honest report.
+        row[f"n_valid_{b}"] = 1 if valid_b else 0
     return row
 
 
@@ -486,6 +490,7 @@ def fit_image_multiband(
         "band_weights": config.resolved_band_weights(),
         "variance_mode": variance_mode,
         "fix_per_band_background_to_zero": config.fix_per_band_background_to_zero,
+        "loose_validity": config.loose_validity,
     }
     if first_isophote_failure:
         result["first_isophote_failure"] = True

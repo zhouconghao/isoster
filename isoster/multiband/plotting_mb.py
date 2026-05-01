@@ -401,6 +401,51 @@ def _plot_pa(ax: Axes, isophotes: Sequence[dict], pixel_scale_arcsec: float) -> 
     ax.grid(True, alpha=0.3)
 
 
+def _plot_n_valid_per_band(
+    ax: Axes,
+    isophotes: Sequence[dict],
+    bands: Sequence[str],
+    pixel_scale_arcsec: float,
+) -> None:
+    """Loose-validity QA panel: per-band ``n_valid_<b> / n_attempted`` vs SMA.
+
+    A value of 1.0 means every sample on the ellipse path passed the
+    band's validity rule + sigma clip; lower values flag radii where
+    the band is contributing partial coverage. ``n_attempted`` is the
+    isophote's ``ndata + nflag`` total (the same denominator the
+    sampler uses internally).
+    """
+    sma = np.array([float(iso["sma"]) for iso in isophotes])
+    valid = np.array([bool(iso.get("valid", True)) for iso in isophotes])
+    n_attempted = np.array(
+        [
+            max(int(iso.get("ndata", 0)) + int(iso.get("nflag", 0)), 1)
+            for iso in isophotes
+        ],
+        dtype=np.float64,
+    )
+    x = _xaxis_arcsec_pow(sma, pixel_scale_arcsec)
+    plotted_anything = False
+    for b_idx, b in enumerate(bands):
+        n_b = np.array(
+            [float(iso.get(f"n_valid_{b}", 0)) for iso in isophotes],
+            dtype=np.float64,
+        )
+        frac = n_b / n_attempted
+        m = valid & np.isfinite(x) & np.isfinite(frac)
+        if not m.any():
+            continue
+        plotted_anything = True
+        color = _BAND_COLORS[b_idx % len(_BAND_COLORS)]
+        ax.plot(x[m], frac[m], color=color, marker="o", ms=4.0, lw=0, label=b)
+    if plotted_anything:
+        ax.axhline(1.0, color="#666", lw=0.5, alpha=0.5)
+        ax.set_ylim(-0.05, 1.10)
+        ax.legend(loc="lower left", fontsize=9, ncol=len(bands), framealpha=0.85)
+    ax.set_ylabel(r"$N_{\rm valid}/N_{\rm attempted}$", fontsize=11)
+    ax.grid(True, alpha=0.3)
+
+
 def _plot_center(ax: Axes, isophotes: Sequence[dict], pixel_scale_arcsec: float) -> None:
     sma = np.array([float(iso["sma"]) for iso in isophotes])
     valid = np.array([bool(iso.get("valid", True)) for iso in isophotes])
@@ -652,30 +697,49 @@ def plot_qa_summary_mb(
     if shared_xlim is not None:
         ax_b4.set_xlim(shared_xlim)  # propagates to a3/b3/a4 via sharex
 
-    # --- Bottom-right: geometry stack (3 panels, share x, no gap) -----------
-    gs_geom = outer[1, 1].subgridspec(3, 1, hspace=0.0)
+    # --- Bottom-right: geometry stack -----------
+    # Default: 3 stacked panels (eps, PA, center). When the result was
+    # produced under loose validity (D9 backport) we add a fourth small
+    # panel showing per-band ``n_valid_<b> / n_attempted`` so the user
+    # can see which radii each band actually contributed to.
+    show_n_valid = bool(result.get("loose_validity", False)) and any(
+        f"n_valid_{b}" in (isophotes[0] if isophotes else {}) for b in bands
+    )
+    n_geom_rows = 4 if show_n_valid else 3
+    gs_geom = outer[1, 1].subgridspec(n_geom_rows, 1, hspace=0.0)
     ax_eps = fig.add_subplot(gs_geom[0])
     ax_pa = fig.add_subplot(gs_geom[1], sharex=ax_eps)
     ax_ctr = fig.add_subplot(gs_geom[2], sharex=ax_eps)
     _plot_eps(ax_eps, isophotes, pix)
     _plot_pa(ax_pa, isophotes, pix)
     _plot_center(ax_ctr, isophotes, pix)
-    for ax in (ax_eps, ax_pa):
+    geom_axes = [ax_eps, ax_pa, ax_ctr]
+    if show_n_valid:
+        ax_nv = fig.add_subplot(gs_geom[3], sharex=ax_eps)
+        _plot_n_valid_per_band(ax_nv, isophotes, bands, pix)
+        geom_axes.append(ax_nv)
+    # Hide x-tick labels on every stacked panel except the bottom-most.
+    for ax in geom_axes[:-1]:
         plt.setp(ax.get_xticklabels(), visible=False)
     ax_eps.yaxis.set_major_locator(MaxNLocator(prune="lower", nbins=4))
     ax_pa.yaxis.set_major_locator(MaxNLocator(prune="both", nbins=4))
-    ax_ctr.yaxis.set_major_locator(MaxNLocator(prune="upper", nbins=4))
+    ax_ctr.yaxis.set_major_locator(
+        MaxNLocator(prune="upper" if not show_n_valid else "both", nbins=4)
+    )
+    if show_n_valid:
+        ax_nv.yaxis.set_major_locator(MaxNLocator(prune="upper", nbins=3))
+    bottom_ax = geom_axes[-1]
     if pixel_scale_arcsec is not None:
-        ax_ctr.set_xlabel(r"$\mathrm{SMA}^{0.25}$  [arcsec$^{0.25}$]", fontsize=12)
+        bottom_ax.set_xlabel(r"$\mathrm{SMA}^{0.25}$  [arcsec$^{0.25}$]", fontsize=12)
     else:
-        ax_ctr.set_xlabel(r"$\mathrm{SMA}^{0.25}$  [pix$^{0.25}$]", fontsize=12)
+        bottom_ax.set_xlabel(r"$\mathrm{SMA}^{0.25}$  [pix$^{0.25}$]", fontsize=12)
     if shared_xlim is not None:
-        ax_ctr.set_xlim(shared_xlim)  # propagates to eps/pa via sharex
+        bottom_ax.set_xlim(shared_xlim)  # propagates to siblings via sharex
 
     # Align y-axis labels in each column so the SB / harmonic / geometry
     # blocks share a single label x-coordinate per column.
     fig.align_ylabels([ax_sb, ax_a3, ax_b3, ax_a4, ax_b4])
-    fig.align_ylabels([ax_eps, ax_pa, ax_ctr])
+    fig.align_ylabels(geom_axes)
 
     if title is not None:
         fig.suptitle(title, fontsize=13, y=0.995)

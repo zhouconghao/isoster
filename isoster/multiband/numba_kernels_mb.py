@@ -183,3 +183,80 @@ def warmup_numba_mb() -> None:
         return
     phi = np.linspace(0.0, 2.0 * np.pi, 64)
     _ = _build_joint_design_matrix_numba(phi, 2)
+
+
+def build_joint_design_matrix_jagged(
+    phi_per_band,
+    n_bands: int,
+    normalize: bool = False,
+):
+    """
+    Build the loose-validity jagged joint design matrix (pure NumPy).
+
+    Used by the D9 backport when ``IsosterConfigMB.loose_validity=True``
+    and per-band kept-sample counts ``N_b`` differ. Each band b contributes
+    ``N_b`` rows; the per-band intercept column for band b is 1 on those
+    rows and 0 elsewhere; the shared geometric block uses each band's own
+    angle array.
+
+    Parameters
+    ----------
+    phi_per_band : list of ndarray, length B
+        Each entry is band b's surviving-angle array of length ``N_b``.
+        Empty arrays are allowed (band contributes zero rows).
+    n_bands : int
+        Number of bands ``B`` (must equal ``len(phi_per_band)``).
+    normalize : bool, default False
+        When True, row-scale each band's block by ``√(1/N_b)`` so the
+        band's total contribution to ``A^T A`` equals 1 regardless of
+        ``N_b``. Implements the ``per_band_count`` mode of the
+        ``loose_validity_band_normalization`` knob (Q7-(b)).
+        When False, rows are unscaled and bands with more samples
+        dominate the joint solve in proportion to ``N_b``.
+
+    Returns
+    -------
+    ndarray
+        Shape ``(Σ N_b, B + 4)``. Column order matches
+        :func:`build_joint_design_matrix`:
+        ``[I_0, I_1, ..., I_{B-1}, A1, B1, A2, B2]``.
+
+    Raises
+    ------
+    ValueError
+        If ``len(phi_per_band) != n_bands`` or ``n_bands < 1``.
+    """
+    if n_bands < 1:
+        raise ValueError(f"n_bands must be >= 1, got {n_bands}")
+    if len(phi_per_band) != n_bands:
+        raise ValueError(
+            f"len(phi_per_band) ({len(phi_per_band)}) must equal n_bands ({n_bands})"
+        )
+
+    n_per_band = np.array([int(p.size) for p in phi_per_band], dtype=np.int64)
+    n_total = int(n_per_band.sum())
+    n_cols = n_bands + 4
+    A = np.zeros((n_total, n_cols), dtype=np.float64)
+
+    row = 0
+    for b in range(n_bands):
+        n_b = int(n_per_band[b])
+        if n_b == 0:
+            continue
+        scale = 1.0
+        if normalize:
+            # `√(1/N_b)` row-scaling — equivalent to dividing the band's
+            # contribution to A^T A by N_b. Bands with more samples then
+            # contribute the same total weight as bands with fewer.
+            scale = float(np.sqrt(1.0 / n_b))
+        # Per-band intercept indicator column (column b).
+        A[row:row + n_b, b] = scale
+        # Shared geometric block — uses band b's own kept angles.
+        p = phi_per_band[b]
+        A[row:row + n_b, n_bands + 0] = scale * np.sin(p)
+        A[row:row + n_b, n_bands + 1] = scale * np.cos(p)
+        A[row:row + n_b, n_bands + 2] = scale * np.sin(2.0 * p)
+        A[row:row + n_b, n_bands + 3] = scale * np.cos(2.0 * p)
+        row += n_b
+
+    return A

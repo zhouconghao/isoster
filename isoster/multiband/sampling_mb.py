@@ -23,23 +23,44 @@ from scipy.ndimage import map_coordinates
 from ..numba_kernels import compute_ellipse_coords
 
 
-# Multi-band counterpart of ``isoster.sampling.IsophoteData``. Per-band
-# arrays are stored as a 2D ``(B, N_valid)`` ndarray (intens, variances)
-# while the shared per-isophote angle and radius arrays are 1D shape
-# ``(N_valid,)``. ``valid_count`` records how many of the original
-# ``N_samples`` survived shared-validity filtering.
+# Multi-band counterpart of ``isoster.sampling.IsophoteData``.
+#
+# Two layouts coexist on this struct:
+#
+# - Shared-validity layout (default): a single 2-D ``(B, N_valid)``
+#   ``intens`` array and matching ``variances``, plus shared 1-D
+#   ``angles`` / ``phi`` / ``radii`` of length ``N_valid``. Every band
+#   contributes to the same N samples by construction, so the joint
+#   design matrix is rectangular and the numba kernel applies.
+#   ``intens_per_band`` / ``phi_per_band`` are ``None`` and
+#   ``n_valid_per_band[b] == valid_count`` for every ``b``.
+#
+# - Loose-validity layout (D9 backport, ``loose_validity=True``):
+#   per-band arrays differ in length. ``intens_per_band`` /
+#   ``variances_per_band`` / ``phi_per_band`` are jagged lists of
+#   length ``B``. The legacy 2-D ``intens`` / ``variances`` /
+#   ``angles`` / ``phi`` fields are filled with the *intersection*
+#   subset (samples kept by every band) so callers that only need
+#   shared-grid statistics still get a usable view; callers that want
+#   the full per-band kept set must use the ``_per_band`` lists.
+#   ``n_valid_per_band[b]`` reports each band's actual surviving count.
 MultiIsophoteData = namedtuple(
     "MultiIsophoteData",
     [
-        "angles",        # shape (N_valid,) - psi (EA mode) or phi (regular mode)
-        "phi",           # shape (N_valid,) - position angle, always available
-        "intens",        # shape (B, N_valid) - per-band intensities
-        "radii",         # shape (N_valid,) - constant = sma
-        "variances",     # shape (B, N_valid) or None when no variance maps
-        "n_samples",     # int - total samples on the ellipse path before filtering
-        "valid_count",   # int - samples that survived shared-validity (== N_valid)
+        "angles",            # shape (N_intersect,) under loose; (N_valid,) under shared
+        "phi",               # shape (N_intersect,) / (N_valid,) — see angles
+        "intens",            # shape (B, N_intersect/N_valid) — intersection view
+        "radii",             # shape matching angles
+        "variances",         # same shape as intens, or None
+        "n_samples",         # int — total samples on the ellipse path before filtering
+        "valid_count",       # int — len(angles); intersection count under loose
+        "intens_per_band",   # list[NDArray] of length B, jagged. None under shared.
+        "phi_per_band",      # list[NDArray] of length B, jagged. None under shared.
+        "variances_per_band",  # list[NDArray] of length B, jagged. None when no variance
+        "n_valid_per_band",  # NDArray shape (B,) — each band's surviving count.
     ],
 )
+MultiIsophoteData.__new__.__defaults__ = (None, None, None, None)  # type: ignore[attr-defined]
 
 
 def _stack_images(images: Sequence[NDArray[np.floating]]) -> NDArray[np.float64]:
@@ -230,16 +251,28 @@ def _sample_along_ellipse(
     eps: float,
     pa: float,
     use_eccentric_anomaly: bool,
+    *,
+    loose_validity: bool = False,
 ) -> MultiIsophoteData:
     """Core multi-band sampling kernel.
 
-    Both :func:`extract_isophote_data_multi` (resolves inputs first) and
-    :func:`extract_isophote_data_multi_prepared` (assumes inputs already
-    resolved) delegate here so the validity-rule and shape contracts are
-    enforced in exactly one place. Splitting the pre-flight resolve from
-    the sampling kernel matters because the prepared fast path reuses
-    the same `(B, H, W)` arrays across every isophote iteration, while
-    the convenience entry point re-resolves on each call.
+    Two modes coexist (decision D9 + D9 backport):
+
+    - ``loose_validity=False`` (default): a sample is dropped from
+      every band if any band fails (mask, NaN, non-positive variance).
+      The legacy 2-D ``intens`` and ``variances`` arrays carry the
+      shared kept set; the per-band fields fall back to slices of
+      that array so callers that always read the per-band lists work
+      uniformly.
+
+    - ``loose_validity=True`` (D9 backport): each band keeps its own
+      surviving samples. ``intens_per_band`` / ``variances_per_band`` /
+      ``phi_per_band`` are jagged length-``B`` lists. The legacy 2-D
+      ``intens`` / ``variances`` / ``angles`` / ``phi`` fields hold
+      the *intersection* (samples kept by every band) for callers that
+      need a shared-grid view; ``valid_count`` is that intersection
+      count, while ``n_valid_per_band[b]`` reports each band's own
+      surviving count.
     """
     n_bands = image_stack.shape[0]
     n_samples = max(64, int(2.0 * np.pi * sma))
@@ -248,6 +281,7 @@ def _sample_along_ellipse(
         n_samples, sma, eps, pa, x0, y0, use_eccentric_anomaly
     )
     coords = np.vstack([y_coords, x_coords]).astype(np.float64, copy=False)
+    angle_full = psi if use_eccentric_anomaly else phi
 
     intens_full = np.empty((n_bands, n_samples), dtype=np.float64)
     for b in range(n_bands):
@@ -255,13 +289,17 @@ def _sample_along_ellipse(
             image_stack[b], coords, order=1, mode="constant", cval=np.nan
         )
 
-    valid = np.ones(n_samples, dtype=bool)
+    # Per-band validity rule: a sample passes if image is finite, mask
+    # is False (or absent), and variance (when given) is finite-positive
+    # AFTER sanitization. Built once per band so loose_validity can use
+    # the per-band masks while shared-validity ANDs them.
+    per_band_valid = np.ones((n_bands, n_samples), dtype=bool)
     for b in range(n_bands):
-        valid &= ~np.isnan(intens_full[b])
+        per_band_valid[b] &= ~np.isnan(intens_full[b])
         m_b = masks_resolved[b]
         if m_b is not None:
             mask_vals = map_coordinates(m_b, coords, order=0, mode="constant", cval=1.0)
-            valid &= mask_vals < 0.5
+            per_band_valid[b] &= mask_vals < 0.5
 
     var_full: Optional[NDArray[np.float64]] = None
     if var_stack is not None:
@@ -271,28 +309,63 @@ def _sample_along_ellipse(
                 var_stack[b], coords, order=1, mode="constant", cval=np.nan
             )
             var_full[b] = v
-            valid &= np.isfinite(v) & (v > 0.0)
+            per_band_valid[b] &= np.isfinite(v) & (v > 0.0)
 
-    n_valid = int(np.sum(valid))
-    intens_kept = intens_full[:, valid]
-    var_kept: Optional[NDArray[np.float64]] = (
-        var_full[:, valid] if var_full is not None else None
+    # Intersection mask: samples kept by every band. Always computed —
+    # it backs the legacy 2-D ``intens`` view in both modes.
+    valid_intersect = np.all(per_band_valid, axis=0)
+    n_valid_intersect = int(np.sum(valid_intersect))
+    intens_intersect = intens_full[:, valid_intersect]
+    var_intersect: Optional[NDArray[np.float64]] = (
+        var_full[:, valid_intersect] if var_full is not None else None
+    )
+    angles_intersect = angle_full[valid_intersect]
+    phi_intersect = phi[valid_intersect]
+    radii_intersect = np.full(n_valid_intersect, sma, dtype=np.float64)
+    n_valid_per_band = per_band_valid.sum(axis=1).astype(np.int64)
+
+    if not loose_validity:
+        # Shared-validity layout.  Per-band fields stay None so callers
+        # can branch on ``intens_per_band is None`` to detect the mode.
+        return MultiIsophoteData(
+            angles=angles_intersect,
+            phi=phi_intersect,
+            intens=intens_intersect,
+            radii=radii_intersect,
+            variances=var_intersect,
+            n_samples=n_samples,
+            valid_count=n_valid_intersect,
+            intens_per_band=None,
+            phi_per_band=None,
+            variances_per_band=None,
+            n_valid_per_band=n_valid_per_band,
+        )
+
+    # Loose-validity layout.  Build per-band kept arrays.
+    intens_per_band: List[NDArray[np.float64]] = [
+        intens_full[b, per_band_valid[b]] for b in range(n_bands)
+    ]
+    phi_per_band: List[NDArray[np.float64]] = [
+        angle_full[per_band_valid[b]] for b in range(n_bands)
+    ]
+    variances_per_band: Optional[List[NDArray[np.float64]]] = (
+        [var_full[b, per_band_valid[b]] for b in range(n_bands)]
+        if var_full is not None
+        else None
     )
 
-    if use_eccentric_anomaly:
-        angles_kept = psi[valid]
-    else:
-        angles_kept = phi[valid]
-    phi_kept = phi[valid]
-
     return MultiIsophoteData(
-        angles=angles_kept,
-        phi=phi_kept,
-        intens=intens_kept,
-        radii=np.full(n_valid, sma, dtype=np.float64),
-        variances=var_kept,
+        angles=angles_intersect,
+        phi=phi_intersect,
+        intens=intens_intersect,
+        radii=radii_intersect,
+        variances=var_intersect,
         n_samples=n_samples,
-        valid_count=n_valid,
+        valid_count=n_valid_intersect,
+        intens_per_band=intens_per_band,
+        phi_per_band=phi_per_band,
+        variances_per_band=variances_per_band,
+        n_valid_per_band=n_valid_per_band,
     )
 
 
@@ -306,6 +379,8 @@ def extract_isophote_data_multi_prepared(
     eps: float,
     pa: float,
     use_eccentric_anomaly: bool = False,
+    *,
+    loose_validity: bool = False,
 ) -> MultiIsophoteData:
     """
     Fast-path multi-band sampler for callers that pre-resolved the inputs.
@@ -325,10 +400,14 @@ def extract_isophote_data_multi_prepared(
     - ``masks_resolved``: list of length ``B``, each entry either a
       ``(H, W)`` float64 array (1.0 = bad, 0.0 = good) or ``None``.
     - ``var_stack``: ``(B, H, W)`` float64 or ``None``.
+    - ``loose_validity``: D9 backport; when True the sampler also
+      returns per-band jagged arrays so the fitter can keep each
+      band's own surviving samples instead of the cross-band AND.
     """
     return _sample_along_ellipse(
         image_stack, masks_resolved, var_stack,
         x0, y0, sma, eps, pa, use_eccentric_anomaly,
+        loose_validity=loose_validity,
     )
 
 
@@ -368,6 +447,8 @@ def extract_isophote_data_multi(
     pa: float,
     use_eccentric_anomaly: bool = False,
     variance_maps: Union[None, NDArray[np.floating], Sequence[NDArray[np.floating]]] = None,
+    *,
+    loose_validity: bool = False,
 ) -> MultiIsophoteData:
     """
     Extract per-band intensities along a shared elliptical path.
@@ -420,4 +501,5 @@ def extract_isophote_data_multi(
     return _sample_along_ellipse(
         image_stack, masks_list, var_stack,
         x0, y0, sma, eps, pa, use_eccentric_anomaly,
+        loose_validity=loose_validity,
     )

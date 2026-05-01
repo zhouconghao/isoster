@@ -184,6 +184,7 @@ def isophote_results_mb_from_fits(filename: Union[str, Path]) -> dict:
         isophotes.append(out)
 
     fix_bg_zero = False
+    loose_validity = False
     if config is not None:
         bands = list(config.bands)
         ref_band = config.reference_band
@@ -191,6 +192,7 @@ def isophote_results_mb_from_fits(filename: Union[str, Path]) -> dict:
         variance_mode = config.variance_mode if config.variance_mode is not None else "ols"
         band_weights = config.resolved_band_weights()
         fix_bg_zero = bool(config.fix_per_band_background_to_zero)
+        loose_validity = bool(config.loose_validity)
     else:
         bands = bands_from_hdr.split(",") if bands_from_hdr else []
         ref_band = ref_from_hdr or (bands[0] if bands else "")
@@ -208,6 +210,7 @@ def isophote_results_mb_from_fits(filename: Union[str, Path]) -> dict:
         "band_weights": band_weights,
         "variance_mode": variance_mode,
         "fix_per_band_background_to_zero": fix_bg_zero,
+        "loose_validity": loose_validity,
     }
 
 

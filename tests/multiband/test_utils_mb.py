@@ -94,6 +94,33 @@ def test_fits_roundtrip_preserves_per_band_columns(tmp_path):
                     )
 
 
+def test_fits_roundtrip_loose_validity_preserves_n_valid_columns(tmp_path):
+    """D9 backport: per-band ``n_valid_<b>`` columns and the top-level
+    ``loose_validity`` key round-trip through Schema 1 FITS."""
+    img_g = _planted(100.0, 1)
+    img_r = _planted(200.0, 2)
+    cfg = IsosterConfigMB(
+        bands=["g", "r"], reference_band="g",
+        sma0=15.0, eps=0.2, pa=0.4, astep=0.2, maxsma=60.0,
+        debug=True, nclip=0, loose_validity=True,
+    )
+    result = fit_image_multiband([img_g, img_r], None, cfg)
+    fname = tmp_path / "mb_loose.fits"
+    isophote_results_mb_to_fits(result, fname)
+    loaded = isophote_results_mb_from_fits(fname)
+
+    assert loaded["loose_validity"] is True
+    cols = list(loaded["isophotes"][0].keys())
+    for b in ("g", "r"):
+        assert f"n_valid_{b}" in cols, f"missing n_valid_{b} after round-trip"
+    # Numerics survive: each per-band count matches original.
+    for orig, restored in zip(result["isophotes"], loaded["isophotes"]):
+        for b in ("g", "r"):
+            key = f"n_valid_{b}"
+            if key in orig:
+                assert int(restored[key]) == int(orig[key])
+
+
 def test_fits_roundtrip_records_multiband_keys_in_primary_header(tmp_path):
     result = _two_band_fit()
     fname = tmp_path / "mb_result.fits"

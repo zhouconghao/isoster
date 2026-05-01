@@ -29,7 +29,10 @@ from ..fitting import (
 )
 from ..numba_kernels import build_harmonic_matrix
 from .config_mb import IsosterConfigMB
-from .numba_kernels_mb import build_joint_design_matrix
+from .numba_kernels_mb import (
+    build_joint_design_matrix,
+    build_joint_design_matrix_jagged,
+)
 from .sampling_mb import (
     MultiIsophoteData,
     extract_isophote_data_multi,
@@ -220,6 +223,147 @@ def fit_first_and_second_harmonics_joint(
         return fallback, None, wls_mode
 
 
+def _per_band_mean_jagged(
+    intens_per_band: List[NDArray[np.float64]],
+    variances_per_band: Optional[List[NDArray[np.float64]]],
+) -> NDArray[np.float64]:
+    """Per-band mean for jagged inputs (loose validity)."""
+    n_bands = len(intens_per_band)
+    out = np.empty(n_bands, dtype=np.float64)
+    for b in range(n_bands):
+        if intens_per_band[b].size == 0:
+            out[b] = float("nan")
+            continue
+        if variances_per_band is None:
+            out[b] = float(np.mean(intens_per_band[b]))
+        else:
+            w = 1.0 / variances_per_band[b]
+            denom = float(np.sum(w))
+            out[b] = (
+                float(np.sum(intens_per_band[b] * w) / denom)
+                if denom > 0
+                else float("nan")
+            )
+    return out
+
+
+def fit_first_and_second_harmonics_joint_loose(
+    phi_per_band: List[NDArray[np.float64]],
+    intens_per_band: List[NDArray[np.float64]],
+    band_weights_arr: NDArray[np.float64],
+    variances_per_band: Optional[List[NDArray[np.float64]]] = None,
+    *,
+    normalize: bool = False,
+    fix_per_band_background_to_zero: bool = False,
+) -> Tuple[NDArray[np.float64], Optional[NDArray[np.float64]], bool]:
+    """
+    Loose-validity counterpart to :func:`fit_first_and_second_harmonics_joint`.
+
+    Each band b contributes ``N_b`` rows to the jagged design matrix
+    ``(Σ N_b, B + 4)``; per-band intercept columns are 1 only on that
+    band's row block. ``band_weights_arr`` row-scaling and the
+    ``per_band_count`` normalization both compose into the row weights
+    so the math stays a single weighted-least-squares solve. WLS row
+    weights divide by per-pixel variance; OLS uses ``w_b`` only.
+
+    The ``fix_per_band_background_to_zero`` semantics mirror the shared
+    path: subtract per-band ring means from RHS, drop intercept columns,
+    fit the 4-column geometric system, and write per-band SEM into the
+    intercept block of the returned covariance.
+
+    Returns
+    -------
+    coeffs : (B + 4,) float64
+        Coefficient vector (per-band intercepts then geometric block).
+    cov : (B + 4, B + 4) float64 or None
+    wls_mode : bool
+    """
+    n_bands = len(phi_per_band)
+    n_per_band = np.array([int(p.size) for p in phi_per_band], dtype=np.int64)
+    n_total = int(n_per_band.sum())
+    wls_mode = variances_per_band is not None
+
+    # Per-row band weights & per-pixel WLS weights composed together.
+    if wls_mode:
+        var_concat = np.concatenate(variances_per_band)  # type: ignore[arg-type]
+    band_weight_per_row = np.concatenate(
+        [np.full(n_per_band[b], band_weights_arr[b], dtype=np.float64) for b in range(n_bands)]
+    )
+    if wls_mode:
+        w_eff = band_weight_per_row / var_concat
+    else:
+        w_eff = band_weight_per_row
+
+    # Apply per-band-count normalization (Q7-(b)). Multiplies each band's
+    # row block by 1/N_b so the band's total contribution to A^T W A
+    # equals w_b regardless of N_b. Composes multiplicatively with the
+    # per-row WLS / band weight.
+    if normalize:
+        norm_per_row = np.concatenate([
+            np.full(n_per_band[b], 1.0 / max(n_per_band[b], 1), dtype=np.float64)
+            for b in range(n_bands)
+        ])
+        w_eff = w_eff * norm_per_row
+
+    if fix_per_band_background_to_zero:
+        means = _per_band_mean_jagged(intens_per_band, variances_per_band)
+        residuals_per_band = [
+            intens_per_band[b] - means[b] if intens_per_band[b].size else intens_per_band[b]
+            for b in range(n_bands)
+        ]
+        y_geom = np.concatenate(residuals_per_band) if residuals_per_band else np.empty(0)
+        # Geometric block only — no intercept columns. Build from each
+        # band's own phi and stack.
+        sin1 = np.concatenate([np.sin(p) for p in phi_per_band]) if n_total else np.empty(0)
+        cos1 = np.concatenate([np.cos(p) for p in phi_per_band]) if n_total else np.empty(0)
+        sin2 = np.concatenate([np.sin(2.0 * p) for p in phi_per_band]) if n_total else np.empty(0)
+        cos2 = np.concatenate([np.cos(2.0 * p) for p in phi_per_band]) if n_total else np.empty(0)
+        A_geom = np.column_stack([sin1, cos1, sin2, cos2])
+        AW = A_geom * w_eff[:, None]
+        ATWA = AW.T @ A_geom
+        ATWy = AW.T @ y_geom
+        try:
+            geom_coeffs = np.linalg.solve(ATWA, ATWy)
+            geom_cov = np.linalg.inv(ATWA)
+        except np.linalg.LinAlgError:
+            geom_coeffs = np.zeros(4, dtype=np.float64)
+            geom_cov = None
+
+        coeffs = np.zeros(n_bands + 4, dtype=np.float64)
+        coeffs[:n_bands] = means
+        coeffs[n_bands:] = geom_coeffs
+        if geom_cov is None:
+            return coeffs, None, wls_mode
+        cov = np.zeros((n_bands + 4, n_bands + 4), dtype=np.float64)
+        cov[n_bands:, n_bands:] = geom_cov
+        for b in range(n_bands):
+            n_b = max(int(intens_per_band[b].size), 1)
+            if variances_per_band is not None:
+                cov[b, b] = float(np.mean(variances_per_band[b]) / n_b)
+            elif intens_per_band[b].size > 1:
+                cov[b, b] = float(np.var(intens_per_band[b], ddof=1) / n_b)
+            else:
+                cov[b, b] = 0.0
+        return coeffs, cov, wls_mode
+
+    # Default joint loose path: full (B + 4) column solve.
+    A = build_joint_design_matrix_jagged(phi_per_band, n_bands, normalize=False)
+    y = np.concatenate(intens_per_band) if n_total else np.empty(0)
+    AW = A * w_eff[:, None]
+    ATWA = AW.T @ A
+    ATWy = AW.T @ y
+    try:
+        coeffs = np.linalg.solve(ATWA, ATWy)
+        cov = np.linalg.inv(ATWA)
+        return coeffs, cov, wls_mode
+    except np.linalg.LinAlgError:
+        fallback = np.zeros(n_bands + 4, dtype=np.float64)
+        for b in range(n_bands):
+            if intens_per_band[b].size:
+                fallback[b] = float(np.mean(intens_per_band[b]))
+        return fallback, None, wls_mode
+
+
 def fit_first_and_second_harmonics_ref(
     angles: NDArray[np.float64],
     intens_ref: NDArray[np.float64],
@@ -345,6 +489,63 @@ def _per_band_sigma_clip(
     variances_clipped: Optional[NDArray[np.float64]]
     variances_clipped = variances_per_band[:, keep] if variances_per_band is not None else None
     return angles[keep], phi[keep], intens_clipped, variances_clipped, n_clipped
+
+
+def _per_band_sigma_clip_loose(
+    phi_per_band: List[NDArray[np.float64]],
+    intens_per_band: List[NDArray[np.float64]],
+    variances_per_band: Optional[List[NDArray[np.float64]]],
+    sclip: float,
+    nclip: int,
+    sclip_low: Optional[float],
+    sclip_high: Optional[float],
+) -> Tuple[
+    List[NDArray[np.float64]],
+    List[NDArray[np.float64]],
+    Optional[List[NDArray[np.float64]]],
+    int,
+]:
+    """
+    Independent per-band sigma clipping for loose-validity (no AND across bands).
+
+    Each band's clip uses only its own surviving samples; bands do not
+    propagate clip rejections to each other (decision Q6 of the D9
+    backport interview).
+    """
+    n_bands = len(intens_per_band)
+    out_phi: List[NDArray[np.float64]] = []
+    out_intens: List[NDArray[np.float64]] = []
+    out_variances: Optional[List[NDArray[np.float64]]] = (
+        [] if variances_per_band is not None else None
+    )
+    n_clipped_total = 0
+
+    for b in range(n_bands):
+        n_b = int(intens_per_band[b].size)
+        if nclip <= 0 or n_b == 0:
+            out_phi.append(phi_per_band[b])
+            out_intens.append(intens_per_band[b])
+            if out_variances is not None:
+                out_variances.append(variances_per_band[b])  # type: ignore[index]
+            continue
+        idx = np.arange(n_b)
+        clipped = sigma_clip(
+            idx.astype(np.float64),
+            intens_per_band[b].copy(),
+            sclip=sclip,
+            nclip=nclip,
+            sclip_low=sclip_low,
+            sclip_high=sclip_high,
+        )
+        idx_keep = clipped[0].astype(np.int64)
+        keep = np.zeros(n_b, dtype=bool)
+        keep[idx_keep] = True
+        n_clipped_total += int(n_b - keep.sum())
+        out_phi.append(phi_per_band[b][keep])
+        out_intens.append(intens_per_band[b][keep])
+        if out_variances is not None:
+            out_variances.append(variances_per_band[b][keep])  # type: ignore[index]
+    return out_phi, out_intens, out_variances, n_clipped_total
 
 
 # ---------------------------------------------------------------------------
@@ -492,7 +693,13 @@ def _compute_parameter_errors_from_joint(
     if cov_full is None or gradient is None or abs(gradient) < 1e-10:
         return 0.0, 0.0, 0.0, 0.0
     n_geom_params = n_bands + 4
-    n_pixels = intens_per_band.size
+    # `intens_per_band` may be a rectangular ndarray (shared validity)
+    # or a list of jagged per-band arrays (loose validity). Both shapes
+    # carry a meaningful total pixel count; we accept either.
+    if isinstance(intens_per_band, np.ndarray):
+        n_pixels = int(intens_per_band.size)
+    else:
+        n_pixels = int(sum(arr.size for arr in intens_per_band))
     if n_pixels <= n_geom_params:
         return 0.0, 0.0, 0.0, 0.0
 
@@ -504,16 +711,29 @@ def _compute_parameter_errors_from_joint(
             covariance = cov_full
         else:
             # OLS: scale the (A^T A)^-1 covariance by the residual variance
-            # of the joint fit. Residuals are flattened band-stacked.
-            model_per_band = evaluate_joint_model(angles, coeffs, n_bands)
-            residuals = (intens_per_band - model_per_band).reshape(-1)
-            ddof = n_geom_params
-            if len(residuals) <= ddof:
-                return 0.0, 0.0, 0.0, 0.0
-            var_residual = float(np.var(residuals, ddof=ddof))
-            if var_residual_floor is not None:
-                var_residual = max(var_residual, var_residual_floor)
-            covariance = cov_full * var_residual
+            # of the joint fit. Under shared validity the residuals are a
+            # rectangular (B, N) array we flatten; under loose validity
+            # they are jagged per-band arrays we concatenate.
+            if isinstance(intens_per_band, np.ndarray):
+                model_per_band_local = evaluate_joint_model(angles, coeffs, n_bands)
+                residuals = (intens_per_band - model_per_band_local).reshape(-1)
+            else:
+                # Loose-validity: each band has its own kept angles, which
+                # the caller has not threaded through. Conservatively skip
+                # the OLS rescale and use the as-built (A^T A)^-1 — it is
+                # already shape-correct and the dropped-band rows are
+                # zero, so they contribute nothing. The geometric block
+                # is unaffected.
+                covariance = cov_full
+                residuals = None
+            if residuals is not None:
+                ddof = n_geom_params
+                if len(residuals) <= ddof:
+                    return 0.0, 0.0, 0.0, 0.0
+                var_residual = float(np.var(residuals, ddof=ddof))
+                if var_residual_floor is not None:
+                    var_residual = max(var_residual, var_residual_floor)
+                covariance = cov_full * var_residual
         errors = np.sqrt(np.diagonal(covariance))
 
         sig_a1_sq = float(errors[n_bands] ** 2)
@@ -598,6 +818,9 @@ def _empty_isophote_dict(
         if debug:
             for key in _PER_BAND_DEBUG_KEYS:
                 row[f"{key}_{b}"] = float("nan")
+        # D9 backport: per-band surviving-sample count (zero on the
+        # degenerate "no fit" path).
+        row[f"n_valid_{b}"] = 0
     return row
 
 
@@ -681,22 +904,109 @@ def fit_isophote_mb(
     min_points = 6 + n_bands  # Decision D9 for joint mode
     use_ref_only = config.harmonic_combination == "ref"
 
+    loose_validity = bool(config.loose_validity)
+    loose_normalize = config.loose_validity_band_normalization == "per_band_count"
+
+    # Track the per-band surviving counts for the most recent iteration
+    # so we can stamp ``n_valid_<b>`` on the result row.  Under shared
+    # validity these all equal ``actual_points``; under loose validity
+    # they reflect each band's own surviving count after the per-band
+    # sigma clip.
+    last_n_valid_per_band = np.zeros(n_bands, dtype=np.int64)
+    # Bands dropped at the most recent isophote because they fell
+    # below the per-band thresholds.  Empty under shared validity.
+    last_dropped_band_indices: List[int] = []
+    # Per-band kept arrays from the most recent iteration; needed by
+    # the per-band intens_err path under loose validity.
+    last_intens_per_band_loose: Optional[List[NDArray[np.float64]]] = None
+    last_variances_per_band_loose: Optional[List[NDArray[np.float64]]] = None
+    last_phi_per_band_loose: Optional[List[NDArray[np.float64]]] = None
+
     for i in range(config.maxit):
         niter = i + 1
         data = extract_isophote_data_multi_prepared(
             image_stack, masks_resolved, var_stack,
             x0, y0, sma, eps, pa,
             use_eccentric_anomaly=config.use_eccentric_anomaly,
+            loose_validity=loose_validity,
         )
         last_data = data
         total_points = data.valid_count
 
-        # Per-band sigma clip + AND across bands.
-        angles, phi, intens_per_band, variances_per_band, _n_clipped = _per_band_sigma_clip(
-            data.angles, data.phi, data.intens, data.variances,
-            config.sclip, config.nclip, config.sclip_low, config.sclip_high,
-        )
-        actual_points = len(angles)
+        if loose_validity:
+            # Per-band independent sigma clip on jagged arrays.
+            phi_pb, intens_pb, vars_pb, _n_clipped_loose = _per_band_sigma_clip_loose(
+                data.phi_per_band,  # type: ignore[arg-type]
+                data.intens_per_band,  # type: ignore[arg-type]
+                data.variances_per_band,
+                config.sclip, config.nclip, config.sclip_low, config.sclip_high,
+            )
+            n_valid_after_clip = np.array(
+                [int(p.size) for p in phi_pb], dtype=np.int64
+            )
+            # Per-band drop logic: a band falling below either the
+            # absolute count or the fraction threshold is dropped from
+            # the joint solve at this isophote.
+            min_count = int(config.loose_validity_min_per_band_count)
+            min_frac = float(config.loose_validity_min_per_band_frac)
+            n_attempted = max(int(data.n_samples), 1)
+            surviving_mask = np.array([
+                (n_b >= min_count) and (n_b / n_attempted >= min_frac)
+                for n_b in n_valid_after_clip
+            ], dtype=bool)
+            surviving_idx = np.where(surviving_mask)[0]
+            dropped_idx_list: List[int] = [
+                int(i_b) for i_b in range(n_bands) if not surviving_mask[i_b]
+            ]
+            actual_points = int(n_valid_after_clip.sum())
+            last_n_valid_per_band = n_valid_after_clip
+            last_dropped_band_indices = dropped_idx_list
+            last_intens_per_band_loose = intens_pb
+            last_variances_per_band_loose = vars_pb
+            last_phi_per_band_loose = phi_pb
+
+            # Whole-isophote drop: fewer than 2 surviving bands means
+            # the joint solve is meaningless.
+            if surviving_idx.size < 2:
+                if best_geometry is not None:
+                    best_geometry["stop_code"] = 3
+                    best_geometry["niter"] = niter
+                    return best_geometry
+                stop_code = 3
+                break
+
+            # Subset jagged arrays to surviving bands.
+            phi_solve = [phi_pb[i_b] for i_b in surviving_idx]
+            intens_solve = [intens_pb[i_b] for i_b in surviving_idx]
+            vars_solve = (
+                [vars_pb[i_b] for i_b in surviving_idx]
+                if vars_pb is not None else None
+            )
+
+            # The downstream code reads `intens_per_band` (rectangular)
+            # to drive evaluate_joint_model + RMS + harmonic stamping.
+            # Under loose validity these are jagged; we keep separate
+            # lists and skip the rectangular evaluation path later.
+            angles = phi_solve[0]  # placeholder for fflag check (unused)
+            phi = phi_solve[0]
+            intens_per_band = intens_solve  # type: ignore[assignment]
+            variances_per_band = vars_solve  # type: ignore[assignment]
+        else:
+            # Per-band sigma clip + AND across bands (shared validity).
+            angles, phi, intens_per_band, variances_per_band, _n_clipped = _per_band_sigma_clip(
+                data.angles, data.phi, data.intens, data.variances,
+                config.sclip, config.nclip, config.sclip_low, config.sclip_high,
+            )
+            actual_points = len(angles)
+            last_n_valid_per_band = np.full(n_bands, actual_points, dtype=np.int64)
+            last_dropped_band_indices = []
+            last_intens_per_band_loose = None
+            last_variances_per_band_loose = None
+            last_phi_per_band_loose = None
+            surviving_idx = np.arange(n_bands)
+            phi_solve: List[NDArray[np.float64]] = []  # only used in loose path
+            intens_solve: List[NDArray[np.float64]] = []
+            vars_solve = None
 
         if total_points > 0 and actual_points < total_points * (1.0 - config.fflag):
             if best_geometry is not None:
@@ -759,6 +1069,27 @@ def fit_isophote_mb(
                                 actual_points, 1
                             )
                 cov_full[n_bands:, n_bands:] = cov_ref[1:5, 1:5]
+            else:
+                cov_full = None
+        elif loose_validity:
+            n_surviving = int(surviving_idx.size)
+            surviving_weights = band_weights_arr[surviving_idx]
+            coeffs_sub, cov_sub, wls_mode = fit_first_and_second_harmonics_joint_loose(
+                phi_solve, intens_solve, surviving_weights, vars_solve,
+                normalize=loose_normalize,
+                fix_per_band_background_to_zero=config.fix_per_band_background_to_zero,
+            )
+            # Widen the surviving-bands solution back to a full
+            # (B + 4,) coefficient vector with NaN for dropped bands.
+            coeffs = np.full(n_bands + 4, np.nan, dtype=np.float64)
+            for new_idx, orig_idx in enumerate(surviving_idx):
+                coeffs[orig_idx] = coeffs_sub[new_idx]
+            coeffs[n_bands:] = coeffs_sub[n_surviving:]
+            if cov_sub is not None:
+                cov_full = np.zeros((n_bands + 4, n_bands + 4), dtype=np.float64)
+                for new_idx, orig_idx in enumerate(surviving_idx):
+                    cov_full[orig_idx, orig_idx] = cov_sub[new_idx, new_idx]
+                cov_full[n_bands:, n_bands:] = cov_sub[n_surviving:, n_surviving:]
             else:
                 cov_full = None
         else:
@@ -827,10 +1158,50 @@ def fit_isophote_mb(
                     break
                 lexceed = True
 
-        # RMS of the joint model fit (per-band-band-stacked residuals).
-        model_per_band = evaluate_joint_model(angles, coeffs, n_bands)
-        residuals_flat = (intens_per_band - model_per_band).reshape(-1)
-        rms = float(np.std(residuals_flat))
+        # RMS of the joint model fit (per-band-stacked residuals).
+        # Under loose validity, ``intens_per_band`` is a jagged list and
+        # the bands sample at potentially different angles, so we
+        # evaluate the model per band on each band's own kept angles.
+        if loose_validity:
+            model_per_band_loose: List[NDArray[np.float64]] = []
+            residual_chunks: List[NDArray[np.float64]] = []
+            A1c, B1c, A2c, B2c = (
+                float(coeffs[n_bands]), float(coeffs[n_bands + 1]),
+                float(coeffs[n_bands + 2]), float(coeffs[n_bands + 3]),
+            )
+            for b_idx in range(n_bands):
+                # Use the band's own kept angles regardless of whether it
+                # survived the threshold (the residual is meaningful
+                # whenever the band has any samples).
+                p_b = data.phi_per_band[b_idx]  # type: ignore[index]
+                if config.use_eccentric_anomaly:
+                    # angle for harmonic evaluation = psi when EA mode
+                    # is on; the sampler stored EA in the legacy
+                    # ``angles`` field, so reconstruct via phi+the
+                    # per-band kept indices is overkill — fall back to
+                    # phi (regular mode harmonic eval) which is what
+                    # ``evaluate_joint_model`` uses internally.
+                    pass
+                if p_b.size == 0 or np.isnan(coeffs[b_idx]):
+                    model_per_band_loose.append(np.empty(0, dtype=np.float64))
+                    continue
+                m_b = (
+                    float(coeffs[b_idx])
+                    + A1c * np.sin(p_b) + B1c * np.cos(p_b)
+                    + A2c * np.sin(2.0 * p_b) + B2c * np.cos(2.0 * p_b)
+                )
+                model_per_band_loose.append(m_b)
+                # Use the post-clip kept intens for the residual.
+                if last_intens_per_band_loose is not None:
+                    i_b = last_intens_per_band_loose[b_idx]
+                    if i_b.size == m_b.size:
+                        residual_chunks.append(i_b - m_b)
+            rms = float(np.std(np.concatenate(residual_chunks))) if residual_chunks else float("nan")
+            model_per_band = model_per_band_loose  # type: ignore[assignment]
+        else:
+            model_per_band = evaluate_joint_model(angles, coeffs, n_bands)
+            residuals_flat = (intens_per_band - model_per_band).reshape(-1)
+            rms = float(np.std(residuals_flat))
 
         harmonics = [A1, B1, A2, B2]
         if config.fix_center:
@@ -889,28 +1260,77 @@ def fit_isophote_mb(
             # cov_full[b_idx, b_idx] in OLS would double-apply the residual
             # variance (B3 regression).
             for b_idx, b in enumerate(bands):
+                # Loose-validity dropped bands: NaN every per-band field.
+                if loose_validity and b_idx in last_dropped_band_indices:
+                    best_geometry[f"intens_{b}"] = float("nan")
+                    best_geometry[f"intens_err_{b}"] = float("nan")
+                    best_geometry[f"rms_{b}"] = float("nan")
+                    for n_order in (3, 4):
+                        best_geometry[f"a{n_order}_{b}"] = 0.0
+                        best_geometry[f"b{n_order}_{b}"] = 0.0
+                    if debug:
+                        for key in _PER_BAND_DEBUG_KEYS:
+                            best_geometry[f"{key}_{b}"] = float("nan")
+                    continue
                 intens_b = float(coeffs[b_idx])
                 # Per-band rms from band b residuals; intens_err_b from
                 # diagonal of the joint covariance at row b (already an
                 # exact covariance under WLS, residual-scaled under OLS).
-                rms_b = float(np.std(intens_per_band[b_idx] - model_per_band[b_idx]))
+                if loose_validity:
+                    band_intens_kept = (
+                        last_intens_per_band_loose[b_idx]
+                        if last_intens_per_band_loose is not None
+                        else np.empty(0, dtype=np.float64)
+                    )
+                    band_model_kept = model_per_band[b_idx]
+                    if band_intens_kept.size and band_intens_kept.size == band_model_kept.size:
+                        rms_b = float(np.std(band_intens_kept - band_model_kept))
+                    else:
+                        rms_b = float("nan")
+                else:
+                    rms_b = float(np.std(intens_per_band[b_idx] - model_per_band[b_idx]))
                 use_direct_sem = (
                     config.fix_per_band_background_to_zero
+                    or loose_validity
                     or (use_ref_only and b_idx != ref_idx_for_err)
                 )
                 if use_direct_sem:
-                    n_b = int(intens_per_band[b_idx].size)
-                    if n_b <= 0:
-                        intens_err_b = float("nan")
-                    elif variances_per_band is not None:
-                        intens_err_b = float(
-                            np.sqrt(np.mean(variances_per_band[b_idx]) / max(n_b, 1))
+                    if loose_validity:
+                        band_intens_kept = (
+                            last_intens_per_band_loose[b_idx]
+                            if last_intens_per_band_loose is not None
+                            else np.empty(0, dtype=np.float64)
                         )
+                        band_var_kept = (
+                            last_variances_per_band_loose[b_idx]
+                            if last_variances_per_band_loose is not None
+                            else None
+                        )
+                        n_b = int(band_intens_kept.size)
+                        if n_b <= 0:
+                            intens_err_b = float("nan")
+                        elif band_var_kept is not None:
+                            intens_err_b = float(
+                                np.sqrt(np.mean(band_var_kept) / max(n_b, 1))
+                            )
+                        else:
+                            sample_var = float(
+                                np.var(band_intens_kept, ddof=1) if n_b > 1 else 0.0
+                            )
+                            intens_err_b = float(np.sqrt(sample_var / max(n_b, 1)))
                     else:
-                        sample_var = float(
-                            np.var(intens_per_band[b_idx], ddof=1) if n_b > 1 else 0.0
-                        )
-                        intens_err_b = float(np.sqrt(sample_var / max(n_b, 1)))
+                        n_b = int(intens_per_band[b_idx].size)
+                        if n_b <= 0:
+                            intens_err_b = float("nan")
+                        elif variances_per_band is not None:
+                            intens_err_b = float(
+                                np.sqrt(np.mean(variances_per_band[b_idx]) / max(n_b, 1))
+                            )
+                        else:
+                            sample_var = float(
+                                np.var(intens_per_band[b_idx], ddof=1) if n_b > 1 else 0.0
+                            )
+                            intens_err_b = float(np.sqrt(sample_var / max(n_b, 1)))
                 elif cov_full is not None:
                     if wls_mode:
                         intens_err_b = float(np.sqrt(max(cov_full[b_idx, b_idx], 0.0)))
@@ -968,10 +1388,19 @@ def fit_isophote_mb(
             stop_code = 0
             converged = True
             if config.compute_deviations and best_geometry is not None:
-                _attach_per_band_harmonics(
-                    best_geometry, bands, angles, intens_per_band, variances_per_band,
-                    sma, per_band_grad,
-                )
+                if loose_validity and last_intens_per_band_loose is not None:
+                    _attach_per_band_harmonics(
+                        best_geometry, bands,
+                        last_phi_per_band_loose or [],
+                        last_intens_per_band_loose,
+                        last_variances_per_band_loose,
+                        sma, per_band_grad,
+                    )
+                else:
+                    _attach_per_band_harmonics(
+                        best_geometry, bands, angles, intens_per_band, variances_per_band,
+                        sma, per_band_grad,
+                    )
             break
 
         # Geometry update (Jedrzejewski-1987, joint gradient denominator).
@@ -1071,10 +1500,19 @@ def fit_isophote_mb(
                 stop_code = 0
                 converged = True
                 if config.compute_deviations and best_geometry is not None:
-                    _attach_per_band_harmonics(
-                        best_geometry, bands, angles, intens_per_band, variances_per_band,
-                        sma, per_band_grad,
-                    )
+                    if loose_validity and last_intens_per_band_loose is not None:
+                        _attach_per_band_harmonics(
+                            best_geometry, bands,
+                            last_phi_per_band_loose or [],
+                            last_intens_per_band_loose,
+                            last_variances_per_band_loose,
+                            sma, per_band_grad,
+                        )
+                    else:
+                        _attach_per_band_harmonics(
+                            best_geometry, bands, angles, intens_per_band, variances_per_band,
+                            sma, per_band_grad,
+                        )
                 break
 
         prev_geom = (x0, y0, eps, pa)
@@ -1094,15 +1532,25 @@ def fit_isophote_mb(
             and last_data is not None
             and last_data.valid_count > 6
         ):
-            _attach_per_band_harmonics(
-                best_geometry,
-                bands,
-                last_data.angles,
-                last_data.intens,
-                last_data.variances,
-                sma,
-                last_per_band_grad if last_per_band_grad else [0.0] * n_bands,
-            )
+            if loose_validity and last_intens_per_band_loose is not None:
+                _attach_per_band_harmonics(
+                    best_geometry, bands,
+                    last_phi_per_band_loose or [],
+                    last_intens_per_band_loose,
+                    last_variances_per_band_loose,
+                    sma,
+                    last_per_band_grad if last_per_band_grad else [0.0] * n_bands,
+                )
+            else:
+                _attach_per_band_harmonics(
+                    best_geometry,
+                    bands,
+                    last_data.angles,
+                    last_data.intens,
+                    last_data.variances,
+                    sma,
+                    last_per_band_grad if last_per_band_grad else [0.0] * n_bands,
+                )
 
     if config.full_photometry:
         # Per-band aperture totals: same elliptical aperture, B independent
@@ -1127,6 +1575,11 @@ def fit_isophote_mb(
 
     best_geometry["stop_code"] = stop_code
     best_geometry["niter"] = niter
+    # D9 backport: stamp per-band surviving-sample counts. Under shared
+    # validity these all equal ``ndata``; under loose validity they
+    # reflect each band's own kept count after sigma clipping.
+    for b_idx, b in enumerate(bands):
+        best_geometry[f"n_valid_{b}"] = int(last_n_valid_per_band[b_idx])
     return best_geometry
 
 
@@ -1145,13 +1598,30 @@ def _attach_per_band_harmonics(
     matching the single-band ``compute_deviations`` path. Bender
     normalization happens at plotting time (decision D16).
     """
+    # The loose-validity caller passes per-band jagged ``angles`` /
+    # ``intens_per_band`` / ``variances_per_band`` lists, where each
+    # band's arrays may have different lengths.  The shared-validity
+    # caller passes a single ``angles`` array (length N) and a
+    # rectangular ``(B, N)`` ``intens_per_band``.  We accept both:
+    angles_is_list = isinstance(angles, list)
     for b_idx, b in enumerate(bands):
+        if angles_is_list:
+            ang_b = angles[b_idx]  # type: ignore[index]
+        else:
+            ang_b = angles
         intens_b = intens_per_band[b_idx]
         var_b = variances_per_band[b_idx] if variances_per_band is not None else None
         grad_b = float(per_band_grad[b_idx]) if b_idx < len(per_band_grad) else 0.0
+        if intens_b.size == 0 or ang_b.size != intens_b.size:
+            for n_order in (3, 4):
+                geom[f"a{n_order}_{b}"] = 0.0
+                geom[f"b{n_order}_{b}"] = 0.0
+                geom[f"a{n_order}_err_{b}"] = 0.0
+                geom[f"b{n_order}_err_{b}"] = 0.0
+            continue
         for n_order in (3, 4):
             a, c, a_err, b_err = compute_deviations(
-                angles, intens_b, sma, grad_b, n_order, variances=var_b,
+                ang_b, intens_b, sma, grad_b, n_order, variances=var_b,
             )
             geom[f"a{n_order}_{b}"] = float(a)
             geom[f"b{n_order}_{b}"] = float(c)

@@ -104,6 +104,57 @@ class IsosterConfigMB(BaseModel):
         "the joint solve. Decision D11 (Stage-2 backport).",
     )
 
+    # --- D9 backport: per-band loose validity ---
+    loose_validity: bool = Field(
+        default=False,
+        description="Relax the cross-band shared-validity AND. With "
+        "``False`` (default), a sample is dropped from every band if any "
+        "band fails (mask, NaN, non-positive variance) at that location. "
+        "With ``True``, each band keeps its own surviving samples; the "
+        "joint design matrix becomes block-diagonal in the per-band "
+        "intercept columns and uses each band's own kept angles. A band "
+        "that falls below the per-band thresholds at a given isophote is "
+        "dropped from the joint solve at that isophote (its ``intens_<b>`` "
+        "is reported as NaN); the surviving bands still constrain the "
+        "shared geometry. Whole-isophote ``stop_code=3`` only fires when "
+        "fewer than 2 bands survive. Decision D9 backport (locked "
+        "2026-05-01).",
+    )
+    loose_validity_min_per_band_count: int = Field(
+        default=6,
+        ge=1,
+        description="Per-band absolute minimum surviving-sample count "
+        "under loose validity. A band with fewer than this many kept "
+        "samples at a given isophote is dropped from the joint solve at "
+        "that isophote. Default 6 mirrors the single-band 5-parameter "
+        "minimum + 1 sample of slack. Ignored when ``loose_validity=False``.",
+    )
+    loose_validity_min_per_band_frac: float = Field(
+        default=0.2,
+        ge=0.0,
+        le=1.0,
+        description="Per-band minimum surviving-sample fraction under "
+        "loose validity (kept / sampled). A band below this fraction at a "
+        "given isophote is dropped from the joint solve at that isophote. "
+        "Default 0.2. Ignored when ``loose_validity=False``.",
+    )
+    loose_validity_band_normalization: Literal["none", "per_band_count"] = Field(
+        default="none",
+        description="Per-band normalization of the joint design matrix "
+        "and the combined-gradient combiner under loose validity. "
+        "``'none'`` (default): each band's row block contributes "
+        "proportionally to its own ``N_b``; ``w_b`` multiplies every row. "
+        "Combined gradient = ``Σ w_b · grad_b / Σ w_b`` over surviving "
+        "bands. ``'per_band_count'``: each band's design-matrix block is "
+        "row-scaled by ``√(1/N_b)`` so its total contribution equals "
+        "``w_b`` regardless of ``N_b``; combined gradient is weighted by "
+        "``(w_b · N_b)``. Use ``'per_band_count'`` to preserve the "
+        "user-specified ``band_weights`` semantics across mask-induced "
+        "per-band sample-count differences. Requires ``loose_validity=True`` "
+        "(rejected at construction otherwise — meaningless under shared "
+        "validity since all ``N_b`` are identical).",
+    )
+
     # --- Geometry initialization (copied from IsosterConfig) ---
     x0: Optional[float] = Field(None, description="Initial center x coordinate. If None, uses image center.")
     y0: Optional[float] = Field(None, description="Initial center y coordinate. If None, uses image center.")
@@ -308,6 +359,19 @@ class IsosterConfigMB(BaseModel):
                 "fix_per_band_background_to_zero is incompatible with "
                 "harmonic_combination='ref': the ref mode bypasses the joint "
                 "design matrix entirely. Pick one or the other."
+            )
+
+        # --- D9 backport: per-band-count normalization only makes sense
+        # under loose validity (all N_b are identical under shared validity).
+        if (
+            self.loose_validity_band_normalization == "per_band_count"
+            and not self.loose_validity
+        ):
+            raise ValueError(
+                "loose_validity_band_normalization='per_band_count' requires "
+                "loose_validity=True. Under shared validity all bands have "
+                "the same N_b and the per-band-count renormalization is a "
+                "no-op."
             )
 
         # --- soft warnings parallel to single-band V2/V3 ---

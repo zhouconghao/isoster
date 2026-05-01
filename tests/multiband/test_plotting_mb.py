@@ -73,3 +73,30 @@ def test_plot_qa_summary_mb_image_count_must_match_bands(three_band_result):
     # Drop one band's image
     with pytest.raises(ValueError, match="does not match"):
         plot_qa_summary_mb(result, images[:2])
+
+
+def test_plot_qa_summary_mb_loose_validity_renders_n_valid_panel(tmp_path):
+    """D9 backport: when the result was produced under loose validity,
+    the QA figure adds a 4th stacked panel below the geometry block
+    showing per-band ``n_valid / n_attempted``."""
+    img_g = _planted(100.0, 1)
+    img_r = _planted(200.0, 2)
+    cfg = IsosterConfigMB(
+        bands=["g", "r"], reference_band="g",
+        sma0=15.0, astep=0.2, maxsma=50.0,
+        debug=True, compute_deviations=True, nclip=0,
+        loose_validity=True,
+    )
+    result = fit_image_multiband([img_g, img_r], None, cfg)
+    fig = plot_qa_summary_mb(
+        result, [img_g, img_r], output_path=tmp_path / "qa_loose.png",
+    )
+    assert (tmp_path / "qa_loose.png").exists()
+    # The bottom-right gridspec must have 4 stacked rows in loose mode
+    # (eps / pa / center / n_valid) instead of the default 3.
+    geom_axes = [
+        ax for ax in fig.axes
+        if ax.get_ylabel().startswith(r"$N_{\rm valid}")
+    ]
+    assert len(geom_axes) == 1
+    plt.close(fig)
