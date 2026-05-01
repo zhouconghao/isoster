@@ -12,6 +12,7 @@ See ``docs/agent/plan-2026-04-29-multiband-feasibility.md`` decisions
 D6/D7/D9 for the validity rule and D19 for the vectorization choice.
 """
 
+import warnings
 from collections import namedtuple
 from typing import List, Optional, Sequence, Tuple, Union
 
@@ -113,6 +114,52 @@ def _resolve_masks(
     return out
 
 
+# Per decision D7: NaN/inf → BAD_PIXEL_VARIANCE (huge sentinel that the
+# validity rule treats as "drop"); non-positive → MIN_POSITIVE_VARIANCE
+# (tiny floor that keeps the WLS denominator finite). Mirrors the
+# single-band sentinels documented in ``docs/02-configuration-reference.md``.
+BAD_PIXEL_VARIANCE = 1e30
+MIN_POSITIVE_VARIANCE = 1e-30
+
+
+def _sanitize_variance_array(
+    v: NDArray[np.floating], label: str
+) -> NDArray[np.float64]:
+    """Clamp NaN/inf and non-positive entries; emit a warning if any are touched.
+
+    Implements the all-or-nothing variance contract from plan decision
+    D7: callers can rely on the returned array being strictly positive
+    and finite, with bad pixels marked by ``BAD_PIXEL_VARIANCE`` so the
+    sampler's validity rule excludes them.
+    """
+    arr = np.asarray(v, dtype=np.float64)
+    nonfinite = ~np.isfinite(arr)
+    nonpos = (arr <= 0.0) & ~nonfinite
+    if not (nonfinite.any() or nonpos.any()):
+        return arr
+    out = arr.copy()
+    n_nonfinite = int(nonfinite.sum())
+    n_nonpos = int(nonpos.sum())
+    if n_nonfinite:
+        out[nonfinite] = BAD_PIXEL_VARIANCE
+        warnings.warn(
+            f"{label}: replaced {n_nonfinite} NaN/inf pixel(s) with "
+            f"{BAD_PIXEL_VARIANCE:.0e} (near-zero weight). Decision D7.",
+            RuntimeWarning,
+            stacklevel=3,
+        )
+    if n_nonpos:
+        out[nonpos] = MIN_POSITIVE_VARIANCE
+        warnings.warn(
+            f"{label}: clamped {n_nonpos} non-positive pixel(s) to "
+            f"{MIN_POSITIVE_VARIANCE:.0e} (near-infinite weight). "
+            "Consider masking these pixels instead. Decision D7.",
+            RuntimeWarning,
+            stacklevel=3,
+        )
+    return out
+
+
 def _resolve_variance_maps(
     variance_maps: Union[None, NDArray[np.floating], Sequence[NDArray[np.floating]]],
     n_bands: int,
@@ -126,6 +173,12 @@ def _resolve_variance_maps(
     WLS) or none do (full OLS). ``None`` values inside a list are
     rejected even if the list has the right length.
 
+    NaN/inf entries are replaced with ``BAD_PIXEL_VARIANCE`` and
+    non-positive entries with ``MIN_POSITIVE_VARIANCE``; a single
+    warning is emitted per band that needed sanitization. The bad-pixel
+    sentinel is large enough that the sampler's validity rule will drop
+    those pixels even though the array is "valid" by type.
+
     Returns ``None`` when the user passed ``None`` (OLS mode signal).
     Otherwise returns a list of B ``(H, W)`` float64 arrays.
     """
@@ -138,7 +191,7 @@ def _resolve_variance_maps(
                 f"variance_maps ndarray shape {variance_maps.shape} does not match "
                 f"images shape {(h, w)}"
             )
-        v_f = variance_maps.astype(np.float64)
+        v_f = _sanitize_variance_array(variance_maps, "variance_maps (broadcast)")
         return [v_f] * n_bands
 
     if len(variance_maps) != n_bands:
@@ -163,11 +216,11 @@ def _resolve_variance_maps(
             raise ValueError(
                 f"variance_maps[{i}] shape {v.shape} does not match images shape {(h, w)}"
             )
-        out.append(v.astype(np.float64))
+        out.append(_sanitize_variance_array(v, f"variance_maps[{i}]"))
     return out
 
 
-def extract_isophote_data_multi_prepared(
+def _sample_along_ellipse(
     image_stack: NDArray[np.float64],
     masks_resolved: List[Optional[NDArray[np.float64]]],
     var_stack: Optional[NDArray[np.float64]],
@@ -176,26 +229,17 @@ def extract_isophote_data_multi_prepared(
     sma: float,
     eps: float,
     pa: float,
-    use_eccentric_anomaly: bool = False,
+    use_eccentric_anomaly: bool,
 ) -> MultiIsophoteData:
-    """
-    Fast-path multi-band sampler for callers that pre-resolved the inputs.
+    """Core multi-band sampling kernel.
 
-    The driver layer hits this function once per isophote-fit iteration
-    (and twice per gradient call), so the per-call cost dominates the
-    total fit time. Pre-resolving the (B, H, W) image stack, the per-
-    band float64 mask list, and the (B, H, W) variance stack once at
-    the driver level avoids repeated ``np.stack`` and ``astype`` calls
-    in every iteration. Decision D19 (performance budget).
-
-    Parameters mirror :func:`extract_isophote_data_multi` except that
-    the inputs are already in the canonical layout the sampler uses
-    internally:
-
-    - ``image_stack``: ``(B, H, W)`` float64.
-    - ``masks_resolved``: list of length ``B``, each entry either a
-      ``(H, W)`` float64 array (1.0 = bad, 0.0 = good) or ``None``.
-    - ``var_stack``: ``(B, H, W)`` float64 or ``None``.
+    Both :func:`extract_isophote_data_multi` (resolves inputs first) and
+    :func:`extract_isophote_data_multi_prepared` (assumes inputs already
+    resolved) delegate here so the validity-rule and shape contracts are
+    enforced in exactly one place. Splitting the pre-flight resolve from
+    the sampling kernel matters because the prepared fast path reuses
+    the same `(B, H, W)` arrays across every isophote iteration, while
+    the convenience entry point re-resolves on each call.
     """
     n_bands = image_stack.shape[0]
     n_samples = max(64, int(2.0 * np.pi * sma))
@@ -231,15 +275,15 @@ def extract_isophote_data_multi_prepared(
 
     n_valid = int(np.sum(valid))
     intens_kept = intens_full[:, valid]
-    var_kept: Optional[NDArray[np.float64]]
-    var_kept = var_full[:, valid] if var_full is not None else None
+    var_kept: Optional[NDArray[np.float64]] = (
+        var_full[:, valid] if var_full is not None else None
+    )
 
     if use_eccentric_anomaly:
         angles_kept = psi[valid]
-        phi_kept = phi[valid]
     else:
         angles_kept = phi[valid]
-        phi_kept = phi[valid]
+    phi_kept = phi[valid]
 
     return MultiIsophoteData(
         angles=angles_kept,
@@ -249,6 +293,42 @@ def extract_isophote_data_multi_prepared(
         variances=var_kept,
         n_samples=n_samples,
         valid_count=n_valid,
+    )
+
+
+def extract_isophote_data_multi_prepared(
+    image_stack: NDArray[np.float64],
+    masks_resolved: List[Optional[NDArray[np.float64]]],
+    var_stack: Optional[NDArray[np.float64]],
+    x0: float,
+    y0: float,
+    sma: float,
+    eps: float,
+    pa: float,
+    use_eccentric_anomaly: bool = False,
+) -> MultiIsophoteData:
+    """
+    Fast-path multi-band sampler for callers that pre-resolved the inputs.
+
+    The driver layer hits this function once per isophote-fit iteration
+    (and twice per gradient call), so the per-call cost dominates the
+    total fit time. Pre-resolving the (B, H, W) image stack, the per-
+    band float64 mask list, and the (B, H, W) variance stack once at
+    the driver level avoids repeated ``np.stack`` and ``astype`` calls
+    in every iteration. Decision D19 (performance budget).
+
+    Parameters mirror :func:`extract_isophote_data_multi` except that
+    the inputs are already in the canonical layout the sampler uses
+    internally:
+
+    - ``image_stack``: ``(B, H, W)`` float64.
+    - ``masks_resolved``: list of length ``B``, each entry either a
+      ``(H, W)`` float64 array (1.0 = bad, 0.0 = good) or ``None``.
+    - ``var_stack``: ``(B, H, W)`` float64 or ``None``.
+    """
+    return _sample_along_ellipse(
+        image_stack, masks_resolved, var_stack,
+        x0, y0, sma, eps, pa, use_eccentric_anomaly,
     )
 
 
@@ -276,29 +356,6 @@ def prepare_inputs(
     if var_list is not None:
         var_stack = np.stack(var_list, axis=0)
     return image_stack, masks_resolved, var_stack
-
-
-def _sample_image_stack(
-    image_stack: NDArray[np.float64],
-    coords: NDArray[np.float64],
-) -> NDArray[np.float64]:
-    """
-    Sample a (B, H, W) stack along the (y, x) ellipse path in one call.
-
-    ``map_coordinates`` accepts N-D inputs; the 0th axis (band) is
-    treated as a non-interpolated dimension by passing a 0-stride
-    coordinate of ``np.arange(B)``. Returns a (B, N) array.
-
-    Implementation: loop is acceptable here since N <= a few hundred per
-    isophote and B is small (typically 2-5). Profiling driver-end will
-    decide whether the per-band Python iteration is the bottleneck.
-    """
-    n_bands, _, _ = image_stack.shape
-    n_samples = coords.shape[1]
-    out = np.empty((n_bands, n_samples), dtype=np.float64)
-    for b in range(n_bands):
-        out[b] = map_coordinates(image_stack[b], coords, order=1, mode="constant", cval=np.nan)
-    return out
 
 
 def extract_isophote_data_multi(
@@ -357,54 +414,10 @@ def extract_isophote_data_multi(
 
     masks_list = _resolve_masks(masks, n_bands, h, w)
     var_list = _resolve_variance_maps(variance_maps, n_bands, h, w)
-
-    n_samples = max(64, int(2.0 * np.pi * sma))
-
-    x_coords, y_coords, psi, phi = compute_ellipse_coords(
-        n_samples, sma, eps, pa, x0, y0, use_eccentric_anomaly
+    var_stack: Optional[NDArray[np.float64]] = (
+        np.stack(var_list, axis=0) if var_list is not None else None
     )
-    coords = np.vstack([y_coords, x_coords]).astype(np.float64, copy=False)
-
-    intens_full = _sample_image_stack(image_stack, coords)  # (B, N)
-
-    # Sample per-band masks. Order=0 nearest-neighbor with cval=1.0
-    # (off-image = bad), to match the single-band convention.
-    valid = np.ones(n_samples, dtype=bool)
-    for b in range(n_bands):
-        valid &= ~np.isnan(intens_full[b])
-        m_b = masks_list[b]
-        if m_b is not None:
-            mask_vals = map_coordinates(m_b, coords, order=0, mode="constant", cval=1.0)
-            valid &= mask_vals < 0.5
-
-    var_full: Optional[NDArray[np.float64]] = None
-    if var_list is not None:
-        var_full = np.empty((n_bands, n_samples), dtype=np.float64)
-        for b in range(n_bands):
-            v = map_coordinates(var_list[b], coords, order=1, mode="constant", cval=np.nan)
-            var_full[b] = v
-            valid &= np.isfinite(v) & (v > 0.0)
-
-    n_valid = int(np.sum(valid))
-    intens_kept = intens_full[:, valid]
-    var_kept: Optional[NDArray[np.float64]]
-    var_kept = var_full[:, valid] if var_full is not None else None
-
-    if use_eccentric_anomaly:
-        angles_kept = psi[valid]
-        phi_kept = phi[valid]
-    else:
-        angles_kept = phi[valid]
-        phi_kept = phi[valid]
-
-    radii_kept = np.full(n_valid, sma, dtype=np.float64)
-
-    return MultiIsophoteData(
-        angles=angles_kept,
-        phi=phi_kept,
-        intens=intens_kept,
-        radii=radii_kept,
-        variances=var_kept,
-        n_samples=n_samples,
-        valid_count=n_valid,
+    return _sample_along_ellipse(
+        image_stack, masks_list, var_stack,
+        x0, y0, sma, eps, pa, use_eccentric_anomaly,
     )

@@ -89,6 +89,20 @@ class IsosterConfigMB(BaseModel):
         "extraction). Use ``'ref'`` for debugging or when the joint solver "
         "is suspected of misbehaving.",
     )
+    fix_per_band_background_to_zero: bool = Field(
+        default=False,
+        description="When True, drop the leading ``B`` per-band intercept "
+        "columns from the joint design matrix. The solve becomes a "
+        "4-column ``(A1, B1, A2, B2)`` system shared across all bands; "
+        "per-band ``intens_<b>`` is then reported as the band's own "
+        "ring-mean intensity along the fitted ellipse rather than as a "
+        "free nuisance parameter. Use this when the input images have "
+        "perfectly subtracted sky and the per-band ``I0_b`` plateau "
+        "visible at the LSB transition is being driven by sky residual "
+        "rather than real galaxy flux. Mutually exclusive with the "
+        "``'ref'`` ``harmonic_combination``: ref-mode already side-steps "
+        "the joint solve. Decision D11 (Stage-2 backport).",
+    )
 
     # --- Geometry initialization (copied from IsosterConfig) ---
     x0: Optional[float] = Field(None, description="Initial center x coordinate. If None, uses image center.")
@@ -285,6 +299,16 @@ class IsosterConfigMB(BaseModel):
             raise ValueError(f"maxsma ({self.maxsma}) must be greater than minsma ({self.minsma}).")
         if self.minit > self.maxit:
             raise ValueError(f"minit ({self.minit}) must be <= maxit ({self.maxit}).")
+
+        # --- D11 backport: fix_per_band_background_to_zero is incompatible
+        # with ref-mode (ref-mode does not exercise the joint solver, so
+        # the column-drop has no effect there).
+        if self.fix_per_band_background_to_zero and self.harmonic_combination == "ref":
+            raise ValueError(
+                "fix_per_band_background_to_zero is incompatible with "
+                "harmonic_combination='ref': the ref mode bypasses the joint "
+                "design matrix entirely. Pick one or the other."
+            )
 
         # --- soft warnings parallel to single-band V2/V3 ---
         if self.maxsma is not None and self.maxsma < self.sma0:

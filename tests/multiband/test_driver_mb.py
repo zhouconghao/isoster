@@ -69,6 +69,69 @@ def test_b1_delegates_to_single_band(planted_two_band):
     assert "bands" not in result
 
 
+def test_b1_delegation_unwraps_variance_maps_list(planted_two_band):
+    """Regression for B17: a length-1 variance_maps list must be unwrapped
+    to a single ndarray when delegating to single-band ``fit_image``.
+
+    The single-band sampler accepts only ``variance_map`` (singular,
+    ndarray); passing a list would raise. The multi-band B=1 fallback
+    must therefore unwrap the list before delegation.
+    """
+    img, _ = planted_two_band
+    var = np.full_like(img, 0.25, dtype=np.float64)
+    cfg = IsosterConfigMB(
+        bands=["g"], reference_band="g",
+        sma0=15.0, eps=0.2, pa=0.4,
+        astep=0.2, maxsma=60.0, debug=True, nclip=0,
+    )
+    with warnings.catch_warnings(record=True) as captured:
+        warnings.simplefilter("always")
+        result = fit_image_multiband([img], None, cfg, variance_maps=[var])
+    assert any("delegating to" in str(w.message) for w in captured)
+    iso = next(
+        (i for i in result["isophotes"] if float(i.get("sma", 0.0)) > 0.0),
+        None,
+    )
+    assert iso is not None, "Expected at least one non-central isophote"
+    assert "intens" in iso
+    assert float(iso.get("intens_err", 0.0)) > 0.0  # WLS propagated errors
+
+
+def test_b1_delegation_unwraps_variance_maps_tuple(planted_two_band):
+    """Length-1 tuples are unwrapped just like lists."""
+    img, _ = planted_two_band
+    var = np.full_like(img, 0.25, dtype=np.float64)
+    cfg = IsosterConfigMB(
+        bands=["g"], reference_band="g",
+        sma0=15.0, eps=0.2, pa=0.4,
+        astep=0.2, maxsma=60.0, debug=True, nclip=0,
+    )
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        result = fit_image_multiband([img], None, cfg, variance_maps=(var,))
+    iso = next(
+        (i for i in result["isophotes"] if float(i.get("sma", 0.0)) > 0.0),
+        None,
+    )
+    assert iso is not None
+    assert float(iso.get("intens_err", 0.0)) > 0.0
+
+
+def test_b1_delegation_unwraps_masks_list(planted_two_band):
+    """Length-1 mask list is unwrapped to a single ndarray."""
+    img, _ = planted_two_band
+    mask = np.zeros_like(img, dtype=bool)
+    cfg = IsosterConfigMB(
+        bands=["g"], reference_band="g",
+        sma0=15.0, eps=0.2, pa=0.4,
+        astep=0.2, maxsma=60.0, debug=True, nclip=0,
+    )
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        result = fit_image_multiband([img], [mask], cfg)
+    assert "isophotes" in result and len(result["isophotes"]) > 0
+
+
 # ---------------------------------------------------------------------------
 # B>=2: end-to-end joint fit on planted galaxy
 # ---------------------------------------------------------------------------
@@ -192,6 +255,45 @@ def test_variance_maps_count_mismatch_rejected(planted_two_band):
         fit_image_multiband(
             [img_g, img_r], None, cfg, variance_maps=[var, var, var],
         )
+
+
+def test_variance_maps_tuple_count_mismatch_rejected(planted_two_band):
+    """Regression for B1: tuples must be validated, not silently accepted."""
+    img_g, img_r = planted_two_band
+    cfg = IsosterConfigMB(bands=["g", "r"], reference_band="g")
+    var = np.ones_like(img_g)
+    with pytest.raises(ValueError, match="does not match"):
+        fit_image_multiband(
+            [img_g, img_r], None, cfg, variance_maps=(var, var, var),
+        )
+
+
+def test_variance_maps_non_sequence_rejected(planted_two_band):
+    """Non-ndarray non-sequence inputs are explicitly rejected."""
+    img_g, img_r = planted_two_band
+    cfg = IsosterConfigMB(bands=["g", "r"], reference_band="g")
+    with pytest.raises(TypeError, match="non-sequence"):
+        fit_image_multiband(
+            [img_g, img_r], None, cfg, variance_maps=42,  # type: ignore[arg-type]
+        )
+
+
+def test_masks_count_mismatch_rejected(planted_two_band):
+    """Regression for B1: per-band mask sequence length is checked."""
+    img_g, img_r = planted_two_band
+    cfg = IsosterConfigMB(bands=["g", "r"], reference_band="g")
+    bad_mask = np.zeros_like(img_g, dtype=bool)
+    with pytest.raises(ValueError, match="does not match"):
+        fit_image_multiband([img_g, img_r], [bad_mask, bad_mask, bad_mask], cfg)
+
+
+def test_masks_tuple_count_mismatch_rejected(planted_two_band):
+    """Tuples are accepted and length-checked just like lists."""
+    img_g, img_r = planted_two_band
+    cfg = IsosterConfigMB(bands=["g", "r"], reference_band="g")
+    bad_mask = np.zeros_like(img_g, dtype=bool)
+    with pytest.raises(ValueError, match="does not match"):
+        fit_image_multiband([img_g, img_r], (bad_mask, bad_mask, bad_mask), cfg)
 
 
 def test_first_isophote_failure_warning():

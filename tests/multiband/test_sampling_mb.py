@@ -1,5 +1,7 @@
 """Tests for ``isoster.multiband.sampling_mb``."""
 
+import warnings
+
 import numpy as np
 import pytest
 
@@ -111,8 +113,12 @@ def test_shared_validity_via_nan_in_one_band():
     assert np.all(np.isfinite(mb.intens))
 
 
-def test_shared_validity_via_non_positive_variance():
-    """A non-positive variance in one band drops the sample from all bands."""
+def test_non_positive_variance_sanitized_and_warned():
+    """Non-positive variance entries are clamped to MIN_POSITIVE_VARIANCE per
+    plan D7 (mirroring single-band semantics) and a RuntimeWarning is
+    emitted.  The user is responsible for masking such pixels — the
+    sanitization layer keeps the sampler stable but does not drop them.
+    """
     img1 = _gaussian_image()
     img2 = _gaussian_image() * 0.7
     var1 = np.ones_like(img1) * 0.5
@@ -123,14 +129,17 @@ def test_shared_validity_via_non_positive_variance():
         [img1, img2], None, x0=64.0, y0=64.0, sma=20.0, eps=0.0, pa=0.0,
         variance_maps=[var1, var1.copy()],
     )
-    mb_bad = extract_isophote_data_multi(
-        [img1, img2], None, x0=64.0, y0=64.0, sma=20.0, eps=0.0, pa=0.0,
-        variance_maps=[var1, var2],
-    )
-    # Bad variance drops at least one sample from every band.
-    assert mb_bad.valid_count < mb_clean.valid_count
-    assert mb_bad.variances is not None
-    assert np.all(mb_bad.variances > 0.0)
+    with pytest.warns(RuntimeWarning, match="non-positive"):
+        mb_sanit = extract_isophote_data_multi(
+            [img1, img2], None, x0=64.0, y0=64.0, sma=20.0, eps=0.0, pa=0.0,
+            variance_maps=[var1, var2],
+        )
+    # No samples dropped — the bad pixel is clamped, not excluded. Users
+    # who want the pixel excluded must mask it explicitly.
+    assert mb_sanit.valid_count == mb_clean.valid_count
+    assert mb_sanit.variances is not None
+    assert np.all(mb_sanit.variances > 0.0)
+    assert np.all(np.isfinite(mb_sanit.variances))
 
 
 def test_all_masked_returns_zero_valid():
@@ -217,6 +226,68 @@ def test_variance_list_wrong_length_rejected():
             [img, img, img], None, x0=64.0, y0=64.0, sma=15.0, eps=0.0, pa=0.0,
             variance_maps=[var, var],
         )
+
+
+def test_variance_nan_inf_sanitized_with_warning():
+    """Regression for I11/D7: NaN/inf and non-positive variance entries get
+    clamped to sentinel values and a RuntimeWarning is emitted."""
+    from isoster.multiband.sampling_mb import (
+        BAD_PIXEL_VARIANCE,
+        MIN_POSITIVE_VARIANCE,
+        _resolve_variance_maps,
+    )
+
+    h, w = 32, 32
+    var = np.ones((h, w), dtype=np.float64)
+    var[0, 0] = np.nan
+    var[0, 1] = np.inf
+    var[1, 0] = -1.0
+    var[1, 1] = 0.0
+
+    with warnings.catch_warnings(record=True) as captured:
+        warnings.simplefilter("always", RuntimeWarning)
+        out = _resolve_variance_maps([var, var.copy()], n_bands=2, h=h, w=w)
+    msgs = [str(w.message) for w in captured if issubclass(w.category, RuntimeWarning)]
+    assert any("NaN/inf" in m for m in msgs)
+    assert any("non-positive" in m for m in msgs)
+    assert out is not None
+    for arr in out:
+        assert arr[0, 0] == BAD_PIXEL_VARIANCE
+        assert arr[0, 1] == BAD_PIXEL_VARIANCE
+        assert arr[1, 0] == MIN_POSITIVE_VARIANCE
+        assert arr[1, 1] == MIN_POSITIVE_VARIANCE
+        assert np.all(np.isfinite(arr))
+        assert np.all(arr > 0.0)
+
+
+def test_variance_clean_arrays_emit_no_warning():
+    """Sanitization is silent when the input is already clean."""
+    from isoster.multiband.sampling_mb import _resolve_variance_maps
+
+    h, w = 16, 16
+    var = np.full((h, w), 0.25, dtype=np.float64)
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", RuntimeWarning)
+        out = _resolve_variance_maps([var, var.copy()], n_bands=2, h=h, w=w)
+    assert out is not None
+    np.testing.assert_array_equal(out[0], var)
+
+
+def test_variance_broadcast_ndarray_sanitized():
+    """The single-ndarray broadcast path also sanitizes."""
+    from isoster.multiband.sampling_mb import (
+        BAD_PIXEL_VARIANCE,
+        _resolve_variance_maps,
+    )
+
+    h, w = 24, 24
+    var = np.ones((h, w), dtype=np.float64)
+    var[5, 5] = np.nan
+    with pytest.warns(RuntimeWarning, match="NaN/inf"):
+        out = _resolve_variance_maps(var, n_bands=3, h=h, w=w)
+    assert out is not None and len(out) == 3
+    for arr in out:
+        assert arr[5, 5] == BAD_PIXEL_VARIANCE
 
 
 # ---------------------------------------------------------------------------

@@ -176,7 +176,16 @@ def test_per_band_sigma_clip_and_shared_validity():
     assert n_clipped >= 1
     assert ic.shape[1] == n - n_clipped
     # Both bands' arrays must have the same surviving N (shared validity).
-    assert ic.shape[1] == ic.shape[1]
+    assert ic.shape[0] == 2
+    # Variance is None on the input, so the clipper must mirror that.
+    assert vc is None
+    # Surviving angles/phi length must equal the surviving intensity column count.
+    assert a.shape[0] == ic.shape[1]
+    assert p.shape[0] == ic.shape[1]
+    # The huge outlier in band 1 at index 10 must have been removed from BOTH
+    # bands' intensity rows (shared validity).
+    assert np.max(ic[1]) < 1e5
+    assert ic[0, :].max() <= 100.0 and ic[0, :].min() >= 100.0 - 1e-9
 
 
 # ---------------------------------------------------------------------------
@@ -270,6 +279,134 @@ def test_fit_isophote_mb_ref_mode_runs():
     assert out["stop_code"] in (0, 2)
     assert abs(out["x0"] - 128.0) < 1.0
     assert "intens_g" in out and "intens_r" in out
+
+
+def test_fix_per_band_background_to_zero_solver_reduces_columns():
+    """D11 backport: with the flag on, the joint solver becomes a
+    4-column geometric system.  ``coeffs[:n_bands]`` are the per-band
+    ring means (post-fit), and the harmonic block ``coeffs[n_bands:]``
+    matches what a single-band solve on residuals would produce.
+    """
+    n = 64
+    angles = np.linspace(0.0, 2 * np.pi, n, endpoint=False)
+    rng = np.random.default_rng(7)
+    means = np.array([10.0, 20.0])
+    A1, B1 = 0.3, -0.1
+    geom = A1 * np.sin(angles) + B1 * np.cos(angles)
+    intens = np.array([means[0] + geom + rng.normal(0, 0.01, n),
+                       means[1] + geom + rng.normal(0, 0.01, n)])
+    weights = np.ones(2)
+
+    coeffs_full, _, _ = fit_first_and_second_harmonics_joint(
+        angles, intens, weights, None,
+    )
+    coeffs_zero, cov_zero, _ = fit_first_and_second_harmonics_joint(
+        angles, intens, weights, None, fix_per_band_background_to_zero=True,
+    )
+
+    # Per-band intercepts should be the empirical ring means.
+    np.testing.assert_allclose(coeffs_zero[:2], np.mean(intens, axis=1), atol=1e-12)
+    # Geometric coefficients agree with the full solve on this clean planted case.
+    np.testing.assert_allclose(coeffs_full[2:], coeffs_zero[2:], atol=2e-3)
+    # cov has zero off-diagonal coupling between per-band intercepts and
+    # geometric block (since intercepts are post-fit, not solved).
+    assert cov_zero is not None
+    assert np.all(cov_zero[:2, 2:] == 0.0)
+    assert np.all(cov_zero[2:, :2] == 0.0)
+
+
+def test_fix_per_band_background_to_zero_intens_err_scales_with_band_noise():
+    """B3-style regression for D11: per-band intens_err must scale linearly
+    with band noise sigma when fix_per_band_background_to_zero=True."""
+    h, w = 64, 64
+    rng = np.random.default_rng(11)
+    img_g = 10.0 + rng.normal(0.0, 0.10, size=(h, w))
+    img_r_low = 10.0 + rng.normal(0.0, 0.10, size=(h, w))
+    img_r_high = 10.0 + rng.normal(0.0, 1.00, size=(h, w))
+    cfg = IsosterConfigMB(
+        bands=["g", "r"], reference_band="g",
+        fix_per_band_background_to_zero=True,
+        nclip=0,
+    )
+    start = {"x0": 32.0, "y0": 32.0, "eps": 0.0, "pa": 0.0}
+    out_low = fit_isophote_mb(
+        images=[img_g, img_r_low], masks=None, sma=12.0,
+        start_geometry=start, config=cfg,
+    )
+    out_high = fit_isophote_mb(
+        images=[img_g, img_r_high], masks=None, sma=12.0,
+        start_geometry=start, config=cfg,
+    )
+    err_low = float(out_low["intens_err_r"])
+    err_high = float(out_high["intens_err_r"])
+    assert err_low > 0 and err_high > 0
+    assert 4.0 < err_high / err_low < 25.0
+
+
+def test_fix_per_band_background_to_zero_rejected_in_ref_mode():
+    """The flag is incompatible with harmonic_combination='ref'."""
+    with pytest.raises(ValueError, match="incompatible"):
+        IsosterConfigMB(
+            bands=["g", "r"], reference_band="g",
+            harmonic_combination="ref",
+            fix_per_band_background_to_zero=True,
+        )
+
+
+def test_fit_isophote_mb_ref_mode_intens_err_scaling_ols(monkeypatch):
+    """Regression for B3.
+
+    In ``harmonic_combination='ref'`` + OLS mode, non-reference bands'
+    ``intens_err_<b>`` must be the band's own SEM ≈ ``σ_b / √N``, not a
+    quantity that has the residual variance applied twice.  Concretely:
+    if we change band-r's noise level by a factor 10, the reported
+    ``intens_err_r`` should also change by ~10×, not by ~100×.
+    """
+    n = 200
+    angles = np.linspace(0.0, 2 * np.pi, n, endpoint=False)
+    rng = np.random.default_rng(0)
+
+    def synth(noise_sigma: float, seed: int) -> np.ndarray:
+        rng_local = np.random.default_rng(seed)
+        return rng_local.normal(loc=10.0, scale=noise_sigma, size=n)
+
+    intens_g = synth(0.10, seed=11)
+    intens_r_low = synth(0.10, seed=22)
+    intens_r_high = synth(1.00, seed=22)  # 10× noisier in band r
+
+    cfg = IsosterConfigMB(
+        bands=["g", "r"], reference_band="g",
+        harmonic_combination="ref", nclip=0,
+    )
+
+    # Drop into the per-band error branch directly via fit_isophote_mb on a
+    # small synthetic image so the full code path executes.
+    h, w = 64, 64
+    img_g = np.full((h, w), 10.0, dtype=np.float64)
+    img_r = img_g.copy()
+    img_g += rng.normal(0.0, 0.10, size=img_g.shape)
+    img_r_low = img_g + rng.normal(0.0, 0.10, size=img_g.shape)
+    img_r_high = img_g + rng.normal(0.0, 1.00, size=img_g.shape)
+    start = {"x0": 32.0, "y0": 32.0, "eps": 0.0, "pa": 0.0}
+
+    out_low = fit_isophote_mb(
+        images=[img_g, img_r_low], masks=None, sma=12.0,
+        start_geometry=start, config=cfg,
+    )
+    out_high = fit_isophote_mb(
+        images=[img_g, img_r_high], masks=None, sma=12.0,
+        start_geometry=start, config=cfg,
+    )
+    err_low = float(out_low["intens_err_r"])
+    err_high = float(out_high["intens_err_r"])
+    assert np.isfinite(err_low) and np.isfinite(err_high)
+    assert err_low > 0 and err_high > 0
+    # SEM scales linearly with σ: 10× noise should give ~10× error, not 100×.
+    ratio = err_high / err_low
+    assert 4.0 < ratio < 25.0, (
+        f"intens_err_r should scale ~linearly with band noise (10×), "
+        f"got ratio = {ratio:.2f}"
+    )
 
 
 # ---------------------------------------------------------------------------

@@ -28,6 +28,8 @@ from ..config import IsosterConfig
 from ..driver import fit_image
 from .config_mb import IsosterConfigMB
 from .fitting_mb import (
+    _PER_BAND_DEBUG_KEYS,
+    _PER_BAND_HARMONIC_KEYS,
     extract_forced_photometry_mb,
     fit_isophote_mb,
 )
@@ -66,11 +68,33 @@ def _validate_inputs(
     # Mask shape consistency is delegated to the sampler. Variance map
     # all-or-nothing semantics likewise. We validate band counts here so
     # the user gets a clear error before any expensive call.
-    if isinstance(variance_maps, list) and len(variance_maps) != len(config.bands):
-        raise ValueError(
-            f"len(variance_maps) ({len(variance_maps)}) does not match "
-            f"len(config.bands) ({len(config.bands)})."
-        )
+    n_bands = len(config.bands)
+    if variance_maps is not None and not isinstance(variance_maps, np.ndarray):
+        try:
+            n_var = len(variance_maps)
+        except TypeError as exc:
+            raise TypeError(
+                "variance_maps must be None, a single ndarray, or a sequence "
+                f"of length {n_bands}; got non-sequence {type(variance_maps).__name__}."
+            ) from exc
+        if n_var != n_bands:
+            raise ValueError(
+                f"len(variance_maps) ({n_var}) does not match "
+                f"len(config.bands) ({n_bands})."
+            )
+    if masks is not None and not isinstance(masks, np.ndarray):
+        try:
+            n_masks = len(masks)
+        except TypeError as exc:
+            raise TypeError(
+                "masks must be None, a single boolean ndarray, or a sequence "
+                f"of length {n_bands}; got non-sequence {type(masks).__name__}."
+            ) from exc
+        if n_masks != n_bands:
+            raise ValueError(
+                f"len(masks) ({n_masks}) does not match "
+                f"len(config.bands) ({n_bands})."
+            )
 
 
 def _delegate_single_band(
@@ -236,15 +260,11 @@ def _fit_central_pixel_mb(
         row[f"intens_{b}"] = val if valid_b else float("nan")
         row[f"intens_err_{b}"] = 0.0
         row[f"rms_{b}"] = 0.0
-        for n_order in (3, 4):
-            row[f"a{n_order}_{b}"] = 0.0
-            row[f"b{n_order}_{b}"] = 0.0
-            row[f"a{n_order}_err_{b}"] = 0.0
-            row[f"b{n_order}_err_{b}"] = 0.0
+        for key in _PER_BAND_HARMONIC_KEYS:
+            row[f"{key}_{b}"] = 0.0
         if debug:
-            row[f"grad_{b}"] = float("nan")
-            row[f"grad_error_{b}"] = float("nan")
-            row[f"grad_r_error_{b}"] = float("nan")
+            for key in _PER_BAND_DEBUG_KEYS:
+                row[f"{key}_{b}"] = float("nan")
     return row
 
 
@@ -465,6 +485,7 @@ def fit_image_multiband(
         "reference_band": config.reference_band,
         "band_weights": config.resolved_band_weights(),
         "variance_mode": variance_mode,
+        "fix_per_band_background_to_zero": config.fix_per_band_background_to_zero,
     }
     if first_isophote_failure:
         result["first_isophote_failure"] = True

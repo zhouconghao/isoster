@@ -38,9 +38,58 @@ from .sampling_mb import (
 )
 
 
+# Per-band column-key naming. Centralized so ``_empty_isophote_dict``,
+# ``extract_forced_photometry_mb``, and the driver's central-pixel
+# helper all agree on which columns exist; Schema-1 readers rely on
+# the exact suffix layout.
+_PER_BAND_INTENSITY_KEYS: Tuple[str, ...] = ("intens", "intens_err", "rms")
+_PER_BAND_HARMONIC_KEYS: Tuple[str, ...] = (
+    "a3", "b3", "a3_err", "b3_err",
+    "a4", "b4", "a4_err", "b4_err",
+)
+_PER_BAND_DEBUG_KEYS: Tuple[str, ...] = ("grad", "grad_error", "grad_r_error")
+
+
+def _per_band_column_names(bands: Sequence[str], debug: bool) -> List[str]:
+    """Return the full ordered column-name list for a multi-band result.
+
+    Used by writers/readers that need to enumerate columns without
+    duplicating the suffix construction logic. Callers that only need a
+    subset (e.g. zeros for harmonics) should iterate the constants
+    directly instead.
+    """
+    out: List[str] = []
+    for b in bands:
+        for key in _PER_BAND_INTENSITY_KEYS:
+            out.append(f"{key}_{b}")
+        for key in _PER_BAND_HARMONIC_KEYS:
+            out.append(f"{key}_{b}")
+        if debug:
+            for key in _PER_BAND_DEBUG_KEYS:
+                out.append(f"{key}_{b}")
+    return out
+
+
 # ---------------------------------------------------------------------------
 # Joint solve
 # ---------------------------------------------------------------------------
+
+
+def _per_band_mean(
+    intens_per_band: NDArray[np.float64],
+    variances_per_band: Optional[NDArray[np.float64]],
+) -> NDArray[np.float64]:
+    """Per-band mean: inverse-variance weighted under WLS, simple mean under OLS."""
+    n_bands = intens_per_band.shape[0]
+    out = np.empty(n_bands, dtype=np.float64)
+    for b in range(n_bands):
+        if variances_per_band is None:
+            out[b] = float(np.mean(intens_per_band[b]))
+        else:
+            w = 1.0 / variances_per_band[b]
+            denom = float(np.sum(w))
+            out[b] = float(np.sum(intens_per_band[b] * w) / denom) if denom > 0 else float("nan")
+    return out
 
 
 def fit_first_and_second_harmonics_joint(
@@ -48,6 +97,8 @@ def fit_first_and_second_harmonics_joint(
     intens_per_band: NDArray[np.float64],
     band_weights_arr: NDArray[np.float64],
     variances_per_band: Optional[NDArray[np.float64]] = None,
+    *,
+    fix_per_band_background_to_zero: bool = False,
 ) -> Tuple[NDArray[np.float64], Optional[NDArray[np.float64]], bool]:
     """
     Solve the joint multi-band 1st+2nd harmonic system in WLS or OLS mode.
@@ -64,6 +115,14 @@ def fit_first_and_second_harmonics_joint(
         Per-band scalar weights ``w_b`` (already resolved). Must be > 0.
     variances_per_band : (B, N) float64 or None
         Per-pixel variances. ``None`` triggers OLS mode; otherwise WLS.
+    fix_per_band_background_to_zero : bool, default False
+        D11 backport.  When True, drop the leading ``B`` per-band
+        intercept columns from the design matrix; the solve becomes a
+        4-column ``(A1, B1, A2, B2)`` system shared across bands.
+        ``coeffs[b]`` is then filled post-fit with the band's
+        ring-mean intensity (IVW under WLS, simple mean under OLS).
+        ``cov`` for those rows is the band's own SEM² (no joint
+        coupling).
 
     Returns
     -------
@@ -84,10 +143,6 @@ def fit_first_and_second_harmonics_joint(
     effective row weight.
     """
     n_bands, n_samples = intens_per_band.shape
-    A = build_joint_design_matrix(angles, n_bands)  # (B*N, B+4)
-
-    # Stack the per-band intensities band-by-band into a single RHS.
-    y = intens_per_band.reshape(n_bands * n_samples)
 
     # Per-row effective weights w_eff: in WLS, w_eff = w_b / variance_b(pixel).
     # In OLS, w_eff = w_b. Either way w_eff is a length (B*N) vector with
@@ -101,8 +156,55 @@ def fit_first_and_second_harmonics_joint(
         w_eff = w_band_per_row
         wls_mode = False
 
-    # Exact WLS / scaled OLS solve via the normal equations
-    # A^T W A x = A^T W y, with W = diag(w_eff).
+    if fix_per_band_background_to_zero:
+        # Drop the per-band intercept columns. Per-band ring means are
+        # computed up front and subtracted from the RHS so the geometric
+        # 4-column solve fits residuals only.
+        means = _per_band_mean(intens_per_band, variances_per_band)
+        residuals = intens_per_band - means[:, None]
+        y_geom = residuals.reshape(n_bands * n_samples)
+        # Geometric block: drop the band-indicator columns from the joint
+        # design matrix. The remaining 4 columns are identical for every
+        # band so we can build them once and tile.
+        A_full = build_joint_design_matrix(angles, n_bands)  # (B*N, B+4)
+        A_geom = A_full[:, n_bands:]  # (B*N, 4)
+        AW_geom = A_geom * w_eff[:, None]
+        ATWA = AW_geom.T @ A_geom
+        ATWy = AW_geom.T @ y_geom
+        try:
+            geom_coeffs = np.linalg.solve(ATWA, ATWy)
+            geom_cov = np.linalg.inv(ATWA)
+        except np.linalg.LinAlgError:
+            geom_coeffs = np.zeros(4, dtype=np.float64)
+            geom_cov = None
+
+        coeffs = np.zeros(n_bands + 4, dtype=np.float64)
+        coeffs[:n_bands] = means
+        coeffs[n_bands:] = geom_coeffs
+
+        if geom_cov is None:
+            return coeffs, None, wls_mode
+
+        cov = np.zeros((n_bands + 4, n_bands + 4), dtype=np.float64)
+        cov[n_bands:, n_bands:] = geom_cov
+        # Per-band intercept covariance: each band's ring SEM². Mirrors
+        # the ref-mode B3 fix — the per-band intercept does not flow
+        # through the joint solve so its covariance must come from the
+        # band's own statistics.
+        for b in range(n_bands):
+            n_b = max(int(intens_per_band[b].size), 1)
+            if variances_per_band is not None:
+                cov[b, b] = float(np.mean(variances_per_band[b]) / n_b)
+            else:
+                if n_b > 1:
+                    cov[b, b] = float(np.var(intens_per_band[b], ddof=1) / n_b)
+                else:
+                    cov[b, b] = 0.0
+        return coeffs, cov, wls_mode
+
+    # --- Default: full (B + 4)-column joint solve --- #
+    A = build_joint_design_matrix(angles, n_bands)  # (B*N, B+4)
+    y = intens_per_band.reshape(n_bands * n_samples)
     AW = A * w_eff[:, None]
     ATWA = AW.T @ A
     ATWy = AW.T @ y
@@ -489,21 +591,13 @@ def _empty_isophote_dict(
         "nflag": 0,
     }
     for b in bands:
-        row[f"intens_{b}"] = float("nan")
-        row[f"intens_err_{b}"] = float("nan")
-        row[f"rms_{b}"] = float("nan")
-        row[f"a3_{b}"] = 0.0
-        row[f"b3_{b}"] = 0.0
-        row[f"a3_err_{b}"] = 0.0
-        row[f"b3_err_{b}"] = 0.0
-        row[f"a4_{b}"] = 0.0
-        row[f"b4_{b}"] = 0.0
-        row[f"a4_err_{b}"] = 0.0
-        row[f"b4_err_{b}"] = 0.0
+        for key in _PER_BAND_INTENSITY_KEYS:
+            row[f"{key}_{b}"] = float("nan")
+        for key in _PER_BAND_HARMONIC_KEYS:
+            row[f"{key}_{b}"] = 0.0
         if debug:
-            row[f"grad_{b}"] = float("nan")
-            row[f"grad_error_{b}"] = float("nan")
-            row[f"grad_r_error_{b}"] = float("nan")
+            for key in _PER_BAND_DEBUG_KEYS:
+                row[f"{key}_{b}"] = float("nan")
     return row
 
 
@@ -669,7 +763,8 @@ def fit_isophote_mb(
                 cov_full = None
         else:
             coeffs, cov_full, wls_mode = fit_first_and_second_harmonics_joint(
-                angles, intens_per_band, band_weights_arr, variances_per_band
+                angles, intens_per_band, band_weights_arr, variances_per_band,
+                fix_per_band_background_to_zero=config.fix_per_band_background_to_zero,
             )
 
         A1 = float(coeffs[n_bands])
@@ -784,13 +879,39 @@ def fit_isophote_mb(
                 "npix_e": 0,
                 "npix_c": 0,
             }
+            ref_idx_for_err = (
+                bands.index(config.reference_band) if use_ref_only else -1
+            )
+            # When the per-band intercept is computed post-fit (ref mode for
+            # non-ref bands, or fix_per_band_background_to_zero for every
+            # band), `intens_err_b` is the band's own SEM and does NOT flow
+            # through the joint covariance.  Routing it through
+            # cov_full[b_idx, b_idx] in OLS would double-apply the residual
+            # variance (B3 regression).
             for b_idx, b in enumerate(bands):
                 intens_b = float(coeffs[b_idx])
                 # Per-band rms from band b residuals; intens_err_b from
                 # diagonal of the joint covariance at row b (already an
                 # exact covariance under WLS, residual-scaled under OLS).
                 rms_b = float(np.std(intens_per_band[b_idx] - model_per_band[b_idx]))
-                if cov_full is not None:
+                use_direct_sem = (
+                    config.fix_per_band_background_to_zero
+                    or (use_ref_only and b_idx != ref_idx_for_err)
+                )
+                if use_direct_sem:
+                    n_b = int(intens_per_band[b_idx].size)
+                    if n_b <= 0:
+                        intens_err_b = float("nan")
+                    elif variances_per_band is not None:
+                        intens_err_b = float(
+                            np.sqrt(np.mean(variances_per_band[b_idx]) / max(n_b, 1))
+                        )
+                    else:
+                        sample_var = float(
+                            np.var(intens_per_band[b_idx], ddof=1) if n_b > 1 else 0.0
+                        )
+                        intens_err_b = float(np.sqrt(sample_var / max(n_b, 1)))
+                elif cov_full is not None:
                     if wls_mode:
                         intens_err_b = float(np.sqrt(max(cov_full[b_idx, b_idx], 0.0)))
                     else:
