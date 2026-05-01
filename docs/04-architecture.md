@@ -61,7 +61,22 @@ See `docs/10-multiband.md` for the user-facing reference and
   numba kernel. Imports shared low-level helpers from the core modules
   (`compute_ellipse_coords`, `_prepare_mask_float`, etc.) but provides
   its own joint-design-matrix solver, joint gradient combiner, and
-  iteration loop.
+  iteration loop. Stage-2 backports landed as new fields on
+  `IsosterConfigMB` (no inheritance per design D23):
+  `fix_per_band_background_to_zero` (D11) and the loose-validity family
+  `loose_validity` / `loose_validity_min_per_band_count` /
+  `loose_validity_min_per_band_frac` /
+  `loose_validity_band_normalization` (D9 backport, locked
+  2026-05-01).
+  - `MultiIsophoteData` (sampler return type) carries two coexisting
+    layouts: a rectangular `(B, N_intersect)` view (`intens` /
+    `variances`) shared with the legacy shared-validity callers, and
+    optional jagged per-band lists (`intens_per_band` /
+    `phi_per_band` / `variances_per_band`) populated only under
+    `loose_validity=True`. `n_valid_per_band` is always populated.
+    The shared-validity path is byte-identical to Stage 1; the
+    loose-validity path uses the pure-NumPy
+    `build_joint_design_matrix_jagged` builder (no numba).
 
 ## Key Constants
 
