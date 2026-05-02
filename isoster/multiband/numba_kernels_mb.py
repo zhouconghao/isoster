@@ -172,6 +172,94 @@ def build_joint_design_matrix(
     return _build_joint_design_matrix_impl(phi, n_bands)
 
 
+@njit(cache=True)
+def _bilinear_sample_stack_numba(
+    stack: NDArray[np.float64],
+    y_coords: NDArray[np.float64],
+    x_coords: NDArray[np.float64],
+    out: NDArray[np.float64],
+) -> None:
+    """Bilinear-interpolate ``stack[b, y, x]`` for every band b at every (y,x).
+
+    Mirrors ``scipy.ndimage.map_coordinates(stack[b], coords, order=1,
+    mode='constant', cval=np.nan)`` per band, in a single Python call
+    that loops over (band, sample) in the JITted kernel. For B=5 with
+    ~600 samples per ring, this trims the per-call scipy overhead
+    (Python function entry, output allocation, dtype checking) — those
+    fixed costs dominate over the interpolation work itself.
+    Out-of-bounds samples are written as ``NaN`` so the downstream
+    validity rule's ``~np.isnan`` filter still drops them.
+
+    Parameters
+    ----------
+    stack : (B, H, W) float64
+        Per-band 2-D images stacked along the leading axis.
+    y_coords, x_coords : (N,) float64
+        Shared sample coordinates (the ellipse path).
+    out : (B, N) float64
+        Pre-allocated output. Filled in place.
+    """
+    n_bands, h, w = stack.shape
+    n_samples = y_coords.shape[0]
+    h_max = h - 1
+    w_max = w - 1
+    for n in range(n_samples):
+        y = y_coords[n]
+        x = x_coords[n]
+        if y < 0.0 or y > h_max or x < 0.0 or x > w_max:
+            for b in range(n_bands):
+                out[b, n] = np.nan
+            continue
+        y0 = int(np.floor(y))
+        x0 = int(np.floor(x))
+        y1 = y0 + 1 if y0 < h_max else y0
+        x1 = x0 + 1 if x0 < w_max else x0
+        wy = y - y0
+        wx = x - x0
+        c00 = (1.0 - wy) * (1.0 - wx)
+        c01 = (1.0 - wy) * wx
+        c10 = wy * (1.0 - wx)
+        c11 = wy * wx
+        for b in range(n_bands):
+            out[b, n] = (
+                c00 * stack[b, y0, x0]
+                + c01 * stack[b, y0, x1]
+                + c10 * stack[b, y1, x0]
+                + c11 * stack[b, y1, x1]
+            )
+
+
+def _bilinear_sample_stack_numpy(
+    stack: NDArray[np.float64],
+    y_coords: NDArray[np.float64],
+    x_coords: NDArray[np.float64],
+    out: NDArray[np.float64],
+) -> None:
+    """Pure-NumPy fallback for the per-band sampler kernel.
+
+    Uses the existing ``scipy.ndimage.map_coordinates`` per band, since
+    the optimization is the JIT loop fusion (multiple per-call entries
+    collapsed into one). Without numba the per-call overhead returns,
+    so we fall back to the per-band scipy loop the caller would have
+    used anyway.
+    """
+    from scipy.ndimage import map_coordinates  # local import — fallback only
+
+    n_bands = stack.shape[0]
+    coords = np.vstack([y_coords, x_coords]).astype(np.float64, copy=False)
+    for b in range(n_bands):
+        out[b] = map_coordinates(
+            stack[b], coords, order=1, mode="constant", cval=np.nan,
+        )
+
+
+bilinear_sample_stack = (
+    _bilinear_sample_stack_numba
+    if NUMBA_AVAILABLE
+    else _bilinear_sample_stack_numpy
+)
+
+
 def warmup_numba_mb() -> None:
     """
     Trigger numba JIT compilation for the multi-band kernels.
@@ -193,6 +281,12 @@ def warmup_numba_mb() -> None:
     _ = _build_joint_design_matrix_jagged_numba(
         phi_concat, band_offsets, n_per_band, 2, True,
     )
+    # Warm the per-band bilinear stack sampler.
+    stack = np.zeros((2, 16, 16), dtype=np.float64)
+    yc = np.linspace(2.5, 12.5, 16, dtype=np.float64)
+    xc = np.linspace(2.5, 12.5, 16, dtype=np.float64)
+    out = np.empty((2, 16), dtype=np.float64)
+    _bilinear_sample_stack_numba(stack, yc, xc, out)
 
 
 @njit(cache=True)
