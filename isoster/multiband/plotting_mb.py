@@ -249,6 +249,53 @@ def _resolve_softening(
 # ---------------------------------------------------------------------------
 
 
+def _annotate_sky_offsets(
+    ax: Axes,
+    bands: Sequence[str],
+    sky_offsets: Dict[str, float],
+) -> None:
+    """Render the inferred per-band sky offsets as a small in-panel text box.
+
+    Each band's offset value (in native flux per pixel) is shown on its own
+    line, color-coded with the band palette. The panel reflects the value
+    that ``subtract_outermost_sky_offset`` removed from ``intens_<b>`` before
+    plotting, so users can read off the inferred sky residual that the
+    joint-solver's ``I0_b`` saturated to in the LSB outskirt.
+    """
+    if not sky_offsets:
+        return
+    lines = ["Inferred sky"]
+    colors = ["#222222"]
+    for b_idx, b in enumerate(bands):
+        if b not in sky_offsets:
+            continue
+        v = float(sky_offsets[b])
+        lines.append(f"  {b}: {v:+.3e}")
+        colors.append(_band_color(b_idx))
+    if len(lines) == 1:
+        return
+    # Anchor in the upper-right of the SB panel; one text per line so each
+    # color renders independently. Keep the box small and unobtrusive so it
+    # does not eat into the plot area.
+    n = len(lines)
+    line_h = 0.038
+    y0 = 0.985
+    for i, (text, color) in enumerate(zip(lines, colors)):
+        ax.text(
+            0.985, y0 - i * line_h, text,
+            transform=ax.transAxes,
+            ha="right", va="top",
+            fontsize=8.5, color=color,
+            family="monospace",
+            bbox=dict(boxstyle="round,pad=0.18", fc="white", ec="0.7", alpha=0.85)
+            if i == 0 else None,
+        )
+    # Small bounding rectangle around the whole block via a single bbox on
+    # the header text only (children appear inside it visually because of
+    # the consistent line height).
+    _ = n
+
+
 def _plot_sb_profile(
     ax: Axes,
     isophotes: Sequence[dict],
@@ -256,6 +303,7 @@ def _plot_sb_profile(
     sb_zeropoint: Optional[float],
     pixel_scale_arcsec: Optional[float],
     softening_per_band: Dict[str, float],
+    sky_offsets: Optional[Dict[str, float]] = None,
 ) -> None:
     sma = np.array([float(iso["sma"]) for iso in isophotes])
     valid = np.array([bool(iso.get("valid", True)) for iso in isophotes])
@@ -316,6 +364,9 @@ def _plot_sb_profile(
             lo, hi = ax.get_ylim()
             if lo < hi:
                 ax.set_ylim(hi, lo)
+
+    if sky_offsets:
+        _annotate_sky_offsets(ax, bands, sky_offsets)
 
 
 def _plot_harmonic(
@@ -567,11 +618,24 @@ def plot_qa_summary_mb(
     output_path: Optional[Union[str, Path]] = None,
     figsize: tuple = (20.0, 14.0),
     title: Optional[str] = None,
+    sky_offsets: Optional[Dict[str, float]] = None,
 ) -> Figure:
     """
     Render the composite multi-band QA figure (four-block grid).
 
     See module docstring for layout details.
+
+    Parameters
+    ----------
+    sky_offsets : dict[str, float], optional
+        Externally-supplied per-band sky offsets to annotate on the SB
+        profile panel. Useful when the caller computed sky offsets via
+        a custom estimator (e.g. fitting a 2-D sky polynomial over masked
+        sky pixels) instead of going through
+        :func:`subtract_outermost_sky_offset`. When this is ``None``, the
+        function automatically picks up ``result['sky_offsets']`` if it
+        was stamped there by ``subtract_outermost_sky_offset``. Pass an
+        empty dict to suppress the annotation entirely.
     """
     if matplotlib.get_backend().lower() == "agg":
         logger.debug("rendering multi-band QA on the Agg backend")
@@ -627,7 +691,20 @@ def plot_qa_summary_mb(
 
     # --- Top-left: SB profile -------------------------------------------------
     ax_sb = fig.add_subplot(outer[0, 0])
-    _plot_sb_profile(ax_sb, isophotes, bands, sb_zeropoint, pixel_scale_arcsec, softening)
+    # Sky-offset annotation source: caller-provided ``sky_offsets`` kwarg
+    # wins; otherwise pick up ``result['sky_offsets']`` (set by
+    # ``subtract_outermost_sky_offset``); otherwise no annotation. An empty
+    # dict (``{}``) explicitly suppresses the annotation.
+    if sky_offsets is not None:
+        sky_offsets_for_panel = sky_offsets if sky_offsets else None
+    else:
+        sky_offsets_for_panel = result.get("sky_offsets") if isinstance(result, dict) else None
+        if not isinstance(sky_offsets_for_panel, dict):
+            sky_offsets_for_panel = None
+    _plot_sb_profile(
+        ax_sb, isophotes, bands, sb_zeropoint, pixel_scale_arcsec, softening,
+        sky_offsets=sky_offsets_for_panel,
+    )
     if pixel_scale_arcsec is not None:
         ax_sb.set_xlabel(r"$\mathrm{SMA}^{0.25}$  [arcsec$^{0.25}$]", fontsize=12)
     else:

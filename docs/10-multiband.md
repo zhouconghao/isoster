@@ -35,15 +35,51 @@ shared geometric harmonic coefficients). Solved once per iteration in
 WLS or OLS mode. Per-band weights `w_b` enter as `√w_b` row scaling on
 each band's block.
 
-When ``IsosterConfigMB.fix_per_band_background_to_zero=True`` (D11
-backport), the leading ``B`` per-band intercept columns are dropped
-from the design matrix; the solve becomes a 4-column shared
-``(A1, B1, A2, B2)`` system. Per-band ``intens_<b>`` is then reported
-as the band's ring-mean intensity (IVW under WLS, simple mean under
-OLS), and ``intens_err_<b>`` is the band's own SEM. Use this when
-inputs have well-subtracted sky and the joint solver's free ``I0_b``
-is being driven by sky residual rather than galaxy structure.
-Mutually exclusive with ``harmonic_combination='ref'``.
+### Per-band intercept mode
+
+The ``IsosterConfigMB.fit_per_band_intens_jointly`` boolean controls
+how each band's per-isophote intercept ``I0_b`` (reported as
+``intens_<b>``) is computed. The default ``True`` is the **coupled /
+joint** mode described above: ``B`` per-band intercept columns sit in
+the ``(B*N, B + 4)`` joint design matrix, so the per-band intercept
+and the shared harmonic deformations are co-fit. On full rings the
+sin/cos columns are mathematically orthogonal to the constant column
+over ``[0, 2π]``, so the joint coefficient is numerically equivalent
+to the per-band inverse-variance-weighted ring mean. On partial rings
+(masking, loose validity), orthogonality breaks and the joint solve
+absorbs the harmonic-shape coupling between bands when reporting each
+band's intercept — this is where the joint mode adds information
+across bands relative to a per-band ring statistic.
+
+Setting ``fit_per_band_intens_jointly=False`` switches to a
+**decoupled / ring-mean** mode: the leading ``B`` per-band intercept
+columns are dropped from the design matrix; the solve becomes a
+4-column shared ``(A1, B1, A2, B2)`` system. Per-band ``intens_<b>``
+is then reported as the band's ring-mean intensity (IVW under WLS,
+simple mean under OLS), independent of the harmonic fit, and
+``intens_err_<b>`` is the band's own SEM. Use this when you want the
+per-band intercept to be a clean ring statistic decoupled from the
+harmonic block — for example, when you have already done a high-
+quality sky subtraction upstream. Mutually exclusive with
+``harmonic_combination='ref'`` (ref-mode bypasses the joint solve).
+
+> **Note on integrator scope (Stage-2):** the multi-band path
+> currently always uses an inverse-variance-weighted mean (WLS) or
+> simple mean (OLS) for ``intens_<b>``, in both modes. The
+> ``integrator`` config field does **not** affect ``intens_<b>``
+> reporting at converged isophotes — it only applies to per-band
+> gradient computation and the forced-photometry fallback. Median-
+> integrator support for ``intens_<b>`` will land when the single-
+> band integrator features are backported (Stage-3).
+
+Renamed in Section 6 cleanup from the deprecated
+``fix_per_band_background_to_zero`` (with inverted polarity:
+``fix_per_band_background_to_zero=True`` ↔
+``fit_per_band_intens_jointly=False``). The old field name is
+rejected at config construction with a clear error pointing at the
+new name; FITS files written by the new code carry only the new
+name. The multi-band path is pre-production so we take a clean
+break with no auto-translation.
 
 ## Performance
 
@@ -107,12 +143,26 @@ result = fit_image_multiband(
 one per SMA) and the multi-band-specific top-level keys:
 
 ```
-result['bands']                : list[str]
-result['multiband']            : True
-result['harmonic_combination'] : 'joint' | 'ref'
-result['reference_band']       : str
-result['band_weights']         : dict[str, float]
-result['variance_mode']        : 'wls' | 'ols'
+result['bands']                       : list[str]
+result['multiband']                   : True
+result['harmonic_combination']        : 'joint' | 'ref'
+result['reference_band']              : str
+result['band_weights']                : dict[str, float]
+result['variance_mode']               : 'wls' | 'ols'
+result['fit_per_band_intens_jointly'] : bool
+result['loose_validity']              : bool
+result['multiband_higher_harmonics']  : 'independent' | 'shared' |
+                                        'simultaneous_in_loop' |
+                                        'simultaneous_original'
+result['harmonic_orders']             : list[int]    # default [3, 4]
+result['harmonics_shared']            : bool          # True iff non-'independent'
+```
+
+Optional, present only when the caller post-processed with
+``subtract_outermost_sky_offset``:
+
+```
+result['sky_offsets']  : dict[str, float]   # per-band offset that was subtracted
 ```
 
 Each isophote row carries shared columns and per-band-suffixed columns:
@@ -120,10 +170,20 @@ Each isophote row carries shared columns and per-band-suffixed columns:
 - Shared: `sma, x0, y0, eps, pa, x0_err, y0_err, eps_err, pa_err,
   stop_code, niter, rms, valid, use_eccentric_anomaly, ndata, nflag,
   tflux_e, tflux_c, npix_e, npix_c`.
-- Per band `<b>`: `intens_<b>, intens_err_<b>, rms_<b>, a3_<b>,
-  a3_err_<b>, b3_<b>, b3_err_<b>, a4_<b>, a4_err_<b>, b4_<b>,
-  b4_err_<b>` (plus `grad_<b>, grad_error_<b>, grad_r_error_<b>` when
-  `debug=True`).
+- Per band `<b>`: `intens_<b>, intens_err_<b>, rms_<b>,
+  n_valid_<b>` (the last is the per-band surviving-sample count after
+  sigma clipping; under shared validity it equals the shared `ndata`).
+- Per band per order `<n>`: `a<n>_<b>, b<n>_<b>, a<n>_err_<b>,
+  b<n>_err_<b>` for each `n` in ``harmonic_orders`` (default `[3, 4]`,
+  extensible to `[3, 4, 5, 6]` etc.). Under non-``'independent'``
+  ``multiband_higher_harmonics`` modes these per-band columns all
+  carry the **identical shared value** across bands at every isophote
+  (the joint refit / in-loop solve produces one shared coefficient per
+  order). Per-band Bender normalization at plotting time scales the
+  shared raw value by ``-1/(sma·|dI/da_b|)``, which still produces
+  band-distinct curves because per-band gradients differ.
+- Debug-only per band: `grad_<b>, grad_error_<b>, grad_r_error_<b>`
+  when `debug=True`.
 
 The FITS writer (`isophote_results_to_fits`) uses the existing 3-HDU
 layout (`PrimaryHDU`, `ISOPHOTES`, `CONFIG`), with the CONFIG HDU
@@ -249,17 +309,128 @@ per-band sample counts feed the joint solve and the combined gradient:
   per-band masks differ. Requires ``loose_validity=True``.
 
 Loose validity composes cleanly with both ``harmonic_combination='ref'``
-and ``fix_per_band_background_to_zero=True``.
+and ``fit_per_band_intens_jointly=False``.
+
+### Higher-order harmonics modes (Section 6, locked 2026-05-02)
+
+The ``IsosterConfigMB.multiband_higher_harmonics`` enum controls how
+higher-order (n ≥ 3) harmonic deviations ``(A_n, B_n)`` are fit. The
+default ``'independent'`` reproduces Stage-1 behavior bit-for-bit; the
+other three values share higher-order coefficients across bands in
+different ways. ``IsosterConfigMB.harmonic_orders`` (default ``[3, 4]``,
+extensible to ``[3, 4, 5, 6]`` etc.) selects which orders are included
+in any of the three non-``'independent'`` modes.
+
+| Value | Where higher orders are solved | Cross-band coupling | Refits |
+|-------|-------------------------------|---------------------|--------|
+| ``independent`` (default) | Post-hoc, per band, per order via the single-band ``compute_deviations`` solver | None — each band independent | a3_b, b3_b, a4_b, b4_b ... |
+| ``shared`` | Post-hoc joint solve over residuals | Shared (A_n, B_n) for n ≥ 3 across bands | (A_n, B_n) for n ≥ 3 only |
+| ``simultaneous_in_loop`` | In every iteration's joint solve | Shared (A_n, B_n) for ALL n | (A1, B1, A2, B2, A_n, B_n) every iteration |
+| ``simultaneous_original`` | 5-param in loop; one wider post-hoc joint solve over all orders | Shared (A_n, B_n) for ALL n | One post-hoc solve refits all orders |
+
+#### `independent` (default)
+
+Stage-1 behavior: at convergence, the driver calls
+``_attach_per_band_harmonics`` which runs an independent
+``compute_deviations`` per band per order. Each band's a_n / b_n
+reflects its own ring's intensity, gradient, and noise. Per-band
+``a_n_<b>`` and ``b_n_<b>`` typically differ across bands.
+
+#### `shared` (NEW DEVELOPMENT)
+
+Replaces the per-band post-hoc step with **one joint refit** of
+higher-order coefficients shared across bands. The geometry-loop
+values for ``(A1, B1, A2, B2)`` and per-band ``I0_b`` are frozen.
+Design matrix is the smallest possible: ``(B·N, 2·L)`` where
+``L = len(harmonic_orders)``. Per-band ``a_n_<b>`` columns all carry
+the same shared value at every isophote. Errors come from the joint
+covariance; per-band ``a_n_err_<b>`` is the same across bands too.
+
+Astrophysical motivation: a multi-band joint fit is meant to produce
+a single 1-D profile of the galaxy across bands; if the higher-order
+geometric deviation genuinely differed band-to-band you should be
+running ``harmonic_combination='ref'`` plus forced photometry instead.
+
+#### `simultaneous_in_loop` and `simultaneous_original` (RECOVERED FEATURE)
+
+Multi-band lifts of the single-band ``IsosterConfig.simultaneous_harmonics``
+/ ``isofit_mode`` features. Both extend the joint design matrix to
+``(B·N, B + 4 + 2·L)`` with shared higher-order columns; the
+difference is when the wider solve fires:
+
+- ``simultaneous_in_loop``: every iteration's joint solve uses the
+  wider matrix. Geometry update reads ``coeffs[B..B+3]`` exactly as
+  before — coefficient layout is unchanged at those indices.
+- ``simultaneous_original``: standard 5-param iteration loop, then ONE
+  wider joint solve over all orders runs after convergence (Ciambur
+  2015 original variant).
+
+Both modes emit a ``UserWarning`` at config construction citing
+single-band benchmark concerns; validate carefully on PGC006669 and
+asteris before trusting.
+
+#### Validators
+
+- ``shared`` / ``simultaneous_*`` × ``harmonic_combination='ref'``:
+  hard-error. Ref-mode bypasses the joint solver entirely.
+- ``shared`` / ``simultaneous_*`` × ``fit_per_band_intens_jointly=False``:
+  silently allowed. Compose cleanly with the ring-mean intercept mode.
+- ``shared`` / ``simultaneous_*`` × ``loose_validity=True``: silently
+  allowed. The jagged builders ``build_joint_design_matrix_jagged`` and
+  ``build_joint_design_matrix_jagged_higher`` carry the higher-order
+  columns through the loose-validity path.
+
+#### Performance bar (Stage-1 D17 / Section 6.1 Q11)
+
+All four modes must stay within ≤ 2.5× single-band wall time on the
+asteris perf benchmark. Measured on the B=5 768² cutout (2026-05-03):
+
+| Configuration | Median (s) | Ratio vs SB |
+|---|---:|---:|
+| singleband (i-band) | 0.209 | 1.00× |
+| multiband independent | 0.293 | 1.41× |
+| multiband shared | 0.279 | 1.34× |
+| multiband simultaneous_in_loop | 0.317 | 1.52× |
+| multiband simultaneous_original | 0.272 | **1.30×** |
+
+All four PASS. ``simultaneous_original`` is the cheapest non-default
+mode because one post-hoc joint solve replaces ``B × L`` separate
+``compute_deviations`` calls.
+
+### Per-band intercept mode revisited (Section 6.12)
+
+The boolean ``IsosterConfigMB.fit_per_band_intens_jointly`` (default
+``True``, renamed from the deprecated
+``fix_per_band_background_to_zero=False`` in the Section 6.12 cleanup)
+governs how each isophote's per-band intercept ``I0_b`` is computed.
+See the [Per-band intercept mode](#per-band-intercept-mode) section
+above for the full mechanism description.
+
+The two modes are **numerically equivalent on full rings** because
+sin(nφ) and cos(nφ) are orthogonal to the constant column over [0, 2π].
+They diverge only on partial rings (loose validity, masked sectors),
+where the joint solve absorbs harmonic-shape coupling between bands.
+This is when the joint mode adds information across bands relative to
+a per-band ring statistic.
+
+Sky correction is **not** part of the fit. The optional post-process
+``subtract_outermost_sky_offset(result, n_outer=N)`` lives in
+``isoster.multiband.plotting_mb`` and operates only on already-fit
+results; it never modifies the fit. The library never invokes it
+implicitly. Demo scripts call it explicitly between FITS write and
+QA plot generation; raw FITS files always preserve the unmodified
+``intens_<b>``.
 
 ## Testing
 
-Multi-band tests live under `tests/multiband/`:
+Multi-band tests live under `tests/multiband/` (152 total, all green):
 
 | Module | Cases | Coverage |
 |---|---|---|
-| `test_config_mb.py` | 32 | band-name regex, duplicate detection, reference-band membership, band_weights validation, integrator restriction, SMA/iteration consistency, loose-validity field defaults + normalization compatibility. |
+| `test_config_mb.py` | 60 | band-name regex, duplicate detection, reference-band membership, band_weights validation, integrator restriction, SMA/iteration consistency, loose-validity field defaults + normalization compatibility, multiband_higher_harmonics enum (4 values + parametrized variants), harmonic_orders validator (empty / <3 / duplicates / unique-sort), simultaneous_* experimental warning, shared-mode no-warn, ring-mean intercept × ref-mode incompatibility, ring-mean intercept × loose-validity composition. |
 | `test_sampling_mb.py` | 19 | B=1 numerical parity with single-band sampler, shared-validity (per-band masks, NaN), variance sanitization (NaN/inf → 1e30, non-positive clamped + warning), all-masked degeneracy, mask broadcasting, variance all-or-nothing rejection, joint design matrix kernel parity. |
-| `test_fitting_mb.py` | 22 | joint solver coefficient recovery, B=1 single-band parity, WLS exact covariance, band-weight scaling, per-band sigma clip + AND, fit_isophote_mb planted-galaxy recovery, too-few-points → stop_code=3, B=1 schema, ref-mode fallback, forced photometry, mixed-variance rejection, fix_per_band_background_to_zero, ref-mode error scaling, loose-validity band drop / n_valid columns / normalization / combinations with ref + zero-bg. |
+| `test_fitting_mb.py` | 23 | joint solver coefficient recovery, B=1 single-band parity, WLS exact covariance, band-weight scaling, per-band sigma clip + AND, fit_isophote_mb planted-galaxy recovery, too-few-points → stop_code=3, B=1 schema, ref-mode fallback, forced photometry, mixed-variance rejection, ring-mean intercept mode (fit_per_band_intens_jointly=False), ref-mode error scaling, loose-validity band drop / n_valid columns / normalization / combinations with ref + ring-mean intercept, legacy field-name rejection. |
+| `test_higher_harmonics.py` | 20 | All four enum values; per-band-equality of shared higher orders; planted-m=4 recovery (shared + simultaneous_*); loose-validity × simultaneous (jagged kernel); simultaneous_original ≈ shared within tolerance; experimental UserWarning; FITS round-trip; harmonic_orders=[3,4,5,6] writes 16 expected per-band columns; D16 normalization separates curves under sharing; direct solver-level fit_simultaneous_joint{,_loose} planted-recovery. |
 | `test_driver_mb.py` | 17 | B=1 → single-band delegation (incl. variance/mask unwrap), B=2 end-to-end recovery, WLS variance-mode tagging, band_weights passthrough, ref-mode end-to-end, missing config, image / shape / variance-sequence-or-tuple / mask-list / non-sequence mismatches, FIRST_FEW_ISOPHOTE_FAILURE. |
 | `test_utils_mb.py` | 8 | per-band column presence, FITS round-trip, PrimaryHDU multi-band keywords, WLS round-trip, loose-validity n_valid round-trip, load_bands_from_hdus. |
 | `test_plotting_mb.py` | 5 | composite QA renders without exception, with SB constants, missing-bands error, image-count mismatch, loose-validity n_valid panel rendered. |

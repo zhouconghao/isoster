@@ -13,8 +13,9 @@ for the rationale.
 Excluded fields (deliberately not copied; Stage 2+ may add multi-band
 variants):
 
-- ``harmonic_orders`` (locked to ``[3, 4]`` in Stage 1)
-- ``simultaneous_harmonics`` and ``isofit_mode`` (ISOFIT)
+- ``simultaneous_harmonics`` and ``isofit_mode`` (single-band ISOFIT
+  API; the multi-band lift uses the ``multiband_higher_harmonics``
+  enum instead, see plan section 6).
 - All ``lsb_auto_lock_*`` fields
 - All ``outer_reg_*`` and ``use_outer_center_regularization`` fields
 - ``compute_cog`` (multi-band CoG attachment is out of Stage-1 scope)
@@ -89,19 +90,44 @@ class IsosterConfigMB(BaseModel):
         "extraction). Use ``'ref'`` for debugging or when the joint solver "
         "is suspected of misbehaving.",
     )
-    fix_per_band_background_to_zero: bool = Field(
-        default=False,
-        description="When True, drop the leading ``B`` per-band intercept "
-        "columns from the joint design matrix. The solve becomes a "
-        "4-column ``(A1, B1, A2, B2)`` system shared across all bands; "
-        "per-band ``intens_<b>`` is then reported as the band's own "
-        "ring-mean intensity along the fitted ellipse rather than as a "
-        "free nuisance parameter. Use this when the input images have "
-        "perfectly subtracted sky and the per-band ``I0_b`` plateau "
-        "visible at the LSB transition is being driven by sky residual "
-        "rather than real galaxy flux. Mutually exclusive with the "
-        "``'ref'`` ``harmonic_combination``: ref-mode already side-steps "
-        "the joint solve. Decision D11 (Stage-2 backport).",
+    fit_per_band_intens_jointly: bool = Field(
+        default=True,
+        description="Controls how per-band ``intens_<b>`` (a.k.a. the "
+        "per-band intercept ``I0_b``) is computed at each isophote.\n"
+        "\n"
+        "When ``True`` (default, ``'joint'`` / coupled mode), the joint "
+        "design matrix carries ``B`` per-band intercept columns alongside "
+        "the shared ``(A1, B1, A2, B2)`` geometric harmonics, giving a "
+        "``(B*N, B + 4)`` weighted-least-squares system. ``intens_<b>`` "
+        "comes directly from the matrix solve, so the per-band intercept "
+        "is co-fit with the harmonic deformations: on partial rings "
+        "(masked sectors, loose validity) the joint solve absorbs the "
+        "harmonic-shape coupling between bands and corrects each band's "
+        "intercept accordingly. On full rings, ``sin(nφ)`` and ``cos(nφ)`` "
+        "are mathematically orthogonal to the constant column over "
+        "``[0, 2π]`` and the joint coefficient is numerically equivalent "
+        "to the per-band inverse-variance-weighted mean.\n"
+        "\n"
+        "When ``False`` (``'ring_mean'`` / decoupled mode), the per-band "
+        "intercept columns are dropped from the design matrix. "
+        "``intens_<b>`` is computed independently as the per-band "
+        "inverse-variance-weighted ring mean (or simple mean under OLS) "
+        "and the geometric ``(A1, B1, A2, B2)`` solve runs on "
+        "``intens - mean`` residuals. Use this when you have already "
+        "subtracted sky upstream and want to interpret each band's "
+        "intercept as a pure ring statistic decoupled from the harmonic "
+        "fit. Mutually exclusive with ``harmonic_combination='ref'`` "
+        "(ref-mode side-steps the joint solve entirely)."
+        "\n\n"
+        "**Note on integrator scope (Stage-2):** the multi-band path "
+        "currently always uses an inverse-variance-weighted mean (WLS) "
+        "or simple mean (OLS) for ``intens_<b>``, in both modes. The "
+        "``integrator`` field on this config does NOT affect "
+        "``intens_<b>`` reporting at converged isophotes — it only "
+        "applies to per-band gradient computation and the forced-"
+        "photometry fallback. Median-integrator support for "
+        "``intens_<b>`` will land when the single-band integrator "
+        "features are backported (Stage-3).",
     )
 
     # --- D9 backport: per-band loose validity ---
@@ -226,6 +252,45 @@ class IsosterConfigMB(BaseModel):
     fix_pa: bool = Field(False, description="Fix position angle during fitting.")
     fix_eps: bool = Field(False, description="Fix ellipticity during fitting.")
 
+    # --- Higher-order harmonics (multiband_higher_harmonics enum) ---
+    multiband_higher_harmonics: Literal[
+        "independent",
+        "shared",
+        "simultaneous_in_loop",
+        "simultaneous_original",
+    ] = Field(
+        default="independent",
+        description="Strategy for higher-order (n>=3) harmonic fitting "
+        "across bands. ``'independent'`` (default): per-band post-hoc "
+        "fits, one per band per order, uncoupled across bands "
+        "(reproduces Stage-1 behavior bit-identically). ``'shared'``: "
+        "after joint geometry has converged, run ONE post-hoc joint "
+        "WLS/OLS solve for higher-order coefficients shared across all "
+        "bands; (A1, B1, A2, B2) and per-band ``I0_b`` stay frozen at "
+        "their converged-loop values. ``'simultaneous_in_loop'``: "
+        "extend the joint design matrix every iteration to "
+        "``(B*N, B + 4 + 2*len(harmonic_orders))`` with shared "
+        "higher-order columns; all coefficients fit jointly inside the "
+        "iteration loop (Ciambur 2015 in-loop variant). "
+        "``'simultaneous_original'``: standard 5-param iteration loop, "
+        "then ONE post-hoc joint solve over all orders simultaneously "
+        "(Ciambur 2015 original variant). All non-``'independent'`` "
+        "modes share higher-order coefficients across bands; per-band "
+        "Schema-1 columns (``a3_<b>``, ...) carry the identical shared "
+        "value. Section 6 of plan-2026-04-29-multiband-feasibility.md.",
+    )
+    harmonic_orders: List[int] = Field(
+        default_factory=lambda: [3, 4],
+        description="Higher-order harmonic orders fit for isophote "
+        "deviations under all ``multiband_higher_harmonics`` modes. "
+        "Default ``[3, 4]`` matches the Stage-1 hardcoded behavior. "
+        "Each entry must be an int >= 3 (orders 1 and 2 are reserved "
+        "for the geometric harmonics driving the iteration loop). "
+        "Duplicates are rejected; the list is unique-sorted on "
+        "construction. Mirrors the single-band "
+        "``IsosterConfig.harmonic_orders`` field.",
+    )
+
     # --- Outputs / features (copied, with multi-band restrictions) ---
     compute_errors: bool = Field(True, description="Calculate parameter errors.")
     compute_deviations: bool = Field(True, description="Calculate higher-order harmonic deviations (a3, b3, a4, b4).")
@@ -235,10 +300,23 @@ class IsosterConfigMB(BaseModel):
     # --- Integrator (restricted: no 'adaptive' since LSB auto-lock is out) ---
     integrator: Literal["mean", "median"] = Field(
         default="mean",
-        description="Integration method for flux calculation. ``'adaptive'`` "
-        "is intentionally not supported in Stage 1 because LSB auto-lock is "
-        "out of scope; use ``'median'`` directly if median statistics are "
-        "needed in the LSB regime.",
+        description="Integration method for flux statistics derived from a "
+        "single ring of pixels. ``'adaptive'`` is intentionally not "
+        "supported in Stage 1 because LSB auto-lock is out of scope.\n"
+        "\n"
+        "**Limited scope at Stage-2 (multi-band).** Currently this field "
+        "ONLY affects: (a) the per-band gradient computation "
+        "(``compute_joint_gradient``), and (b) the forced-photometry "
+        "fallback used by the driver for the central pixel and as a "
+        "fail-safe when the iterative fit cannot converge. It does NOT "
+        "affect ``intens_<b>`` reporting at converged isophotes — that "
+        "value comes from the joint solver's per-band intercept "
+        "(``fit_per_band_intens_jointly=True``, default) or from a "
+        "per-band inverse-variance-weighted ring mean "
+        "(``fit_per_band_intens_jointly=False``). Both modes effectively "
+        "use a (weighted) mean for ``intens_<b>``; median-integrator "
+        "support for the joint-fit path will land when the single-band "
+        "integrator features are backported (Stage-3).",
     )
 
     # --- Eccentric anomaly sampling (copied) ---
@@ -282,6 +360,32 @@ class IsosterConfigMB(BaseModel):
         description="Auto-derived: 'wls' when variance maps are provided to "
         "the driver, 'ols' otherwise. Users should not set this directly.",
     )
+
+    @model_validator(mode="before")
+    @classmethod
+    def _reject_renamed_fields(cls, data):
+        """Hard-error on the old ``fix_per_band_background_to_zero`` field.
+
+        Renamed to :attr:`fit_per_band_intens_jointly` (with inverted
+        polarity) in the Section 6 cleanup. The multi-band path is
+        pre-production so we take a clean break: the old name is no
+        longer accepted and there's no auto-translation. Users see a
+        clear error pointing at the new field rather than a silent
+        config drop (pydantic's default ``extra='ignore'`` would otherwise
+        silently swallow it).
+        """
+        if isinstance(data, dict) and "fix_per_band_background_to_zero" in data:
+            old = data["fix_per_band_background_to_zero"]
+            new = "fit_per_band_intens_jointly={}".format(not bool(old))
+            raise ValueError(
+                f"`fix_per_band_background_to_zero` has been renamed to "
+                f"`fit_per_band_intens_jointly` with inverted polarity. "
+                f"Replace `fix_per_band_background_to_zero={old!r}` with "
+                f"`{new}`. See Section 6 of "
+                f"docs/agent/plan-2026-04-29-multiband-feasibility.md "
+                f"for the rationale."
+            )
+        return data
 
     @model_validator(mode="after")
     def _check_multiband_consistency(self):
@@ -351,14 +455,18 @@ class IsosterConfigMB(BaseModel):
         if self.minit > self.maxit:
             raise ValueError(f"minit ({self.minit}) must be <= maxit ({self.maxit}).")
 
-        # --- D11 backport: fix_per_band_background_to_zero is incompatible
-        # with ref-mode (ref-mode does not exercise the joint solver, so
-        # the column-drop has no effect there).
-        if self.fix_per_band_background_to_zero and self.harmonic_combination == "ref":
+        # --- D11 backport: the ``ring_mean`` intercept mode
+        # (fit_per_band_intens_jointly=False) is incompatible with
+        # ref-mode harmonic combination: ref-mode bypasses the joint
+        # solver entirely so the column-drop is meaningless.
+        if (not self.fit_per_band_intens_jointly) and self.harmonic_combination == "ref":
             raise ValueError(
-                "fix_per_band_background_to_zero is incompatible with "
-                "harmonic_combination='ref': the ref mode bypasses the joint "
-                "design matrix entirely. Pick one or the other."
+                "fit_per_band_intens_jointly=False is incompatible with "
+                "harmonic_combination='ref': ref-mode bypasses the joint "
+                "design matrix entirely, so the per-band-intercept-column "
+                "drop has nothing to act on. Either set "
+                "fit_per_band_intens_jointly=True or pick "
+                "harmonic_combination='joint'."
             )
 
         # --- D9 backport: per-band-count normalization only makes sense
@@ -372,6 +480,69 @@ class IsosterConfigMB(BaseModel):
                 "loose_validity=True. Under shared validity all bands have "
                 "the same N_b and the per-band-count renormalization is a "
                 "no-op."
+            )
+
+        # --- Section 6: multiband_higher_harmonics validation ---
+        # harmonic_orders must be a non-empty list of ints >= 3 with no
+        # duplicates; unique-sort in place so downstream code can rely on
+        # ascending order.
+        if not isinstance(self.harmonic_orders, list) or len(self.harmonic_orders) == 0:
+            raise ValueError(
+                f"harmonic_orders must be a non-empty list of ints >= 3, got "
+                f"{self.harmonic_orders!r}."
+            )
+        for n in self.harmonic_orders:
+            if not isinstance(n, int) or isinstance(n, bool) or n < 3:
+                raise ValueError(
+                    f"harmonic_orders entries must be ints >= 3 (orders 1 "
+                    f"and 2 are reserved for geometric harmonics); got "
+                    f"{self.harmonic_orders!r}."
+                )
+        if len(set(self.harmonic_orders)) != len(self.harmonic_orders):
+            seen: set = set()
+            duplicates = [n for n in self.harmonic_orders if n in seen or seen.add(n)]
+            raise ValueError(
+                f"harmonic_orders contains duplicates {duplicates}; each "
+                f"order must appear at most once."
+            )
+        # Unique-sort in place (mutating the validated list is fine — pydantic
+        # has already accepted the field).
+        self.harmonic_orders = sorted(self.harmonic_orders)
+
+        # Hard-error: shared/simultaneous_* modes are incompatible with
+        # ref-mode harmonic combination, which bypasses the joint solver.
+        if (
+            self.multiband_higher_harmonics != "independent"
+            and self.harmonic_combination == "ref"
+        ):
+            raise ValueError(
+                f"multiband_higher_harmonics={self.multiband_higher_harmonics!r} "
+                f"is incompatible with harmonic_combination='ref': ref-mode "
+                f"bypasses the joint design matrix entirely, so the "
+                f"shared/simultaneous higher-order modes have nothing to "
+                f"act on. Either set multiband_higher_harmonics='independent' "
+                f"or pick harmonic_combination='joint'."
+            )
+
+        # Soft warning when a simultaneous_* mode is selected: single-band
+        # benchmarks have flagged in-loop joint harmonic fitting as
+        # unreliable; users should validate on PGC006669 + asteris before
+        # trusting the output.
+        if self.multiband_higher_harmonics in (
+            "simultaneous_in_loop",
+            "simultaneous_original",
+        ):
+            warnings.warn(
+                f"multiband_higher_harmonics={self.multiband_higher_harmonics!r} "
+                f"is experimental: the single-band equivalent "
+                f"(IsosterConfig.simultaneous_harmonics=True) has shown "
+                f"benchmark regressions. Multi-band may behave better thanks "
+                f"to the joint constraint, but validate on the asteris and "
+                f"PGC006669 demos before trusting the output. Consider "
+                f"multiband_higher_harmonics='shared' as the lower-risk "
+                f"alternative.",
+                UserWarning,
+                stacklevel=2,
             )
 
         # --- soft warnings parallel to single-band V2/V3 ---

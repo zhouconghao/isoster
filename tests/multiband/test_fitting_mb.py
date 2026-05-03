@@ -281,11 +281,12 @@ def test_fit_isophote_mb_ref_mode_runs():
     assert "intens_g" in out and "intens_r" in out
 
 
-def test_fix_per_band_background_to_zero_solver_reduces_columns():
-    """D11 backport: with the flag on, the joint solver becomes a
-    4-column geometric system.  ``coeffs[:n_bands]`` are the per-band
-    ring means (post-fit), and the harmonic block ``coeffs[n_bands:]``
-    matches what a single-band solve on residuals would produce.
+def test_ring_mean_intercept_solver_reduces_columns():
+    """``fit_per_band_intens_jointly=False`` (ring-mean intercept mode):
+    the joint solver becomes a 4-column geometric system.
+    ``coeffs[:n_bands]`` are the per-band ring means (post-fit), and the
+    harmonic block ``coeffs[n_bands:]`` matches what a single-band solve
+    on residuals would produce.
     """
     n = 64
     angles = np.linspace(0.0, 2 * np.pi, n, endpoint=False)
@@ -301,7 +302,7 @@ def test_fix_per_band_background_to_zero_solver_reduces_columns():
         angles, intens, weights, None,
     )
     coeffs_zero, cov_zero, _ = fit_first_and_second_harmonics_joint(
-        angles, intens, weights, None, fix_per_band_background_to_zero=True,
+        angles, intens, weights, None, fit_per_band_intens_jointly=False,
     )
 
     # Per-band intercepts should be the empirical ring means.
@@ -315,9 +316,9 @@ def test_fix_per_band_background_to_zero_solver_reduces_columns():
     assert np.all(cov_zero[2:, :2] == 0.0)
 
 
-def test_fix_per_band_background_to_zero_intens_err_scales_with_band_noise():
-    """B3-style regression for D11: per-band intens_err must scale linearly
-    with band noise sigma when fix_per_band_background_to_zero=True."""
+def test_ring_mean_intercept_intens_err_scales_with_band_noise():
+    """B3-style regression: per-band intens_err must scale linearly with
+    band noise sigma when fit_per_band_intens_jointly=False."""
     h, w = 64, 64
     rng = np.random.default_rng(11)
     img_g = 10.0 + rng.normal(0.0, 0.10, size=(h, w))
@@ -325,7 +326,7 @@ def test_fix_per_band_background_to_zero_intens_err_scales_with_band_noise():
     img_r_high = 10.0 + rng.normal(0.0, 1.00, size=(h, w))
     cfg = IsosterConfigMB(
         bands=["g", "r"], reference_band="g",
-        fix_per_band_background_to_zero=True,
+        fit_per_band_intens_jointly=False,
         nclip=0,
     )
     start = {"x0": 32.0, "y0": 32.0, "eps": 0.0, "pa": 0.0}
@@ -343,13 +344,25 @@ def test_fix_per_band_background_to_zero_intens_err_scales_with_band_noise():
     assert 4.0 < err_high / err_low < 25.0
 
 
-def test_fix_per_band_background_to_zero_rejected_in_ref_mode():
-    """The flag is incompatible with harmonic_combination='ref'."""
+def test_ring_mean_intercept_rejected_in_ref_mode():
+    """fit_per_band_intens_jointly=False is incompatible with
+    harmonic_combination='ref'."""
     with pytest.raises(ValueError, match="incompatible"):
         IsosterConfigMB(
             bands=["g", "r"], reference_band="g",
             harmonic_combination="ref",
-            fix_per_band_background_to_zero=True,
+            fit_per_band_intens_jointly=False,
+        )
+
+
+def test_legacy_field_name_rejected_with_clear_error():
+    """Section 6 cleanup: passing the old ``fix_per_band_background_to_zero``
+    field raises a clear ValueError pointing at the new name (no silent
+    drop)."""
+    with pytest.raises(ValueError, match="renamed.*fit_per_band_intens_jointly"):
+        IsosterConfigMB(
+            bands=["g", "r"], reference_band="g",
+            fix_per_band_background_to_zero=True,  # type: ignore[call-arg]
         )
 
 
@@ -506,15 +519,15 @@ def test_loose_validity_per_band_count_normalization_changes_intens_err():
     )
 
 
-def test_loose_validity_with_fix_per_band_background_to_zero():
-    """Both flags on, planted galaxy: per-band intens_<b> equals the
-    band's empirical surviving-sample mean."""
+def test_loose_validity_with_ring_mean_intercept():
+    """loose_validity=True + fit_per_band_intens_jointly=False: per-band
+    intens_<b> equals the band's empirical surviving-sample mean."""
     img_g, img_r, mask_r = _plant_per_band_arc_artifact_image()
     cfg = IsosterConfigMB(
         bands=["g", "r"], reference_band="g",
         sma0=20.0, maxsma=60.0, astep=0.2, debug=True, nclip=0,
         loose_validity=True,
-        fix_per_band_background_to_zero=True,
+        fit_per_band_intens_jointly=False,
     )
     out = fit_isophote_mb(
         images=[img_g, img_r], masks=[None, mask_r], sma=40.0,

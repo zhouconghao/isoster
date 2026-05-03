@@ -33,7 +33,7 @@ def run(
     galaxy_prefix: str,
     out_dir: Path,
     sky_offset_n_outer: int = 5,
-    fix_per_band_background_to_zero: bool = False,
+    fit_per_band_intens_jointly: bool = True,
 ) -> None:
     cutout = load_legacysurvey_grz(galaxy_dir, galaxy_prefix)
     bands = cutout.bands
@@ -51,7 +51,7 @@ def run(
         astep=0.10,
         linear_growth=False,
         debug=True,
-        fix_per_band_background_to_zero=fix_per_band_background_to_zero,
+        fit_per_band_intens_jointly=fit_per_band_intens_jointly,
     )
 
     result = fit_image_multiband(
@@ -62,7 +62,7 @@ def run(
     )
 
     out_dir.mkdir(parents=True, exist_ok=True)
-    suffix = "_fixbg0" if fix_per_band_background_to_zero else ""
+    suffix = "" if fit_per_band_intens_jointly else "_ringmean"
     fits_path = out_dir / f"{galaxy_prefix}_multiband{suffix}_isophotes.fits"
     isophote_results_mb_to_fits(result, str(fits_path))
 
@@ -120,15 +120,16 @@ def main() -> None:
         type=Path,
     )
     parser.add_argument(
-        "--fix-per-band-background-to-zero",
+        "--ring-mean-intercept",
         action="store_true",
-        help="Drop the per-band intercept columns from the joint solver "
-        "(D11 backport). intens_<b> becomes the band's ring mean.",
+        help="Use fit_per_band_intens_jointly=False — drop per-band "
+        "intercept columns from the joint solver. intens_<b> becomes the "
+        "band's ring-mean intensity decoupled from the harmonic block.",
     )
     args = parser.parse_args()
     run(
         args.galaxy_dir, args.galaxy_prefix, args.out_dir,
-        fix_per_band_background_to_zero=args.fix_per_band_background_to_zero,
+        fit_per_band_intens_jointly=not args.ring_mean_intercept,
     )
 
 

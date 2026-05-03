@@ -230,13 +230,14 @@ def test_loose_validity_band_normalization_accepted_with_loose_validity():
     assert cfg.loose_validity_band_normalization == "per_band_count"
 
 
-def test_loose_validity_compatible_with_fix_per_band_background_to_zero():
+def test_loose_validity_compatible_with_ring_mean_intercept():
     cfg = IsosterConfigMB(
         bands=["g", "r"], reference_band="g",
         loose_validity=True,
-        fix_per_band_background_to_zero=True,
+        fit_per_band_intens_jointly=False,
     )
-    assert cfg.loose_validity and cfg.fix_per_band_background_to_zero
+    assert cfg.loose_validity
+    assert cfg.fit_per_band_intens_jointly is False
 
 
 def test_loose_validity_compatible_with_ref_mode():
@@ -246,3 +247,170 @@ def test_loose_validity_compatible_with_ref_mode():
         harmonic_combination="ref",
     )
     assert cfg.loose_validity and cfg.harmonic_combination == "ref"
+
+
+# ---------------------------------------------------------------------------
+# Section 6: multiband_higher_harmonics enum + harmonic_orders
+# ---------------------------------------------------------------------------
+
+
+def test_higher_harmonics_default_independent():
+    """Default value reproduces Stage-1 behavior."""
+    cfg = IsosterConfigMB(bands=["g", "r"], reference_band="g")
+    assert cfg.multiband_higher_harmonics == "independent"
+    assert cfg.harmonic_orders == [3, 4]
+
+
+@pytest.mark.parametrize(
+    "value",
+    ["independent", "shared", "simultaneous_in_loop", "simultaneous_original"],
+)
+def test_higher_harmonics_enum_values(value):
+    """All four enum values construct successfully."""
+    with warnings.catch_warnings():
+        # simultaneous_* emit an experimental UserWarning; not relevant here.
+        warnings.simplefilter("ignore", UserWarning)
+        cfg = IsosterConfigMB(
+            bands=["g", "r"], reference_band="g",
+            multiband_higher_harmonics=value,
+        )
+    assert cfg.multiband_higher_harmonics == value
+
+
+def test_higher_harmonics_invalid_value_rejected():
+    with pytest.raises(ValidationError):
+        IsosterConfigMB(
+            bands=["g", "r"], reference_band="g",
+            multiband_higher_harmonics="bogus",
+        )
+
+
+@pytest.mark.parametrize("value", ["shared", "simultaneous_in_loop", "simultaneous_original"])
+def test_higher_harmonics_ref_mode_incompatible(value):
+    """All non-independent modes hard-error with harmonic_combination='ref'."""
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", UserWarning)
+        with pytest.raises(ValidationError) as exc_info:
+            IsosterConfigMB(
+                bands=["g", "r"], reference_band="g",
+                multiband_higher_harmonics=value,
+                harmonic_combination="ref",
+            )
+    assert "ref" in str(exc_info.value)
+    assert "incompatible" in str(exc_info.value)
+
+
+def test_higher_harmonics_independent_compatible_with_ref():
+    """Default 'independent' mode does NOT clash with ref-mode."""
+    cfg = IsosterConfigMB(
+        bands=["g", "r"], reference_band="g",
+        multiband_higher_harmonics="independent",
+        harmonic_combination="ref",
+    )
+    assert cfg.multiband_higher_harmonics == "independent"
+
+
+@pytest.mark.parametrize("value", ["simultaneous_in_loop", "simultaneous_original"])
+def test_higher_harmonics_simultaneous_warns(value):
+    """simultaneous_* modes emit a UserWarning at construction."""
+    with warnings.catch_warnings(record=True) as captured:
+        warnings.simplefilter("always")
+        IsosterConfigMB(
+            bands=["g", "r"], reference_band="g",
+            multiband_higher_harmonics=value,
+        )
+    msgs = [str(w.message) for w in captured if issubclass(w.category, UserWarning)]
+    assert any("experimental" in m and value in m for m in msgs)
+
+
+def test_higher_harmonics_shared_does_not_warn():
+    """shared mode is the recommended new feature; no experimental warning."""
+    with warnings.catch_warnings(record=True) as captured:
+        warnings.simplefilter("always")
+        IsosterConfigMB(
+            bands=["g", "r"], reference_band="g",
+            multiband_higher_harmonics="shared",
+        )
+    msgs = [str(w.message) for w in captured if issubclass(w.category, UserWarning)]
+    assert not any("experimental" in m for m in msgs)
+
+
+def test_harmonic_orders_default():
+    cfg = IsosterConfigMB(bands=["g", "r"], reference_band="g")
+    assert cfg.harmonic_orders == [3, 4]
+
+
+def test_harmonic_orders_custom_list():
+    cfg = IsosterConfigMB(
+        bands=["g", "r"], reference_band="g",
+        harmonic_orders=[3, 4, 5, 6],
+    )
+    assert cfg.harmonic_orders == [3, 4, 5, 6]
+
+
+def test_harmonic_orders_unique_sorted():
+    """Out-of-order input is unique-sorted on construction."""
+    cfg = IsosterConfigMB(
+        bands=["g", "r"], reference_band="g",
+        harmonic_orders=[5, 3, 4],
+    )
+    assert cfg.harmonic_orders == [3, 4, 5]
+
+
+def test_harmonic_orders_empty_rejected():
+    with pytest.raises(ValidationError):
+        IsosterConfigMB(
+            bands=["g", "r"], reference_band="g",
+            harmonic_orders=[],
+        )
+
+
+@pytest.mark.parametrize("bad", [[1, 2], [2], [0, 3], [-1, 3]])
+def test_harmonic_orders_below_three_rejected(bad):
+    with pytest.raises(ValidationError):
+        IsosterConfigMB(
+            bands=["g", "r"], reference_band="g",
+            harmonic_orders=bad,
+        )
+
+
+def test_harmonic_orders_duplicates_rejected():
+    with pytest.raises(ValidationError) as exc_info:
+        IsosterConfigMB(
+            bands=["g", "r"], reference_band="g",
+            harmonic_orders=[3, 3, 4],
+        )
+    assert "duplicate" in str(exc_info.value).lower()
+
+
+@pytest.mark.parametrize(
+    "value",
+    ["shared", "simultaneous_in_loop", "simultaneous_original"],
+)
+def test_higher_harmonics_compatible_with_ring_mean_intercept(value):
+    """All non-independent modes silently allow fit_per_band_intens_jointly=False."""
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", UserWarning)
+        cfg = IsosterConfigMB(
+            bands=["g", "r"], reference_band="g",
+            multiband_higher_harmonics=value,
+            fit_per_band_intens_jointly=False,
+        )
+    assert cfg.multiband_higher_harmonics == value
+    assert cfg.fit_per_band_intens_jointly is False
+
+
+@pytest.mark.parametrize(
+    "value",
+    ["shared", "simultaneous_in_loop", "simultaneous_original"],
+)
+def test_higher_harmonics_compatible_with_loose_validity(value):
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", UserWarning)
+        cfg = IsosterConfigMB(
+            bands=["g", "r"], reference_band="g",
+            multiband_higher_harmonics=value,
+            loose_validity=True,
+        )
+    assert cfg.multiband_higher_harmonics == value
+    assert cfg.loose_validity is True

@@ -183,16 +183,20 @@ def isophote_results_mb_from_fits(filename: Union[str, Path]) -> dict:
             out[col] = val
         isophotes.append(out)
 
-    fix_bg_zero = False
+    fit_jointly = True
     loose_validity = False
+    higher_mode = "independent"
+    higher_orders: List[int] = [3, 4]
     if config is not None:
         bands = list(config.bands)
         ref_band = config.reference_band
         harm = config.harmonic_combination
         variance_mode = config.variance_mode if config.variance_mode is not None else "ols"
         band_weights = config.resolved_band_weights()
-        fix_bg_zero = bool(config.fix_per_band_background_to_zero)
+        fit_jointly = bool(config.fit_per_band_intens_jointly)
         loose_validity = bool(config.loose_validity)
+        higher_mode = config.multiband_higher_harmonics
+        higher_orders = list(config.harmonic_orders)
     else:
         bands = bands_from_hdr.split(",") if bands_from_hdr else []
         ref_band = ref_from_hdr or (bands[0] if bands else "")
@@ -209,8 +213,11 @@ def isophote_results_mb_from_fits(filename: Union[str, Path]) -> dict:
         "reference_band": ref_band,
         "band_weights": band_weights,
         "variance_mode": variance_mode,
-        "fix_per_band_background_to_zero": fix_bg_zero,
+        "fit_per_band_intens_jointly": fit_jointly,
         "loose_validity": loose_validity,
+        "multiband_higher_harmonics": higher_mode,
+        "harmonic_orders": higher_orders,
+        "harmonics_shared": higher_mode != "independent",
     }
 
 

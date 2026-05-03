@@ -63,7 +63,9 @@ See `docs/10-multiband.md` for the user-facing reference and
   its own joint-design-matrix solver, joint gradient combiner, and
   iteration loop. Stage-2 backports landed as new fields on
   `IsosterConfigMB` (no inheritance per design D23):
-  `fix_per_band_background_to_zero` (D11) and the loose-validity family
+  `fit_per_band_intens_jointly` (D11, default `True`; renamed from the
+  pre-cleanup `fix_per_band_background_to_zero` in Section 6) and the
+  loose-validity family
   `loose_validity` / `loose_validity_min_per_band_count` /
   `loose_validity_min_per_band_frac` /
   `loose_validity_band_normalization` (D9 backport, locked
@@ -75,8 +77,29 @@ See `docs/10-multiband.md` for the user-facing reference and
     `phi_per_band` / `variances_per_band`) populated only under
     `loose_validity=True`. `n_valid_per_band` is always populated.
     The shared-validity path is byte-identical to Stage 1; the
-    loose-validity path uses the pure-NumPy
-    `build_joint_design_matrix_jagged` builder (no numba).
+    loose-validity path uses the numba-JIT
+    `build_joint_design_matrix_jagged` builder (with a NumPy fallback).
+  - **Section 6 (locked 2026-05-02):** ``multiband_higher_harmonics``
+    enum (``'independent'`` | ``'shared'`` | ``'simultaneous_in_loop'`` |
+    ``'simultaneous_original'``, default ``'independent'``) and
+    ``harmonic_orders: List[int] = [3, 4]`` land on
+    ``IsosterConfigMB``. ``'shared'`` replaces the per-band post-hoc
+    ``_attach_per_band_harmonics`` step with one joint solve over a
+    ``(B·N, 2·L)`` design matrix where ``L = len(harmonic_orders)``.
+    ``'simultaneous_*'`` extends the per-iteration joint design matrix
+    from ``(B·N, B + 4)`` to ``(B·N, B + 4 + 2·L)`` with shared
+    higher-order columns; ``simultaneous_in_loop`` solves this every
+    iteration, ``simultaneous_original`` runs the wider solve only
+    once post-hoc (Ciambur 2015 original variant). Two new numba
+    kernels (``build_joint_design_matrix_higher`` /
+    ``build_joint_design_matrix_jagged_higher``) carry the wider
+    matrix through both shared- and loose-validity paths. Per-band
+    Schema 1 columns ``a<n>_<b>`` / ``b<n>_<b>`` (and ``_err``)
+    continue to be written but carry the identical shared value
+    across bands under non-``'independent'`` modes; D16 per-band
+    Bender normalization at plotting time still produces band-distinct
+    curves because per-band gradients differ. Section 6 of
+    ``docs/agent/plan-2026-04-29-multiband-feasibility.md``.
 
 ## Key Constants
 

@@ -29,7 +29,6 @@ from ..driver import fit_image
 from .config_mb import IsosterConfigMB
 from .fitting_mb import (
     _PER_BAND_DEBUG_KEYS,
-    _PER_BAND_HARMONIC_KEYS,
     extract_forced_photometry_mb,
     fit_isophote_mb,
 )
@@ -260,8 +259,10 @@ def _fit_central_pixel_mb(
         row[f"intens_{b}"] = val if valid_b else float("nan")
         row[f"intens_err_{b}"] = 0.0
         row[f"rms_{b}"] = 0.0
-        for key in _PER_BAND_HARMONIC_KEYS:
-            row[f"{key}_{b}"] = 0.0
+        for n_order in config.harmonic_orders:
+            for prefix in ("a", "b"):
+                row[f"{prefix}{int(n_order)}_{b}"] = 0.0
+                row[f"{prefix}{int(n_order)}_err_{b}"] = 0.0
         if debug:
             for key in _PER_BAND_DEBUG_KEYS:
                 row[f"{key}_{b}"] = float("nan")
@@ -489,8 +490,15 @@ def fit_image_multiband(
         "reference_band": config.reference_band,
         "band_weights": config.resolved_band_weights(),
         "variance_mode": variance_mode,
-        "fix_per_band_background_to_zero": config.fix_per_band_background_to_zero,
+        "fit_per_band_intens_jointly": config.fit_per_band_intens_jointly,
         "loose_validity": config.loose_validity,
+        # Section 6: higher-order harmonics mode + orders. ``harmonics_shared``
+        # is a derived convenience flag (True iff a non-``independent`` mode
+        # is active) so downstream readers can short-circuit without parsing
+        # the enum.
+        "multiband_higher_harmonics": config.multiband_higher_harmonics,
+        "harmonic_orders": list(config.harmonic_orders),
+        "harmonics_shared": config.multiband_higher_harmonics != "independent",
     }
     if first_isophote_failure:
         result["first_isophote_failure"] = True

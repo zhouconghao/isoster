@@ -281,6 +281,15 @@ def warmup_numba_mb() -> None:
     _ = _build_joint_design_matrix_jagged_numba(
         phi_concat, band_offsets, n_per_band, 2, True,
     )
+    # Warm the higher-order joint design-matrix kernels (Section 6).
+    orders = np.array([3, 4], dtype=np.int64)
+    _ = _build_joint_design_matrix_higher_numba(phi, 2, orders)
+    _ = _build_joint_design_matrix_jagged_higher_numba(
+        phi_concat, band_offsets, n_per_band, 2, orders, False,
+    )
+    _ = _build_joint_design_matrix_jagged_higher_numba(
+        phi_concat, band_offsets, n_per_band, 2, orders, True,
+    )
     # Warm the per-band bilinear stack sampler.
     stack = np.zeros((2, 16, 16), dtype=np.float64)
     yc = np.linspace(2.5, 12.5, 16, dtype=np.float64)
@@ -359,6 +368,243 @@ _build_joint_design_matrix_jagged_impl = (
     if NUMBA_AVAILABLE
     else _build_joint_design_matrix_jagged_numpy
 )
+
+
+@njit(cache=True)
+def _build_joint_design_matrix_higher_numba(
+    phi: NDArray[np.float64],
+    n_bands: int,
+    orders: NDArray[np.int64],
+) -> NDArray[np.float64]:
+    """Numba kernel for the shared-validity higher-order joint design matrix.
+
+    Extends :func:`_build_joint_design_matrix_numba` with ``2*L`` extra
+    columns ``[sin(orders[0]·φ), cos(orders[0]·φ), ..., sin(orders[L-1]·φ),
+    cos(orders[L-1]·φ)]`` shared across all bands. Layout:
+
+        col 0..B-1    : per-band indicator (I0_b)
+        col B..B+3    : shared (A1, B1, A2, B2)
+        col B+4..B+3+2L : shared (A_{orders[0]}, B_{orders[0]}, ...)
+
+    The first ``B + 4`` columns reproduce the standard joint design matrix
+    bit-for-bit, so callers that read ``coeffs[n_bands..n_bands+3]`` (e.g.
+    geometry-update math, ``_compute_parameter_errors_from_joint``) keep
+    working with the wider solve.
+    """
+    n_samples = phi.shape[0]
+    L = int(orders.shape[0])
+    n_rows = n_bands * n_samples
+    n_cols = n_bands + 4 + 2 * L
+    A = np.zeros((n_rows, n_cols), dtype=np.float64)
+
+    for b in range(n_bands):
+        for i in range(n_samples):
+            row = b * n_samples + i
+            A[row, b] = 1.0
+            p = phi[i]
+            A[row, n_bands + 0] = np.sin(p)
+            A[row, n_bands + 1] = np.cos(p)
+            A[row, n_bands + 2] = np.sin(2.0 * p)
+            A[row, n_bands + 3] = np.cos(2.0 * p)
+            for j in range(L):
+                n_order = orders[j]
+                A[row, n_bands + 4 + 2 * j] = np.sin(n_order * p)
+                A[row, n_bands + 4 + 2 * j + 1] = np.cos(n_order * p)
+    return A
+
+
+def _build_joint_design_matrix_higher_numpy(
+    phi: NDArray[np.float64],
+    n_bands: int,
+    orders: NDArray[np.int64],
+) -> NDArray[np.float64]:
+    """NumPy fallback for the higher-order shared-validity builder."""
+    n_samples = int(phi.shape[0])
+    L = int(orders.shape[0])
+    n_cols = n_bands + 4 + 2 * L
+    A = np.zeros((n_bands * n_samples, n_cols), dtype=np.float64)
+
+    band_idx = np.repeat(np.arange(n_bands), n_samples)
+    row_idx = np.arange(n_bands * n_samples)
+    A[row_idx, band_idx] = 1.0
+
+    sin1 = np.sin(phi)
+    cos1 = np.cos(phi)
+    sin2 = np.sin(2.0 * phi)
+    cos2 = np.cos(2.0 * phi)
+    geom = np.column_stack([sin1, cos1, sin2, cos2])  # (N, 4)
+    A[:, n_bands:n_bands + 4] = np.tile(geom, (n_bands, 1))
+
+    if L > 0:
+        higher = np.empty((n_samples, 2 * L), dtype=np.float64)
+        for j in range(L):
+            n_order = int(orders[j])
+            higher[:, 2 * j] = np.sin(n_order * phi)
+            higher[:, 2 * j + 1] = np.cos(n_order * phi)
+        A[:, n_bands + 4:] = np.tile(higher, (n_bands, 1))
+    return A
+
+
+_build_joint_design_matrix_higher_impl = (
+    _build_joint_design_matrix_higher_numba
+    if NUMBA_AVAILABLE
+    else _build_joint_design_matrix_higher_numpy
+)
+
+
+def build_joint_design_matrix_higher(
+    phi: NDArray[np.floating],
+    n_bands: int,
+    harmonic_orders: NDArray[np.integer],
+) -> NDArray[np.floating]:
+    """
+    Build the shared-validity higher-order joint design matrix.
+
+    Used by the ``simultaneous_in_loop`` and ``simultaneous_original``
+    higher-harmonics modes (Section 6 of plan-2026-04-29-multiband-feasibility.md).
+
+    Parameters
+    ----------
+    phi : ndarray, shape (N,)
+        Shared sample angles.
+    n_bands : int
+        Number of bands ``B``.
+    harmonic_orders : ndarray of int
+        Higher-order harmonic orders to include (e.g. ``[3, 4]``). All
+        entries must be >= 3 (the geometric harmonics 1, 2 are always
+        present in the trailing four columns).
+
+    Returns
+    -------
+    ndarray, shape (B*N, B + 4 + 2*L)
+        Column order: per-band indicators, then shared (A1, B1, A2, B2),
+        then shared (A_n, B_n) per order.
+    """
+    if phi.size == 0:
+        raise ValueError("phi array cannot be empty")
+    if n_bands < 1:
+        raise ValueError(f"n_bands must be >= 1, got {n_bands}")
+    orders_i64 = np.ascontiguousarray(harmonic_orders, dtype=np.int64)
+    return _build_joint_design_matrix_higher_impl(phi, n_bands, orders_i64)
+
+
+@njit(cache=True)
+def _build_joint_design_matrix_jagged_higher_numba(
+    phi_concat: NDArray[np.float64],
+    band_offsets: NDArray[np.int64],
+    n_per_band: NDArray[np.int64],
+    n_bands: int,
+    orders: NDArray[np.int64],
+    normalize: bool,
+) -> NDArray[np.float64]:
+    """Numba kernel for the loose-validity higher-order jagged design matrix.
+
+    Combines :func:`_build_joint_design_matrix_jagged_numba` (jagged per-band
+    blocks) with the higher-order column extension. Required for the
+    ``simultaneous_*`` mode × ``loose_validity=True`` combination
+    (Section 6.6).
+    """
+    n_total = int(phi_concat.shape[0])
+    L = int(orders.shape[0])
+    n_cols = n_bands + 4 + 2 * L
+    A = np.zeros((n_total, n_cols), dtype=np.float64)
+    for b in range(n_bands):
+        n_b = int(n_per_band[b])
+        if n_b == 0:
+            continue
+        offset = int(band_offsets[b])
+        if normalize:
+            scale = np.sqrt(1.0 / n_b)
+        else:
+            scale = 1.0
+        for i in range(n_b):
+            row = offset + i
+            p = phi_concat[row]
+            A[row, b] = scale
+            A[row, n_bands + 0] = scale * np.sin(p)
+            A[row, n_bands + 1] = scale * np.cos(p)
+            A[row, n_bands + 2] = scale * np.sin(2.0 * p)
+            A[row, n_bands + 3] = scale * np.cos(2.0 * p)
+            for j in range(L):
+                n_order = orders[j]
+                A[row, n_bands + 4 + 2 * j] = scale * np.sin(n_order * p)
+                A[row, n_bands + 4 + 2 * j + 1] = scale * np.cos(n_order * p)
+    return A
+
+
+def _build_joint_design_matrix_jagged_higher_numpy(
+    phi_concat: NDArray[np.float64],
+    band_offsets: NDArray[np.int64],
+    n_per_band: NDArray[np.int64],
+    n_bands: int,
+    orders: NDArray[np.int64],
+    normalize: bool,
+) -> NDArray[np.float64]:
+    """NumPy fallback for the loose-validity higher-order jagged builder."""
+    n_total = int(phi_concat.shape[0])
+    L = int(orders.shape[0])
+    n_cols = n_bands + 4 + 2 * L
+    A = np.zeros((n_total, n_cols), dtype=np.float64)
+    for b in range(n_bands):
+        n_b = int(n_per_band[b])
+        if n_b == 0:
+            continue
+        offset = int(band_offsets[b])
+        scale = float(np.sqrt(1.0 / n_b)) if normalize else 1.0
+        rng = slice(offset, offset + n_b)
+        p = phi_concat[rng]
+        A[rng, b] = scale
+        A[rng, n_bands + 0] = scale * np.sin(p)
+        A[rng, n_bands + 1] = scale * np.cos(p)
+        A[rng, n_bands + 2] = scale * np.sin(2.0 * p)
+        A[rng, n_bands + 3] = scale * np.cos(2.0 * p)
+        for j in range(L):
+            n_order = int(orders[j])
+            A[rng, n_bands + 4 + 2 * j] = scale * np.sin(n_order * p)
+            A[rng, n_bands + 4 + 2 * j + 1] = scale * np.cos(n_order * p)
+    return A
+
+
+_build_joint_design_matrix_jagged_higher_impl = (
+    _build_joint_design_matrix_jagged_higher_numba
+    if NUMBA_AVAILABLE
+    else _build_joint_design_matrix_jagged_higher_numpy
+)
+
+
+def build_joint_design_matrix_jagged_higher(
+    phi_per_band,
+    n_bands: int,
+    harmonic_orders: NDArray[np.integer],
+    normalize: bool = False,
+) -> NDArray[np.floating]:
+    """Loose-validity higher-order jagged joint design matrix.
+
+    Same per-band offsets / concatenation strategy as
+    :func:`build_joint_design_matrix_jagged`, with ``2*L`` extra
+    higher-order columns shared across bands.
+    """
+    if n_bands < 1:
+        raise ValueError(f"n_bands must be >= 1, got {n_bands}")
+    if len(phi_per_band) != n_bands:
+        raise ValueError(
+            f"len(phi_per_band) ({len(phi_per_band)}) must equal n_bands ({n_bands})"
+        )
+    orders_i64 = np.ascontiguousarray(harmonic_orders, dtype=np.int64)
+    L = int(orders_i64.shape[0])
+    n_per_band = np.array([int(p.size) for p in phi_per_band], dtype=np.int64)
+    band_offsets = np.empty(n_bands, dtype=np.int64)
+    band_offsets[0] = 0
+    if n_bands > 1:
+        band_offsets[1:] = np.cumsum(n_per_band)[:-1]
+    if int(n_per_band.sum()) == 0:
+        return np.zeros((0, n_bands + 4 + 2 * L), dtype=np.float64)
+    phi_concat = np.concatenate(
+        [np.asarray(p, dtype=np.float64) for p in phi_per_band]
+    )
+    return _build_joint_design_matrix_jagged_higher_impl(
+        phi_concat, band_offsets, n_per_band, n_bands, orders_i64, normalize,
+    )
 
 
 def build_joint_design_matrix_jagged(
