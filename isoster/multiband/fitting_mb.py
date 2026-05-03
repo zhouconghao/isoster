@@ -23,6 +23,7 @@ from numpy.typing import NDArray
 
 from ..fitting import (
     _prepare_mask_float,
+    _tikhonov_alpha,
     compute_aperture_photometry,
     compute_deviations,
     sigma_clip,
@@ -1059,6 +1060,7 @@ def fit_isophote_mb(
     image_stack: Optional[NDArray[np.float64]] = None,
     masks_resolved: Optional[List[Optional[NDArray[np.float64]]]] = None,
     var_stack: Optional[NDArray[np.float64]] = None,
+    outer_reference_geom: Optional[Dict[str, float]] = None,
 ) -> Dict[str, object]:
     """
     Fit a single multi-band isophote at the given semi-major axis.
@@ -1162,6 +1164,39 @@ def fit_isophote_mb(
     last_intens_per_band_loose: Optional[List[NDArray[np.float64]]] = None
     last_variances_per_band_loose: Optional[List[NDArray[np.float64]]] = None
     last_phi_per_band_loose: Optional[List[NDArray[np.float64]]] = None
+
+    # --- Stage-3 Stage-B: outer-region damping setup (once per isophote) ---
+    # Mirrors single-band ``isoster.fitting.fit_isophote`` lines 1255–1290:
+    # compute the sigmoid lambda(sma), per-axis weights, and arm the alpha
+    # blend. ``solver`` mode (with reference pull) is not yet supported in
+    # multi-band; the config validator restricts ``outer_reg_mode`` to
+    # ``'damping'``. simultaneous_in_loop is excluded because the wider
+    # joint matrix has no Tikhonov hook (Stage E will revisit).
+    outer_damp_on = False
+    outer_damp_lambda = 0.0
+    outer_damp_w_center = 0.0
+    outer_damp_w_eps = 0.0
+    outer_damp_w_pa = 0.0
+    if (
+        bool(config.use_outer_center_regularization)
+        and config.outer_reg_mode == "damping"
+        and outer_reference_geom is not None
+        and not simul_in_loop
+    ):
+        _ow = config.outer_reg_weights
+        outer_damp_w_center = float(_ow.get("center", 0.0))
+        outer_damp_w_eps = float(_ow.get("eps", 0.0))
+        outer_damp_w_pa = float(_ow.get("pa", 0.0))
+        _onset = config.outer_reg_sma_onset
+        _width = (
+            config.outer_reg_sma_width
+            if config.outer_reg_sma_width is not None
+            else 0.4 * _onset
+        )
+        outer_damp_lambda = config.outer_reg_strength / (
+            1.0 + float(np.exp(-(sma - _onset) / _width))
+        )
+        outer_damp_on = outer_damp_lambda >= 1e-6
 
     for i in range(config.maxit):
         niter = i + 1
@@ -1699,6 +1734,15 @@ def fit_isophote_mb(
                 coeff_c_major = 1.0 / grad_joint
                 aux_minor = -A1 * coeff_c_minor * damping
                 aux_major = -B1 * coeff_c_major * damping
+                if outer_damp_on and outer_damp_w_center > 0.0:
+                    alpha_minor = _tikhonov_alpha(
+                        coeff_c_minor, outer_damp_lambda, outer_damp_w_center
+                    )
+                    alpha_major = _tikhonov_alpha(
+                        coeff_c_major, outer_damp_lambda, outer_damp_w_center
+                    )
+                    aux_minor = (1.0 - alpha_minor) * aux_minor
+                    aux_major = (1.0 - alpha_major) * aux_major
                 if config.clip_max_shift is not None:
                     max_iter_shift = max(config.clip_max_shift, 0.05 * sma)
                     shift_len = float(np.sqrt(aux_minor**2 + aux_major**2))
@@ -1714,12 +1758,22 @@ def fit_isophote_mb(
                     denom = -1e-10
                 coeff_pa = 2.0 * (1.0 - eps) / sma / grad_joint / denom
                 pa_corr = A2 * coeff_pa * damping
+                if outer_damp_on and outer_damp_w_pa > 0.0:
+                    alpha_pa = _tikhonov_alpha(
+                        coeff_pa, outer_damp_lambda, outer_damp_w_pa
+                    )
+                    pa_corr = (1.0 - alpha_pa) * pa_corr
                 if config.clip_max_pa is not None:
                     pa_corr = float(np.clip(pa_corr, -config.clip_max_pa, config.clip_max_pa))
                 pa = (pa + pa_corr) % np.pi
             if not config.fix_eps:
                 coeff_eps = 2.0 * (1.0 - eps) / sma / grad_joint
                 eps_corr = B2 * coeff_eps * damping
+                if outer_damp_on and outer_damp_w_eps > 0.0:
+                    alpha_eps = _tikhonov_alpha(
+                        coeff_eps, outer_damp_lambda, outer_damp_w_eps
+                    )
+                    eps_corr = (1.0 - alpha_eps) * eps_corr
                 if config.clip_max_eps is not None:
                     eps_corr = float(np.clip(eps_corr, -config.clip_max_eps, config.clip_max_eps))
                 eps = min(eps - eps_corr, 0.95)
@@ -1734,6 +1788,9 @@ def fit_isophote_mb(
             if max_idx == 0 and not config.fix_center:
                 coeff = (1.0 - eps) / grad_joint
                 aux = -max_amp * coeff * damping
+                if outer_damp_on and outer_damp_w_center > 0.0:
+                    alpha = _tikhonov_alpha(coeff, outer_damp_lambda, outer_damp_w_center)
+                    aux = (1.0 - alpha) * aux
                 if config.clip_max_shift is not None:
                     aux = float(np.clip(aux, -config.clip_max_shift, config.clip_max_shift))
                 x0 -= aux * np.sin(pa)
@@ -1741,6 +1798,9 @@ def fit_isophote_mb(
             elif max_idx == 1 and not config.fix_center:
                 coeff = 1.0 / grad_joint
                 aux = -max_amp * coeff * damping
+                if outer_damp_on and outer_damp_w_center > 0.0:
+                    alpha = _tikhonov_alpha(coeff, outer_damp_lambda, outer_damp_w_center)
+                    aux = (1.0 - alpha) * aux
                 if config.clip_max_shift is not None:
                     aux = float(np.clip(aux, -config.clip_max_shift, config.clip_max_shift))
                 x0 += aux * np.cos(pa)
@@ -1751,12 +1811,18 @@ def fit_isophote_mb(
                     denom = -1e-10
                 coeff = 2.0 * (1.0 - eps) / sma / grad_joint / denom
                 pa_corr = max_amp * coeff * damping
+                if outer_damp_on and outer_damp_w_pa > 0.0:
+                    alpha = _tikhonov_alpha(coeff, outer_damp_lambda, outer_damp_w_pa)
+                    pa_corr = (1.0 - alpha) * pa_corr
                 if config.clip_max_pa is not None:
                     pa_corr = float(np.clip(pa_corr, -config.clip_max_pa, config.clip_max_pa))
                 pa = (pa + pa_corr) % np.pi
             elif max_idx == 3 and not config.fix_eps:
                 coeff = 2.0 * (1.0 - eps) / sma / grad_joint
                 eps_corr = max_amp * coeff * damping
+                if outer_damp_on and outer_damp_w_eps > 0.0:
+                    alpha = _tikhonov_alpha(coeff, outer_damp_lambda, outer_damp_w_eps)
+                    eps_corr = (1.0 - alpha) * eps_corr
                 if config.clip_max_eps is not None:
                     eps_corr = float(np.clip(eps_corr, -config.clip_max_eps, config.clip_max_eps))
                 eps = min(eps - eps_corr, 0.95)

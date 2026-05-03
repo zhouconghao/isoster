@@ -46,6 +46,88 @@ def _is_acceptable(iso: Dict[str, object]) -> bool:
     return int(iso.get("stop_code", -1)) in ACCEPTABLE_STOP_CODES  # type: ignore[arg-type]
 
 
+def _build_outer_reference_mb(
+    inwards_results: Sequence[Dict[str, object]],
+    anchor_iso: Dict[str, object],
+    config: IsosterConfigMB,
+) -> Dict[str, float]:
+    """Frozen reference geometry for the multi-band outer-region damping.
+
+    Mirrors :func:`isoster.driver._build_outer_reference`: takes a flux-
+    weighted mean of inward isophotes (plus the anchor) within a sma
+    window of ``sma0 * config.outer_reg_ref_sma_factor``. Multi-band
+    geometry is shared, so only the flux weight differs from single-band:
+    we use ``intens_<reference_band>`` since the geometry was driven
+    against that band's diagnostics. The reference carries x0/y0/eps/pa;
+    pa uses a flux-weighted circular mean on 2*pa (axis-like angles).
+    """
+    ref_band = config.reference_band
+    intens_key = f"intens_{ref_band}"
+
+    def _intens(iso: Dict[str, object]) -> Optional[float]:
+        val = iso.get(intens_key)
+        if val is None:
+            return None
+        v = float(val)
+        return v if np.isfinite(v) else None
+
+    anchor_ref = {
+        "x0": float(anchor_iso["x0"]),  # type: ignore[arg-type]
+        "y0": float(anchor_iso["y0"]),  # type: ignore[arg-type]
+        "eps": float(anchor_iso["eps"]),  # type: ignore[arg-type]
+        "pa": float(anchor_iso["pa"]),  # type: ignore[arg-type]
+    }
+
+    sma_hi = float(anchor_iso["sma"]) * config.outer_reg_ref_sma_factor  # type: ignore[arg-type]
+
+    candidates: List[Dict[str, object]] = [anchor_iso]
+    for iso in inwards_results:
+        if not _is_acceptable(iso):
+            continue
+        sma_v = iso.get("sma")
+        if sma_v is None or not np.isfinite(float(sma_v)):  # type: ignore[arg-type]
+            continue
+        if float(sma_v) > sma_hi:  # type: ignore[arg-type]
+            continue
+        intens_v = _intens(iso)
+        if intens_v is None:
+            continue
+        for k in ("x0", "y0", "eps", "pa"):
+            v = iso.get(k)
+            if v is None or not np.isfinite(float(v)):  # type: ignore[arg-type]
+                break
+        else:
+            candidates.append(iso)
+
+    x0s = np.array([float(iso["x0"]) for iso in candidates])  # type: ignore[arg-type]
+    y0s = np.array([float(iso["y0"]) for iso in candidates])  # type: ignore[arg-type]
+    eps_arr = np.array([float(iso["eps"]) for iso in candidates])  # type: ignore[arg-type]
+    pa_arr = np.array([float(iso["pa"]) for iso in candidates])  # type: ignore[arg-type]
+    weights = np.array(
+        [max(_intens(iso) or 1e-6, 1e-6) for iso in candidates], dtype=np.float64,
+    )
+    if weights.sum() <= 0.0 or not np.all(np.isfinite(weights)):
+        return anchor_ref
+
+    x0_ref = float(np.average(x0s, weights=weights))
+    y0_ref = float(np.average(y0s, weights=weights))
+    eps_ref = float(np.average(eps_arr, weights=weights))
+
+    cos_sum = float(np.sum(weights * np.cos(2.0 * pa_arr)))
+    sin_sum = float(np.sum(weights * np.sin(2.0 * pa_arr)))
+    w_sum = float(weights.sum())
+    resultant = np.hypot(cos_sum, sin_sum) / w_sum if w_sum > 0.0 else 0.0
+    if resultant >= 0.1:
+        pa_ref = 0.5 * float(np.arctan2(sin_sum, cos_sum))
+        pa_ref = pa_ref % np.pi
+    else:
+        pa_ref = float(anchor_iso["pa"]) % np.pi  # type: ignore[arg-type]
+
+    if not all(np.isfinite([x0_ref, y0_ref, eps_ref, pa_ref])):
+        return anchor_ref
+    return {"x0": x0_ref, "y0": y0_ref, "eps": eps_ref, "pa": pa_ref}
+
+
 def _validate_inputs(
     images: Sequence[NDArray[np.floating]],
     masks: Union[None, NDArray[np.bool_], Sequence[Optional[NDArray[np.bool_]]]],
@@ -441,6 +523,14 @@ def fit_image_multiband(
             if _is_acceptable(next_iso) or config.permissive_geometry:
                 current_iso = next_iso
 
+    # Build the frozen outer-region reference geometry once, when the
+    # outer damping feature is on and we have an anchor (Stage-3 Stage-B).
+    outer_ref_geom: Optional[Dict[str, float]] = None
+    if config.use_outer_center_regularization and anchor_iso is not None:
+        outer_ref_geom = _build_outer_reference_mb(
+            inwards_results, anchor_iso, config,
+        )
+
     # Outward growth.
     outwards_results: List[Dict[str, object]] = []
     if anchor_iso is not None:
@@ -463,6 +553,7 @@ def fit_image_multiband(
                 previous_geometry=current_geom,
                 variance_maps=variance_maps,
                 image_stack=image_stack, masks_resolved=masks_resolved, var_stack=var_stack,
+                outer_reference_geom=outer_ref_geom,
             )
             outwards_results.append(next_iso)
             if _is_acceptable(next_iso) or config.permissive_geometry:
