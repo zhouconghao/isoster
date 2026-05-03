@@ -96,15 +96,30 @@ def _per_band_column_names(bands: Sequence[str], debug: bool) -> List[str]:
 # ---------------------------------------------------------------------------
 
 
-def _per_band_mean(
+def _per_band_mean_or_median(
     intens_per_band: NDArray[np.float64],
     variances_per_band: Optional[NDArray[np.float64]],
+    integrator: str = "mean",
 ) -> NDArray[np.float64]:
-    """Per-band mean: inverse-variance weighted under WLS, simple mean under OLS."""
+    """Per-band intercept reducer used in decoupled intercept mode.
+
+    ``integrator='mean'`` (default): inverse-variance weighted mean
+    under WLS, simple mean under OLS — preserves the original
+    ``_per_band_mean`` semantics.
+
+    ``integrator='median'`` (Stage-3 S1/S2): plain ``np.median`` of
+    each band's ring samples. Variances are intentionally ignored —
+    medians are not weighted statistics, and the ring samples have
+    already been sigma-clipped upstream (sclip/nclip pipeline). Only
+    legal under ``fit_per_band_intens_jointly=False`` (config
+    validator enforces this).
+    """
     n_bands = intens_per_band.shape[0]
     out = np.empty(n_bands, dtype=np.float64)
     for b in range(n_bands):
-        if variances_per_band is None:
+        if integrator == "median":
+            out[b] = float(np.median(intens_per_band[b])) if intens_per_band[b].size else float("nan")
+        elif variances_per_band is None:
             out[b] = float(np.mean(intens_per_band[b]))
         else:
             w = 1.0 / variances_per_band[b]
@@ -120,6 +135,7 @@ def fit_first_and_second_harmonics_joint(
     variances_per_band: Optional[NDArray[np.float64]] = None,
     *,
     fit_per_band_intens_jointly: bool = True,
+    integrator: str = "mean",
 ) -> Tuple[NDArray[np.float64], Optional[NDArray[np.float64]], bool]:
     """
     Solve the joint multi-band 1st+2nd harmonic system in WLS or OLS mode.
@@ -180,10 +196,10 @@ def fit_first_and_second_harmonics_joint(
         wls_mode = False
 
     if not fit_per_band_intens_jointly:
-        # Drop the per-band intercept columns. Per-band ring means are
-        # computed up front and subtracted from the RHS so the geometric
-        # 4-column solve fits residuals only.
-        means = _per_band_mean(intens_per_band, variances_per_band)
+        # Drop the per-band intercept columns. Per-band ring means or
+        # medians are computed up front and subtracted from the RHS so
+        # the geometric 4-column solve fits residuals only.
+        means = _per_band_mean_or_median(intens_per_band, variances_per_band, integrator)
         residuals = intens_per_band - means[:, None]
         y_geom = residuals.reshape(n_bands * n_samples)
         # Geometric block: drop the band-indicator columns from the joint
@@ -243,18 +259,26 @@ def fit_first_and_second_harmonics_joint(
         return fallback, None, wls_mode
 
 
-def _per_band_mean_jagged(
+def _per_band_mean_or_median_jagged(
     intens_per_band: List[NDArray[np.float64]],
     variances_per_band: Optional[List[NDArray[np.float64]]],
+    integrator: str = "mean",
 ) -> NDArray[np.float64]:
-    """Per-band mean for jagged inputs (loose validity)."""
+    """Per-band intercept reducer for jagged inputs (loose validity).
+
+    Same semantics as :func:`_per_band_mean_or_median` but accepts
+    ragged per-band sample lists. Bands with zero surviving samples
+    return NaN under both integrators.
+    """
     n_bands = len(intens_per_band)
     out = np.empty(n_bands, dtype=np.float64)
     for b in range(n_bands):
         if intens_per_band[b].size == 0:
             out[b] = float("nan")
             continue
-        if variances_per_band is None:
+        if integrator == "median":
+            out[b] = float(np.median(intens_per_band[b]))
+        elif variances_per_band is None:
             out[b] = float(np.mean(intens_per_band[b]))
         else:
             w = 1.0 / variances_per_band[b]
@@ -275,6 +299,7 @@ def fit_first_and_second_harmonics_joint_loose(
     *,
     normalize: bool = False,
     fit_per_band_intens_jointly: bool = True,
+    integrator: str = "mean",
 ) -> Tuple[NDArray[np.float64], Optional[NDArray[np.float64]], bool]:
     """
     Loose-validity counterpart to :func:`fit_first_and_second_harmonics_joint`.
@@ -325,7 +350,7 @@ def fit_first_and_second_harmonics_joint_loose(
         w_eff = w_eff * norm_per_row
 
     if not fit_per_band_intens_jointly:
-        means = _per_band_mean_jagged(intens_per_band, variances_per_band)
+        means = _per_band_mean_or_median_jagged(intens_per_band, variances_per_band, integrator)
         residuals_per_band = [
             intens_per_band[b] - means[b] if intens_per_band[b].size else intens_per_band[b]
             for b in range(n_bands)
@@ -391,6 +416,7 @@ def fit_simultaneous_joint(
     variances_per_band: Optional[NDArray[np.float64]] = None,
     *,
     fit_per_band_intens_jointly: bool = True,
+    integrator: str = "mean",
 ) -> Tuple[NDArray[np.float64], Optional[NDArray[np.float64]], bool]:
     """Joint solve over per-band ``I0_b`` + (A1,B1,A2,B2) + shared higher orders.
 
@@ -424,7 +450,7 @@ def fit_simultaneous_joint(
         wls_mode = False
 
     if not fit_per_band_intens_jointly:
-        means = _per_band_mean(intens_per_band, variances_per_band)
+        means = _per_band_mean_or_median(intens_per_band, variances_per_band, integrator)
         residuals = intens_per_band - means[:, None]
         y_geom = residuals.reshape(n_bands * n_samples)
         A_full = build_joint_design_matrix_higher(angles, n_bands, orders_arr)
@@ -481,6 +507,7 @@ def fit_simultaneous_joint_loose(
     *,
     normalize: bool = False,
     fit_per_band_intens_jointly: bool = True,
+    integrator: str = "mean",
 ) -> Tuple[NDArray[np.float64], Optional[NDArray[np.float64]], bool]:
     """Loose-validity higher-order joint solver.
 
@@ -513,7 +540,7 @@ def fit_simultaneous_joint_loose(
         w_eff = w_eff * norm_per_row
 
     if not fit_per_band_intens_jointly:
-        means = _per_band_mean_jagged(intens_per_band, variances_per_band)
+        means = _per_band_mean_or_median_jagged(intens_per_band, variances_per_band, integrator)
         residuals_per_band = [
             intens_per_band[b] - means[b] if intens_per_band[b].size else intens_per_band[b]
             for b in range(n_bands)
@@ -1321,12 +1348,14 @@ def fit_isophote_mb(
                     config.harmonic_orders, vars_solve,
                     normalize=loose_normalize,
                     fit_per_band_intens_jointly=config.fit_per_band_intens_jointly,
+                    integrator=config.integrator,
                 )
             else:
                 coeffs_sub, cov_sub, wls_mode = fit_first_and_second_harmonics_joint_loose(
                     phi_solve, intens_solve, surviving_weights, vars_solve,
                     normalize=loose_normalize,
                     fit_per_band_intens_jointly=config.fit_per_band_intens_jointly,
+                    integrator=config.integrator,
                 )
             # Widen the surviving-bands solution back to a full coefficient
             # vector with NaN for dropped bands. Trailing block is
@@ -1348,11 +1377,13 @@ def fit_isophote_mb(
                     angles, intens_per_band, band_weights_arr,
                     config.harmonic_orders, variances_per_band,
                     fit_per_band_intens_jointly=config.fit_per_band_intens_jointly,
+                    integrator=config.integrator,
                 )
             else:
                 coeffs, cov_full, wls_mode = fit_first_and_second_harmonics_joint(
                     angles, intens_per_band, band_weights_arr, variances_per_band,
                     fit_per_band_intens_jointly=config.fit_per_band_intens_jointly,
+                    integrator=config.integrator,
                 )
 
         A1 = float(coeffs[n_bands])
@@ -2233,6 +2264,7 @@ def _attach_simultaneous_original_post_hoc(
             phi_sub, int_sub, sub_weights, orders, var_sub,
             normalize=(config.loose_validity_band_normalization == "per_band_count"),
             fit_per_band_intens_jointly=config.fit_per_band_intens_jointly,
+            integrator=config.integrator,
         )
         # Errors come from the surviving-bands cov; we just need the shared
         # higher-order block diagonal for the per-band column writes.
@@ -2253,6 +2285,7 @@ def _attach_simultaneous_original_post_hoc(
         coeffs_full, cov_full, _wls = fit_simultaneous_joint(
             angles, intens_per_band, band_weights_arr, orders, variances_per_band,
             fit_per_band_intens_jointly=config.fit_per_band_intens_jointly,
+            integrator=config.integrator,
         )
         a_n_block = coeffs_full[n_bands + 4:]
         if cov_full is not None and cov_full.shape[0] >= n_bands + 4 + 2 * L:

@@ -63,14 +63,25 @@ harmonic block — for example, when you have already done a high-
 quality sky subtraction upstream. Mutually exclusive with
 ``harmonic_combination='ref'`` (ref-mode bypasses the joint solve).
 
-> **Note on integrator scope (Stage-2):** the multi-band path
-> currently always uses an inverse-variance-weighted mean (WLS) or
-> simple mean (OLS) for ``intens_<b>``, in both modes. The
-> ``integrator`` config field does **not** affect ``intens_<b>``
-> reporting at converged isophotes — it only applies to per-band
-> gradient computation and the forced-photometry fallback. Median-
-> integrator support for ``intens_<b>`` will land when the single-
-> band integrator features are backported (Stage-3).
+> **Integrator scope (Stage-3, plan section 7 S1–S2):** the
+> ``integrator`` config field affects ``intens_<b>`` reporting at
+> converged isophotes only in the **decoupled** intercept mode.
+> ``integrator='mean'`` is unconditionally legal — both intercept
+> modes give a (weighted) ring mean, numerically identical on full
+> rings since ``sin(nφ)``/``cos(nφ)`` are orthogonal to the constant
+> column. ``integrator='median'`` requires
+> ``fit_per_band_intens_jointly=False``: the matrix-mode joint LS
+> solve cannot host a median (non-linear), so the validator hard-
+> errors on ``integrator='median'`` ∧
+> ``fit_per_band_intens_jointly=True`` with a remediation hint.
+> Under ``integrator='median'`` the decoupled path replaces the
+> per-band ring mean with a per-band ``np.median`` of the surviving
+> ring samples (sample sigma-clipping has already been applied
+> upstream by the sclip/nclip pipeline). Use this when partial-ring
+> contaminants would pull a ring mean (e.g. faint companion sectors,
+> diffraction spikes that the mask did not catch). The integrator
+> field still also drives (a) per-band gradient computation and
+> (b) the forced-photometry fallback for the central pixel.
 
 Renamed in Section 6 cleanup from the deprecated
 ``fix_per_band_background_to_zero`` (with inverted polarity:

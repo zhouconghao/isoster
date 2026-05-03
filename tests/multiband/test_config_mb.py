@@ -158,9 +158,79 @@ def test_integrator_adaptive_rejected():
 
 
 def test_integrator_mean_and_median_accepted():
-    for integ in ("mean", "median"):
-        cfg = IsosterConfigMB(bands=["g"], reference_band="g", integrator=integ)
+    # 'mean' is legal under both intercept modes; 'median' requires the
+    # decoupled mode (S1 validator). Cover both legal pairings here.
+    for integ, jointly in (("mean", True), ("mean", False), ("median", False)):
+        cfg = IsosterConfigMB(
+            bands=["g"], reference_band="g",
+            integrator=integ, fit_per_band_intens_jointly=jointly,
+        )
         assert cfg.integrator == integ
+        assert cfg.fit_per_band_intens_jointly is jointly
+
+
+# ---------------------------------------------------------------------------
+# Stage-3 S1: integrator='median' × intercept-mode validator
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("jointly", [True])
+def test_median_requires_decoupled_intercept_mode(jointly):
+    """Hard-error: integrator='median' ∧ fit_per_band_intens_jointly=True."""
+    with pytest.raises(ValidationError) as exc_info:
+        IsosterConfigMB(
+            bands=["g", "r"], reference_band="g",
+            integrator="median",
+            fit_per_band_intens_jointly=jointly,
+        )
+    msg = str(exc_info.value)
+    assert "integrator='median'" in msg
+    assert "fit_per_band_intens_jointly" in msg
+    assert "False" in msg  # remediation hint
+
+
+def test_median_decoupled_mode_accepted_with_loose_validity():
+    cfg = IsosterConfigMB(
+        bands=["g", "r"], reference_band="g",
+        integrator="median",
+        fit_per_band_intens_jointly=False,
+        loose_validity=True,
+    )
+    assert cfg.integrator == "median"
+    assert cfg.fit_per_band_intens_jointly is False
+
+
+def test_median_decoupled_mode_accepted_with_higher_harmonics_independent():
+    cfg = IsosterConfigMB(
+        bands=["g", "r", "i"], reference_band="r",
+        integrator="median",
+        fit_per_band_intens_jointly=False,
+        multiband_higher_harmonics="independent",
+    )
+    assert cfg.integrator == "median"
+
+
+def test_median_decoupled_mode_accepted_with_shared_higher_harmonics():
+    cfg = IsosterConfigMB(
+        bands=["g", "r", "i"], reference_band="r",
+        integrator="median",
+        fit_per_band_intens_jointly=False,
+        multiband_higher_harmonics="shared",
+    )
+    assert cfg.integrator == "median"
+    assert cfg.multiband_higher_harmonics == "shared"
+
+
+def test_mean_remains_legal_in_matrix_mode():
+    """Sanity: integrator='mean' is unconditionally legal — including the
+    default matrix-mode solve."""
+    cfg = IsosterConfigMB(
+        bands=["g", "r"], reference_band="g",
+        integrator="mean",
+        fit_per_band_intens_jointly=True,
+    )
+    assert cfg.integrator == "mean"
+    assert cfg.fit_per_band_intens_jointly is True
 
 
 # ---------------------------------------------------------------------------
