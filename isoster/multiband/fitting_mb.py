@@ -221,10 +221,13 @@ def fit_first_and_second_harmonics_joint(
 
     Notes
     -----
-    Decision D12: ``band_weights`` enter as ``sqrt(w_b)`` row scaling on
-    each band's row block. In WLS this composes with the per-pixel
-    inverse-variance weight as ``w_b / variance_b(pixel)`` in the
-    effective row weight.
+    Decision D12: ``band_weights`` enter the joint normal equations as a
+    diagonal weight matrix ``W = diag(w_eff)`` where each band's row block
+    receives the band's scalar weight ``w_b`` (``w_eff = w_b`` in OLS,
+    ``w_eff = w_b / variance_b(pixel)`` in WLS). The implementation
+    forms ``A^T W A`` via the equivalent one-sided product
+    ``AW.T @ A`` with ``AW = A * w_eff[:, None]``; this matches the
+    standard ``A^T W A`` rather than a literal ``sqrt(W) A`` row scaling.
     """
     n_bands, n_samples = intens_per_band.shape
 
@@ -1449,9 +1452,28 @@ def fit_isophote_mb(
                 coeffs[orig_idx] = coeffs_sub[new_idx]
             coeffs[n_bands:] = coeffs_sub[n_surviving:]
             if cov_sub is not None:
-                cov_full = np.zeros((n_bands + tail_width, n_bands + tail_width), dtype=np.float64)
-                for new_idx, orig_idx in enumerate(surviving_idx):
-                    cov_full[orig_idx, orig_idx] = cov_sub[new_idx, new_idx]
+                # Review fix H2: widen the FULL surviving-bands covariance
+                # block (including the surviving-band cross-correlations
+                # cov_sub[i, j] for i ≠ j) into the full ``(n_bands +
+                # tail_width)``-square matrix. The previous version
+                # dropped the off-diagonals, which would silently bias
+                # downstream cross-band uncertainty propagation. Dropped
+                # bands stay at zero (their I0_b is NaN — no cov
+                # information to propagate). The geometric ↔ surviving-
+                # band cross-block (cov_sub[surviving rows, n_surviving:])
+                # is also preserved at the surviving bands' original-index
+                # rows / cols.
+                cov_full = np.zeros(
+                    (n_bands + tail_width, n_bands + tail_width),
+                    dtype=np.float64,
+                )
+                for new_i, orig_i in enumerate(surviving_idx):
+                    for new_j, orig_j in enumerate(surviving_idx):
+                        cov_full[orig_i, orig_j] = cov_sub[new_i, new_j]
+                    # Cross-block: row orig_i (intercept) ↔ trailing geom.
+                    cov_full[orig_i, n_bands:] = cov_sub[new_i, n_surviving:]
+                    cov_full[n_bands:, orig_i] = cov_sub[n_surviving:, new_i]
+                # Trailing geometric block (shared across bands).
                 cov_full[n_bands:, n_bands:] = cov_sub[n_surviving:, n_surviving:]
             else:
                 cov_full = None
