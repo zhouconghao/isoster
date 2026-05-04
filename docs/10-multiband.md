@@ -608,13 +608,26 @@ Outer-tail PA MAD drops from 9.19e-02 (baseline) → 1.01e-02
 (lock-median): the lock pins outer geometry at the clean anchor,
 exactly the LSB stabilization the feature is designed for.
 
-The same caveat that applies to outer-reg ``{1,1,1}`` damping
-applies here: when the genuine outer-disc geometry is evolving
-(barred systems, BCG → ICL transitions), a hard lock will pin the
-outer envelope to the inner reference. Use the lock when the free-
-mode fit is failing (stop_code=-1 cascading); use lower
-``lsb_auto_lock_maxgerr`` (e.g. 0.5, matching free-mode) to delay
-firing when modest outer drift is actually meaningful.
+> **Galaxy-type caveat (2026-05-04).** The lock is designed for
+> **massive ellipticals / cD galaxies with extended LSB envelopes**
+> — the regime where the inner geometry is the best estimate of the
+> outer envelope's geometry and a hard freeze is the right LSB
+> stabilizer. **Do not enable it as a default on arbitrary galaxy
+> types.** On systems with genuine outer-disc geometry evolution
+> (barred galaxies, S0 / spiral systems with a real bulge → disc
+> transition, BCG → ICL transitions where the envelope rounds off),
+> a hard lock pins the outer envelope to the inner geometry and
+> obscures real structural change — the same failure mode the
+> Stage-B outer-reg ``{1, 1, 1}`` caveat documents. For those
+> targets, either leave the lock off, or raise
+> ``lsb_auto_lock_maxgerr`` (e.g. to ``0.5``, matching the free-fit
+> ``maxgerr``) so the lock delays firing until the joint gradient
+> is genuinely lost. The aggregate scatter metrics (eps MAD ≈ 0,
+> pa MAD ≈ 0) on locked isophotes look great in benchmarks but are
+> the geometric signature of "geometry pinned at anchor," not
+> "geometry tracked." Use the QA mosaics in
+> ``outputs/benchmark_multiband/lsb_auto_lock_{asteris,pgc}/`` to
+> read the trajectory, not just the scatter.
 
 ## Testing
 

@@ -457,10 +457,22 @@ class IsosterConfigMB(BaseModel):
         "``lsb_auto_lock_integrator``. Inward growth and the central "
         "pixel are unaffected. Trigger surface is the **joint combined "
         "gradient** (plan section 7 S3): tune ``reference_band`` and "
-        "``band_weights`` to influence which band(s) drive the trigger. "
-        "Default False; recommended for outer LSB / ICL fits where the "
-        "free-mode fit would otherwise produce stop_code=-1 in the "
-        "outer regime.",
+        "``band_weights`` to influence which band(s) drive the trigger.\n"
+        "\n"
+        "**Designed for massive ellipticals / cD galaxies with extended "
+        "LSB envelopes** — the regime where the inner geometry is the "
+        "best estimate of the outer envelope's geometry and a hard lock "
+        "is the right LSB stabilizer. **Do NOT enable by default on "
+        "arbitrary galaxy types**: on systems with genuine outer-disc "
+        "geometry evolution (barred galaxies, S0/spiral systems with "
+        "a real bulge → disc transition, BCG → ICL transitions), the "
+        "lock will pin the outer envelope to the inner geometry and "
+        "obscure real structural change. Same failure mode as outer-reg "
+        "``{1, 1, 1}`` damping (Stage-B caveat). For those targets, "
+        "either leave the lock off, or raise ``lsb_auto_lock_maxgerr`` "
+        "(e.g. to 0.5, matching the free-fit ``maxgerr``) so the lock "
+        "delays firing until the gradient is genuinely lost. Default "
+        "False.",
     )
     lsb_auto_lock_maxgerr: float = Field(
         default=0.3,
