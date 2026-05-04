@@ -182,3 +182,40 @@ def test_load_bands_from_hdus_missing_filter_rejected():
     hdus = [fits.PrimaryHDU(np.ones((8, 8)))]
     with pytest.raises(KeyError, match="FILTER"):
         load_bands_from_hdus(hdus)
+
+
+# ---------------------------------------------------------------------------
+# Stage-3 Stage-D: compute_cog Schema-1 round-trip
+# ---------------------------------------------------------------------------
+
+
+def test_fits_roundtrip_preserves_compute_cog_columns(tmp_path):
+    """compute_cog=True writes per-band ``cog_<b>`` and shared
+    ``area_annulus`` / ``flag_*`` columns; round-trip preserves them."""
+    img_g = _planted(100.0, 11)
+    img_r = _planted(200.0, 12)
+    cfg = IsosterConfigMB(
+        bands=["g", "r"], reference_band="g",
+        sma0=12.0, eps=0.2, pa=0.3, astep=0.2, maxsma=60.0,
+        compute_cog=True,
+    )
+    result = fit_image_multiband([img_g, img_r], None, cfg)
+    fname = tmp_path / "mb_cog.fits"
+    isophote_results_mb_to_fits(result, fname)
+    loaded = isophote_results_mb_from_fits(fname)
+
+    assert len(loaded["isophotes"]) == len(result["isophotes"])
+    # Verify per-row per-band cog columns + shared geometry-derived
+    # columns survive the FITS round-trip.
+    for orig, restored in zip(result["isophotes"], loaded["isophotes"]):
+        for col in ("cog_g", "cog_r", "cog_annulus_g", "cog_annulus_r",
+                    "area_annulus"):
+            assert col in orig
+            assert col in restored
+            np.testing.assert_allclose(
+                float(restored[col]), float(orig[col]), atol=1e-9, rtol=0,
+            )
+        for col in ("flag_cross", "flag_negative_area"):
+            assert col in orig
+            assert col in restored
+            assert bool(restored[col]) == bool(orig[col])

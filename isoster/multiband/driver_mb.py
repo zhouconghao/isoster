@@ -703,6 +703,24 @@ def fit_image_multiband(
 
     _validate_non_negative_error_fields(final_list)
 
+    # Stage-3 Stage-D: per-band curve-of-growth photometry. Runs once
+    # over the assembled isophote list (ascending sma) and stamps
+    # per-band ``cog_<b>`` / ``cog_annulus_<b>`` plus shared
+    # ``area_annulus`` / ``flag_cross`` / ``flag_negative_area`` onto
+    # each row dict. Schema 1 round-trip handles the new columns
+    # automatically via ``Table(rows=isophotes)`` auto-inference. See
+    # plan section 7 S7.
+    if config.compute_cog and final_list:
+        from .cog_mb import add_cog_mb_to_isophotes, compute_cog_mb
+
+        cog_results = compute_cog_mb(
+            final_list,
+            bands=list(config.bands),
+            fix_center=config.fix_center,
+            fix_geometry=config.fix_center and config.fix_pa and config.fix_eps,
+        )
+        add_cog_mb_to_isophotes(final_list, list(config.bands), cog_results)
+
     # Suppress the forced-photometry helper for unused imports — the
     # central pixel uses _fit_central_pixel_mb above. Kept available for
     # callers that want to do extra single-isophote forced extractions.

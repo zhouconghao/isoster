@@ -1220,3 +1220,154 @@ def test_top_level_grad_keys_under_debug():
     assert "grad" in out
     assert "grad_error" in out
     assert np.isfinite(float(out["grad"]))
+
+
+# ---------------------------------------------------------------------------
+# Stage-3 Stage-D: per-band curve-of-growth
+# ---------------------------------------------------------------------------
+
+
+def test_compute_cog_mb_empty_isophote_list_returns_empty_arrays():
+    from isoster.multiband.cog_mb import compute_cog_mb
+    out = compute_cog_mb([], bands=["g", "r"])
+    for key in (
+        "sma", "area_annulus", "area_annulus_raw",
+        "flag_cross", "flag_negative_area",
+        "cog_g", "cog_annulus_g", "cog_r", "cog_annulus_r",
+    ):
+        assert key in out, f"missing {key}"
+        assert np.asarray(out[key]).size == 0
+
+
+def test_compute_cog_mb_single_isophote_uses_intensity_for_first_annulus():
+    """First annulus area = π·a·b; first cog = intens · area."""
+    from isoster.multiband.cog_mb import compute_cog_mb
+    isos = [
+        {"sma": 10.0, "eps": 0.0, "x0": 0.0, "y0": 0.0, "pa": 0.0,
+         "stop_code": 0, "intens": 1.0, "intens_g": 5.0, "intens_r": 3.0},
+    ]
+    out = compute_cog_mb(isos, bands=["g", "r"])
+    expected_area = float(np.pi * 10.0 * 10.0)
+    assert float(out["area_annulus"][0]) == pytest.approx(expected_area)
+    assert float(out["cog_g"][0]) == pytest.approx(5.0 * expected_area)
+    assert float(out["cog_r"][0]) == pytest.approx(3.0 * expected_area)
+
+
+def test_compute_cog_mb_cumulative_flux_is_monotonic_on_clean_profile():
+    """A monotonically decreasing per-band intens profile gives a
+    monotonically increasing cog (until the per-band intens hits zero)."""
+    from isoster.multiband.cog_mb import compute_cog_mb
+    smas = np.linspace(5.0, 50.0, 10)
+    intens_g = np.exp(-smas / 20.0) * 100.0
+    intens_r = np.exp(-smas / 25.0) * 50.0
+    isos = [
+        {"sma": float(s), "eps": 0.2, "x0": 0.0, "y0": 0.0, "pa": 0.0,
+         "stop_code": 0, "intens": float(intens_g[i]),
+         "intens_g": float(intens_g[i]), "intens_r": float(intens_r[i])}
+        for i, s in enumerate(smas)
+    ]
+    out = compute_cog_mb(isos, bands=["g", "r"])
+    cog_g = np.asarray(out["cog_g"])
+    cog_r = np.asarray(out["cog_r"])
+    # Strictly increasing.
+    assert np.all(np.diff(cog_g) > 0)
+    assert np.all(np.diff(cog_r) > 0)
+    # g flux > r flux at every isophote (since intens_g > intens_r).
+    assert np.all(cog_g >= cog_r)
+
+
+def test_add_cog_mb_to_isophotes_stamps_per_band_columns():
+    from isoster.multiband.cog_mb import (
+        add_cog_mb_to_isophotes, compute_cog_mb,
+    )
+    isos = [
+        {"sma": 5.0, "eps": 0.1, "x0": 0.0, "y0": 0.0, "pa": 0.0,
+         "stop_code": 0, "intens": 10.0,
+         "intens_g": 10.0, "intens_r": 8.0},
+        {"sma": 10.0, "eps": 0.1, "x0": 0.0, "y0": 0.0, "pa": 0.0,
+         "stop_code": 0, "intens": 5.0,
+         "intens_g": 5.0, "intens_r": 4.0},
+    ]
+    cog = compute_cog_mb(isos, bands=["g", "r"])
+    add_cog_mb_to_isophotes(isos, ["g", "r"], cog)
+    for iso in isos:
+        for k in (
+            "area_annulus", "flag_cross", "flag_negative_area",
+            "cog_g", "cog_r", "cog_annulus_g", "cog_annulus_r",
+        ):
+            assert k in iso, f"row missing {k}"
+        assert isinstance(iso["flag_cross"], bool)
+        assert isinstance(iso["flag_negative_area"], bool)
+
+
+def test_fit_image_multiband_compute_cog_end_to_end():
+    """Driver end-to-end: compute_cog=True stamps per-band cog columns
+    onto every row of result['isophotes']."""
+    from isoster.multiband import fit_image_multiband
+    img1 = _planted_galaxy(amplitude=100.0, noise_sigma=0.005, seed=88)
+    img2 = _planted_galaxy(amplitude=50.0, noise_sigma=0.005, seed=89)
+    cfg = IsosterConfigMB(
+        bands=["g", "r"], reference_band="g",
+        sma0=10.0, maxsma=60.0, astep=0.2,
+        compute_cog=True,
+    )
+    res = fit_image_multiband([img1, img2], masks=None, config=cfg)
+    rows = res["isophotes"]
+    assert len(rows) >= 5
+    for iso in rows:
+        for key in (
+            "area_annulus", "flag_cross", "flag_negative_area",
+            "cog_g", "cog_r", "cog_annulus_g", "cog_annulus_r",
+        ):
+            assert key in iso, f"row at sma={iso['sma']} missing {key}"
+        assert iso["area_annulus"] >= 0.0
+    # Cumulative flux should be monotonic on a clean planted galaxy.
+    cog_g = np.asarray([float(iso["cog_g"]) for iso in rows])
+    valid_g = np.isfinite(cog_g)
+    if int(valid_g.sum()) > 3:
+        cog_g_valid = cog_g[valid_g]
+        # Allow tiny non-monotonicity from noise; require overall growth.
+        assert cog_g_valid[-1] > cog_g_valid[0]
+
+
+def test_fit_image_multiband_compute_cog_off_no_extra_columns():
+    """compute_cog=False (default) leaves the row dict untouched."""
+    from isoster.multiband import fit_image_multiband
+    img = _planted_galaxy(seed=77)
+    cfg = IsosterConfigMB(
+        bands=["g", "r"], reference_band="g",
+        sma0=10.0, maxsma=40.0, astep=0.2,
+    )
+    res = fit_image_multiband([img, img], masks=None, config=cfg)
+    for iso in res["isophotes"]:
+        for key in (
+            "area_annulus", "flag_cross", "flag_negative_area",
+            "cog_g", "cog_r",
+        ):
+            assert key not in iso, f"unexpected {key} in row at sma={iso['sma']}"
+
+
+def test_compute_cog_mb_b1_matches_single_band_per_band_column():
+    """B=1 multi-band CoG agrees with single-band CoG for a curated
+    isophote list whose ``intens`` and ``intens_<b>`` are identical."""
+    from isoster.cog import compute_cog as compute_cog_sb
+    from isoster.multiband.cog_mb import compute_cog_mb
+    smas = np.linspace(3.0, 30.0, 8)
+    intens_arr = np.exp(-smas / 10.0) * 50.0
+    isos = [
+        {"sma": float(s), "eps": 0.2, "x0": 0.0, "y0": 0.0, "pa": 0.0,
+         "stop_code": 0, "intens": float(intens_arr[i]),
+         "intens_g": float(intens_arr[i])}
+        for i, s in enumerate(smas)
+    ]
+    sb_out = compute_cog_sb(isos)
+    mb_out = compute_cog_mb(isos, bands=["g"])
+    np.testing.assert_allclose(
+        np.asarray(mb_out["cog_g"]), sb_out["cog"], rtol=1e-12,
+    )
+    np.testing.assert_allclose(
+        np.asarray(mb_out["cog_annulus_g"]), sb_out["cog_annulus"], rtol=1e-12,
+    )
+    np.testing.assert_allclose(
+        np.asarray(mb_out["area_annulus"]), sb_out["area_annulus"], rtol=1e-12,
+    )
