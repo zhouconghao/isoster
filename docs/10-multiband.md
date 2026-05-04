@@ -432,6 +432,105 @@ implicitly. Demo scripts call it explicitly between FITS write and
 QA plot generation; raw FITS files always preserve the unmodified
 ``intens_<b>``.
 
+### Outer-region regularization — damping mode (Stage-3 Stage-B)
+
+Backport of the single-band ``outer_reg_*`` family in **damping**
+mode. Use ``use_outer_center_regularization=True`` to enable a soft
+Tikhonov-style step shrink in the LSB regime: per-iteration geometry
+updates ``δ_param`` are multiplied by ``(1 - α(sma))``, where ``α``
+ramps from 0 below ``outer_reg_sma_onset`` to a saturation set by
+``outer_reg_strength``. Saturated clipped jumps in PA, ellipticity,
+and center are suppressed; the fit still walks to its data-preferred
+geometry — there is no pull toward the reference. The full Tikhonov
+solver mode (with reference pull) lands in Stage E.
+
+Six fields, mirroring single-band semantics:
+
+| Field | Default | Notes |
+|---|---|---|
+| ``use_outer_center_regularization`` | ``False`` | Master toggle. |
+| ``outer_reg_sma_onset`` | ``50.0`` | Sigmoid midpoint (pixels). |
+| ``outer_reg_strength`` | ``2.0`` | Saturation amplitude of the ramp. |
+| ``outer_reg_weights`` | ``{center: 1, eps: 1, pa: 1}`` | Per-axis weights; default ``{1,1,1}`` damps all four geometry parameters and prevents the selector-asymmetry failure mode. |
+| ``outer_reg_sma_width`` | ``None`` (auto = ``0.4 * onset``) | Sigmoid slope width. |
+| ``outer_reg_ref_sma_factor`` | ``2.0`` | Inward isophotes within ``sma0 × factor`` feed the flux-weighted reference. |
+
+The ``outer_reg_mode`` field is currently a one-value
+``Literal["damping"]``. Stage E will widen it to
+``Literal["damping", "solver"]`` and add the full Tikhonov
+ref-pull. Users who set ``outer_reg_mode='solver'`` today get a
+clear pydantic Literal validation error.
+
+**Auto-enable.** With ``use_outer_center_regularization=True`` and
+default ``geometry_convergence=False``, the validator emits a
+``UserWarning`` and flips ``geometry_convergence=True`` automatically.
+Without geometry convergence the fit runs to ``maxit`` on outer
+isophotes with no change to recorded geometry — pure cost.
+Suppress the warning by setting ``geometry_convergence=True``
+explicitly.
+
+**Sanity warnings.** The validator also emits warnings for:
+
+- ``outer_reg_sma_onset < sma0`` (penalty fires from the first
+  outward step; typical onset ~ ``sma0 * 3``).
+- ``minsma >= sma0`` (no inward isophotes → reference falls back to
+  the anchor's geometry).
+- All ``outer_reg_weights`` zero (feature is inert).
+- ``fix_<axis>=True`` with ``outer_reg_weights[<axis>]>0`` (axis is
+  frozen so the penalty is identically zero).
+
+**Reference geometry.** Built once per fit by
+``_build_outer_reference_mb`` in the driver. Flux-weighted mean
+(weights = ``intens_<reference_band>``) over inward isophotes with
+``sma <= sma0 * outer_reg_ref_sma_factor`` plus the anchor; ``pa``
+uses a circular mean on ``2*pa`` so axis-like angles around 0 and π
+average sensibly. Falls back to the anchor's geometry if the inward
+sweep is empty or all candidates fail finiteness checks.
+
+**Asteris benchmark.**
+``benchmarks/multiband/bench_outer_reg_damping_asteris.py`` compares
+three configs (no outer-reg, center-only damper, all-axes damper) on
+HSC g/r/i/z/y. Headline results (n_repeats=3, B=5, 768²):
+
+| configuration | median (s) | ratio vs SB | outer eps MAD | outer pa MAD |
+|---|---:|---:|---:|---:|
+| singleband (i-band) | 0.333 | 1.00× | — | — |
+| baseline (no outer-reg) | 0.425 | 1.28× | 1.17e-01 | 9.19e-02 |
+| damping center-only | 0.436 | 1.31× | 5.39e-02 | 0.00 |
+| damping all axes (default) | 0.388 | **1.16×** | 9.93e-06 | 0.00 |
+
+All PASS the ≤ 2.5× single-band bar. Damping-vs-baseline overhead
+is **0.91×** — the all-axes damper is faster than baseline because
+the auto-enabled ``geometry_convergence`` lets damped fits exit
+earlier than the harmonic-only criterion does in the LSB regime.
+
+> **Real-data caveat for the all-axes default (2026-05-04).** The
+> all-axes ``{center: 1, eps: 1, pa: 1}`` default mirrors single-band
+> and looks excellent on aggregate scatter metrics (eps MAD ≈ 1e-5
+> on asteris, pa MAD = 0 on both targets). But the QA mosaics in
+> ``outputs/benchmark_multiband/outer_reg_damping_{asteris,pgc}/``
+> show that on galaxies with **genuine outer-disc geometry
+> evolution** the all-axes damper is too aggressive: ``alpha → 1``
+> for eps and pa above the onset, pinning the outer-isophote shape
+> to the inner reference and ignoring real structural change. On
+> PGC006669 the outer disc inherits the bar's PA / ellipticity; on
+> asteris the isophotal shape freezes before the LSB envelope
+> rounds off. The ``pa MAD = 0`` is the geometric signature of
+> "PA frozen," not "PA tracked." A bias metric vs a free-fit
+> reference (not just scatter) is needed to distinguish a healthy
+> damper from over-pinning.
+>
+> The implementation is correct and matches single-band semantics.
+> The defaults — copied verbatim from single-band — were tuned on
+> HSC BCG fits where the outer envelope is genuinely round and not
+> evolving. For galaxies with bars, structural transitions, or
+> evolving disc geometry, prefer ``outer_reg_weights={center: 1,
+> eps: 0, pa: 0}`` (center-only) or lower ``outer_reg_strength``.
+> A multi-band-specific re-default and a strength sweep on PGC are
+> deferred to a future session; the journal entry
+> ``docs/agent/journal/2026-05-04_stage_b_outer_reg_damping.md``
+> records the open questions.
+
 ## Testing
 
 Multi-band tests live under `tests/multiband/` (152 total, all green):

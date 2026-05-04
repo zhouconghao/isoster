@@ -355,6 +355,88 @@ class IsosterConfigMB(BaseModel):
         "FIRST_FEW_ISOPHOTE_FAILURE. Same semantics as single-band.",
     )
 
+    # --- Stage-3 Stage-B: outer-region center regularization (damping mode) ---
+    # Backport of the single-band ``outer_reg_*`` family with the ``damping``
+    # mode only. ``solver`` mode lands in Stage E. See plan section 7 (S5).
+    use_outer_center_regularization: bool = Field(
+        default=False,
+        description="Enable soft outer-region geometry damping in the LSB "
+        "regime. When True, the outward sweep softly shrinks per-iteration "
+        "geometry steps via a Tikhonov-style ``alpha`` blend in regions "
+        "above ``outer_reg_sma_onset`` — saturated clipped jumps in PA / "
+        "ellipticity / center are suppressed, but the fit still walks to "
+        "its data-preferred geometry (no pull toward a frozen reference; "
+        "that is ``outer_reg_mode='solver'``, which lands in Stage E). "
+        "Requires the inward sweep to run before outward growth so the "
+        "frozen inner reference geometry can be built. Disabled by default; "
+        "recommended for outer LSB on real-data BCG / ICL fits.",
+    )
+    outer_reg_sma_onset: float = Field(
+        default=50.0,
+        gt=0.0,
+        description="SMA (pixels) at the midpoint of the outer-regularization "
+        "sigmoid. Below this the damping is near zero; above it the alpha "
+        "blend ramps up toward a saturation set by ``outer_reg_strength``.",
+    )
+    outer_reg_strength: float = Field(
+        default=2.0,
+        ge=0.0,
+        description="Peak strength of the outer-region damping ramp. Controls "
+        "how aggressively per-iteration geometry steps are shrunk above the "
+        "onset. Typical range 2–8 for HSC-grade LSB data; default 2.0 was "
+        "the single-band benchmark winner on the HSC edge-case suite.",
+    )
+    outer_reg_weights: Dict[str, float] = Field(
+        default_factory=lambda: {"center": 1.0, "eps": 1.0, "pa": 1.0},
+        description="Per-axis weights for the outer-region damping. Default "
+        "``{center: 1, eps: 1, pa: 1}`` damps all four geometry parameters "
+        "uniformly — required (in the single-band benchmark suite) to "
+        "prevent the selector-asymmetry failure mode where center-only "
+        "damping redirects the outer random walk from ``(x0, y0)`` into "
+        "``(eps, pa)``. Set an axis weight to 0 to disable damping on that "
+        "axis. Unknown keys are rejected.\n"
+        "\n"
+        "**Real-data caveat (multi-band, 2026-05-04).** On galaxies with "
+        "genuine outer-disc geometry evolution — e.g. a barred system "
+        "where the inner reference inherits the bar's PA / ellipticity, "
+        "or a BCG → ICL transition where the outer envelope rounds off — "
+        "the all-axes default can be **too aggressive**: ``alpha → 1`` "
+        "for eps/pa above the onset, pinning the outer geometry to the "
+        "inner reference and ignoring real structural change. On the "
+        "asteris HSC and PGC006669 LegacySurvey demos this is visible as "
+        "outer-disc isophotes inheriting the bar's shape (PGC) or the "
+        "isophotal ellipticity freezing too early (asteris). Consider "
+        "``{center: 1, eps: 0, pa: 0}`` (center-only damping) on targets "
+        "with genuine outer geometry evolution, or lower "
+        "``outer_reg_strength`` if you want all-axes damping but less "
+        "aggression. The Stage-B default mirrors single-band; a "
+        "multi-band-specific re-default is deferred to a strength sweep "
+        "in a future session.",
+    )
+    outer_reg_mode: Literal["damping"] = Field(
+        default="damping",
+        description="How the outer-region penalty enters the fit. Stage B "
+        "ships ``'damping'`` only — step shrink ``(1 - alpha)`` on the "
+        "harmonic update, no pull toward the reference. ``'solver'`` mode "
+        "(full Tikhonov with ref-pull) lands in Stage E and will widen "
+        "this Literal at that time.",
+    )
+    outer_reg_sma_width: Optional[float] = Field(
+        default=None,
+        gt=0.0,
+        description="Sigmoid slope width (pixels) for the outer-region "
+        "damping ramp. ``None`` (default) auto-computes as "
+        "``0.4 * outer_reg_sma_onset``. Smaller values give a sharper "
+        "transition at the onset; expert tuning only.",
+    )
+    outer_reg_ref_sma_factor: float = Field(
+        default=2.0,
+        gt=1.0,
+        description="Inward isophotes with ``sma <= sma0 * this factor`` "
+        "feed the flux-weighted reference geometry. Default 2.0 mirrors "
+        "single-band; typical range 1.5–3. Expert tuning only.",
+    )
+
     # --- Read-only field surfaced after driver entry ---
     # ``variance_mode`` is auto-derived from whether ``variance_maps`` is
     # provided to ``fit_image_multiband``. It is exposed as a config field
@@ -595,6 +677,77 @@ class IsosterConfigMB(BaseModel):
                 UserWarning,
                 stacklevel=2,
             )
+
+        # --- Stage-3 Stage-B: outer-region regularization sanity ---
+        if self.use_outer_center_regularization:
+            valid_axes = {"center", "eps", "pa"}
+            unknown_axes = set(self.outer_reg_weights.keys()) - valid_axes
+            if unknown_axes:
+                raise ValueError(
+                    f"outer_reg_weights contains unknown keys: {sorted(unknown_axes)}. "
+                    f"Valid keys: {sorted(valid_axes)}."
+                )
+            if self.outer_reg_sma_onset < self.sma0:
+                warnings.warn(
+                    f"outer_reg_sma_onset ({self.outer_reg_sma_onset}) < sma0 "
+                    f"({self.sma0}): the outer-regularization damping will "
+                    f"fire from the first outward step and may over-constrain "
+                    f"the mid-sma region. Typical onset ~ sma0 * 3.",
+                    UserWarning,
+                    stacklevel=2,
+                )
+            if self.minsma >= self.sma0:
+                warnings.warn(
+                    f"use_outer_center_regularization=True with minsma "
+                    f"({self.minsma}) >= sma0 ({self.sma0}): no inward "
+                    f"isophotes to build the reference centroid, so the "
+                    f"reference will fall back to the anchor isophote center.",
+                    UserWarning,
+                    stacklevel=2,
+                )
+            for axis in ("center", "eps", "pa"):
+                fixed = {"center": "fix_center", "eps": "fix_eps", "pa": "fix_pa"}[axis]
+                if (
+                    getattr(self, fixed)
+                    and float(self.outer_reg_weights.get(axis, 0.0)) > 0.0
+                ):
+                    warnings.warn(
+                        f"outer_reg_weights[{axis!r}]>0 with {fixed}=True: "
+                        f"the {axis} parameter is frozen so the {axis} "
+                        f"penalty is identically zero. Set "
+                        f"outer_reg_weights[{axis!r}]=0 or disable {fixed}.",
+                        UserWarning,
+                        stacklevel=2,
+                    )
+            if all(
+                float(self.outer_reg_weights.get(k, 0.0)) <= 0.0
+                for k in ("center", "eps", "pa")
+            ):
+                warnings.warn(
+                    "use_outer_center_regularization=True but all "
+                    "outer_reg_weights are zero: the damping is identically "
+                    "zero and the feature is inert. Set at least one of "
+                    "center/eps/pa to a positive value.",
+                    UserWarning,
+                    stacklevel=2,
+                )
+            # Auto-enable geometry_convergence: with damping the geometry
+            # genuinely settles, but the harmonic criterion may keep tripping
+            # near saturation; without geometry_convergence the fit runs to
+            # maxit on many outer isophotes with no change to recorded
+            # geometry. Pure cost, no benefit. Mirrors single-band behavior.
+            if not self.geometry_convergence:
+                warnings.warn(
+                    "use_outer_center_regularization=True auto-enables "
+                    "geometry_convergence=True because the outer damping "
+                    "term otherwise prevents the harmonic criterion from "
+                    "tripping in the LSB regime. To keep "
+                    "geometry_convergence=False, disable "
+                    "use_outer_center_regularization instead.",
+                    UserWarning,
+                    stacklevel=2,
+                )
+                self.geometry_convergence = True
 
         return self
 

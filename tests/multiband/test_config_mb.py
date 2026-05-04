@@ -484,3 +484,142 @@ def test_higher_harmonics_compatible_with_loose_validity(value):
         )
     assert cfg.multiband_higher_harmonics == value
     assert cfg.loose_validity is True
+
+
+# ---------------------------------------------------------------------------
+# Stage-3 Stage-B: outer-region regularization (damping mode)
+# ---------------------------------------------------------------------------
+
+
+def test_outer_reg_default_off_with_neutral_fields():
+    cfg = IsosterConfigMB(bands=["g", "r"], reference_band="g")
+    assert cfg.use_outer_center_regularization is False
+    assert cfg.outer_reg_mode == "damping"
+    assert cfg.outer_reg_sma_onset == 50.0
+    assert cfg.outer_reg_strength == 2.0
+    assert cfg.outer_reg_weights == {"center": 1.0, "eps": 1.0, "pa": 1.0}
+    assert cfg.outer_reg_sma_width is None
+    assert cfg.outer_reg_ref_sma_factor == 2.0
+
+
+def test_outer_reg_solver_value_rejected_until_stage_e():
+    """Stage B ships ``damping`` only; ``solver`` must fail Literal check."""
+    with pytest.raises(ValidationError):
+        IsosterConfigMB(
+            bands=["g", "r"], reference_band="g",
+            use_outer_center_regularization=True,
+            outer_reg_mode="solver",  # type: ignore[arg-type]
+        )
+
+
+def test_outer_reg_unknown_axis_key_rejected():
+    with pytest.raises(ValidationError) as exc_info:
+        IsosterConfigMB(
+            bands=["g", "r"], reference_band="g",
+            use_outer_center_regularization=True,
+            outer_reg_weights={"center": 1.0, "spin": 1.0},
+        )
+    assert "spin" in str(exc_info.value)
+
+
+def test_outer_reg_onset_below_sma0_emits_warning():
+    with warnings.catch_warnings(record=True) as w:
+        warnings.simplefilter("always")
+        IsosterConfigMB(
+            bands=["g", "r"], reference_band="g",
+            use_outer_center_regularization=True,
+            sma0=20.0, outer_reg_sma_onset=10.0,
+        )
+    msgs = [str(item.message) for item in w]
+    assert any(
+        "outer_reg_sma_onset" in m and "sma0" in m for m in msgs
+    ), msgs
+
+
+def test_outer_reg_minsma_above_sma0_emits_warning():
+    with warnings.catch_warnings(record=True) as w:
+        warnings.simplefilter("always")
+        IsosterConfigMB(
+            bands=["g", "r"], reference_band="g",
+            use_outer_center_regularization=True,
+            sma0=10.0, minsma=20.0,
+        )
+    msgs = [str(item.message) for item in w]
+    assert any("inward isophotes" in m for m in msgs), msgs
+
+
+def test_outer_reg_all_zero_weights_emits_warning():
+    with warnings.catch_warnings(record=True) as w:
+        warnings.simplefilter("always")
+        IsosterConfigMB(
+            bands=["g", "r"], reference_band="g",
+            use_outer_center_regularization=True,
+            outer_reg_weights={"center": 0.0, "eps": 0.0, "pa": 0.0},
+        )
+    msgs = [str(item.message) for item in w]
+    assert any("identically zero" in m for m in msgs), msgs
+
+
+def test_outer_reg_auto_enables_geometry_convergence():
+    """Auto-enable: feature on with default geometry_convergence=False
+    flips the field to True after the warning fires."""
+    with warnings.catch_warnings(record=True) as w:
+        warnings.simplefilter("always")
+        cfg = IsosterConfigMB(
+            bands=["g", "r"], reference_band="g",
+            use_outer_center_regularization=True,
+        )
+    msgs = [str(item.message) for item in w]
+    assert any("auto-enables" in m and "geometry_convergence" in m for m in msgs)
+    assert cfg.geometry_convergence is True
+
+
+def test_outer_reg_no_geom_conv_warning_when_already_enabled():
+    """If user already set geometry_convergence=True, no auto-enable warning."""
+    with warnings.catch_warnings(record=True) as w:
+        warnings.simplefilter("always")
+        cfg = IsosterConfigMB(
+            bands=["g", "r"], reference_band="g",
+            use_outer_center_regularization=True,
+            geometry_convergence=True,
+        )
+    msgs = [str(item.message) for item in w]
+    assert not any("auto-enables" in m for m in msgs), msgs
+    assert cfg.geometry_convergence is True
+
+
+@pytest.mark.parametrize(
+    "fixed_field, axis",
+    [("fix_center", "center"), ("fix_eps", "eps"), ("fix_pa", "pa")],
+)
+def test_outer_reg_fix_axis_warning(fixed_field, axis):
+    """fix_<axis>=True with positive outer_reg_weights[<axis>] warns."""
+    with warnings.catch_warnings(record=True) as w:
+        warnings.simplefilter("always")
+        IsosterConfigMB(
+            bands=["g", "r"], reference_band="g",
+            use_outer_center_regularization=True,
+            **{fixed_field: True},
+        )
+    msgs = [str(item.message) for item in w]
+    assert any(
+        f"outer_reg_weights[{axis!r}]" in m and fixed_field in m for m in msgs
+    ), msgs
+
+
+def test_outer_reg_off_does_not_emit_warnings():
+    """Sanity: feature disabled means no outer_reg warnings, even if
+    sma_onset etc. would otherwise trip them."""
+    with warnings.catch_warnings(record=True) as w:
+        warnings.simplefilter("always")
+        cfg = IsosterConfigMB(
+            bands=["g", "r"], reference_band="g",
+            use_outer_center_regularization=False,
+            sma0=20.0, outer_reg_sma_onset=5.0,  # would warn if feature on
+            outer_reg_weights={"center": 0.0, "eps": 0.0, "pa": 0.0},
+        )
+    msgs = [str(item.message) for item in w]
+    for kw in ("outer_reg", "auto-enables"):
+        assert not any(kw in m for m in msgs), msgs
+    assert cfg.use_outer_center_regularization is False
+    assert cfg.geometry_convergence is False  # NOT auto-enabled

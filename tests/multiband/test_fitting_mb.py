@@ -819,3 +819,233 @@ def test_fit_isophote_mb_median_intercept_end_to_end():
         assert np.isfinite(out[f"intens_{b}"])
         assert out[f"intens_{b}"] > 0
         assert np.isfinite(out[f"intens_err_{b}"])
+
+
+# ---------------------------------------------------------------------------
+# Stage-3 Stage-B: outer-region damping
+# ---------------------------------------------------------------------------
+
+
+def test_fit_isophote_mb_outer_damping_inert_below_onset():
+    """At sma well below onset, damping has lambda ≈ 0 → identical fit.
+
+    Both configs run with geometry_convergence=True so the comparison
+    isolates the outer-reg effect from the auto-enable side-effect.
+    """
+    import warnings as _warnings
+    img = _planted_galaxy(amplitude=100.0, noise_sigma=0.001, seed=42)
+    cfg_off = IsosterConfigMB(
+        bands=["g", "r"], reference_band="g",
+        geometry_convergence=True,
+    )
+    with _warnings.catch_warnings():
+        _warnings.simplefilter("ignore", UserWarning)
+        cfg_on = IsosterConfigMB(
+            bands=["g", "r"], reference_band="g",
+            geometry_convergence=True,
+            use_outer_center_regularization=True,
+            outer_reg_sma_onset=200.0,  # well above test sma
+            outer_reg_strength=10.0,
+        )
+    ref_geom = {"x0": 128.0, "y0": 128.0, "eps": 0.3, "pa": 0.5}
+    out_off = fit_isophote_mb(
+        images=[img, img], masks=None, sma=20.0,
+        start_geometry={"x0": 128.0, "y0": 128.0, "eps": 0.2, "pa": 0.0},
+        config=cfg_off,
+    )
+    out_on = fit_isophote_mb(
+        images=[img, img], masks=None, sma=20.0,
+        start_geometry={"x0": 128.0, "y0": 128.0, "eps": 0.2, "pa": 0.0},
+        config=cfg_on,
+        outer_reference_geom=ref_geom,
+    )
+    # sma=20, onset=200, default width=80 → lambda ≈ 0.19 * coeff² which
+    # times 8e-3-ish coefficient produces an alpha of order 1e-5; the
+    # step shrink is sub-pixel-fraction. With matching
+    # geometry_convergence on both sides the fits agree to better than
+    # 1e-6, well below any pixel-scale interpretation.
+    for k in ("x0", "y0", "eps", "pa"):
+        assert abs(float(out_off[k]) - float(out_on[k])) < 1e-6
+
+
+def test_fit_isophote_mb_outer_damping_active_above_onset():
+    """At sma well above onset, damping shrinks per-iteration steps:
+    fewer / smaller geometry updates from the same starting point in the
+    same number of iterations."""
+    import warnings as _warnings
+    rng = np.random.default_rng(2026)
+    img = _planted_galaxy(amplitude=100.0, noise_sigma=0.05, seed=99)
+    # Inject a small mid-image bump that pulls geometry away from truth on
+    # outer rings; gives the damper something to push back against.
+    bump = np.zeros_like(img)
+    yy, xx = np.mgrid[0:img.shape[0], 0:img.shape[1]]
+    bump += 0.5 * np.exp(-((xx - 90.0) ** 2 + (yy - 90.0) ** 2) / (5.0 ** 2))
+    img = img + bump + rng.normal(0.0, 1e-4, size=img.shape)
+
+    cfg_off = IsosterConfigMB(
+        bands=["g", "r"], reference_band="g", maxit=12,
+    )
+    with _warnings.catch_warnings():
+        _warnings.simplefilter("ignore", UserWarning)
+        cfg_on = IsosterConfigMB(
+            bands=["g", "r"], reference_band="g", maxit=12,
+            use_outer_center_regularization=True,
+            outer_reg_sma_onset=10.0,
+            outer_reg_sma_width=2.0,
+            outer_reg_strength=8.0,  # strong damper for a clear signal
+            outer_reg_weights={"center": 1.0, "eps": 1.0, "pa": 1.0},
+        )
+    ref_geom = {"x0": 128.0, "y0": 128.0, "eps": 0.3, "pa": 0.5}
+    seed_geom = {"x0": 128.0, "y0": 128.0, "eps": 0.2, "pa": 0.0}
+
+    out_off = fit_isophote_mb(
+        images=[img, img], masks=None, sma=80.0, start_geometry=seed_geom,
+        config=cfg_off,
+    )
+    out_on = fit_isophote_mb(
+        images=[img, img], masks=None, sma=80.0, start_geometry=seed_geom,
+        config=cfg_on, outer_reference_geom=ref_geom,
+    )
+    # Damping shrinks the per-iteration step → after the same maxit the
+    # damped fit should land closer to the seed (i.e. less total drift).
+    drift_off = np.hypot(out_off["x0"] - seed_geom["x0"], out_off["y0"] - seed_geom["y0"])
+    drift_on = np.hypot(out_on["x0"] - seed_geom["x0"], out_on["y0"] - seed_geom["y0"])
+    assert drift_on <= drift_off + 1e-9
+    # eps step should also be smaller or equal under damping.
+    eps_step_off = abs(out_off["eps"] - seed_geom["eps"])
+    eps_step_on = abs(out_on["eps"] - seed_geom["eps"])
+    assert eps_step_on <= eps_step_off + 1e-9
+
+
+def test_fit_isophote_mb_outer_damping_off_when_no_reference():
+    """When outer_reference_geom is None, damping is fully inert even with
+    use_outer_center_regularization=True. This guards the driver-level
+    invariant: outer-reg cannot fire on the inward sweep."""
+    import warnings as _warnings
+    img = _planted_galaxy(seed=3)
+    cfg_off = IsosterConfigMB(bands=["g", "r"], reference_band="g")
+    with _warnings.catch_warnings():
+        _warnings.simplefilter("ignore", UserWarning)
+        cfg_on = IsosterConfigMB(
+            bands=["g", "r"], reference_band="g",
+            use_outer_center_regularization=True,
+            outer_reg_sma_onset=5.0, outer_reg_strength=10.0,
+        )
+    seed_geom = {"x0": 128.0, "y0": 128.0, "eps": 0.2, "pa": 0.0}
+    out_off = fit_isophote_mb(
+        images=[img, img], masks=None, sma=80.0, start_geometry=seed_geom,
+        config=cfg_off,
+    )
+    out_on = fit_isophote_mb(
+        images=[img, img], masks=None, sma=80.0, start_geometry=seed_geom,
+        config=cfg_on,  # no outer_reference_geom passed → inert
+    )
+    for k in ("x0", "y0", "eps", "pa"):
+        assert abs(float(out_off[k]) - float(out_on[k])) < 1e-12
+
+
+def test_build_outer_reference_mb_flux_weighted_average():
+    """Driver-level reference builder: x0/y0/eps come from the flux-
+    weighted average of qualifying inward isophotes + anchor."""
+    from isoster.multiband.driver_mb import _build_outer_reference_mb
+    import warnings as _warnings
+    with _warnings.catch_warnings():
+        _warnings.simplefilter("ignore", UserWarning)
+        cfg = IsosterConfigMB(
+            bands=["g", "r"], reference_band="g",
+            sma0=10.0,
+            use_outer_center_regularization=True,
+            outer_reg_ref_sma_factor=2.0,
+        )
+    anchor = {
+        "x0": 100.0, "y0": 100.0, "eps": 0.30, "pa": 0.5, "sma": 10.0,
+        "stop_code": 0, "intens_g": 100.0, "intens_r": 50.0,
+    }
+    inwards = [
+        # In-window, finite, acceptable: contributes.
+        {"x0": 102.0, "y0": 99.0, "eps": 0.32, "pa": 0.45, "sma": 8.0,
+         "stop_code": 0, "intens_g": 200.0, "intens_r": 100.0},
+        # In-window, intens_g=300 dominant flux weight.
+        {"x0": 98.0, "y0": 101.0, "eps": 0.28, "pa": 0.55, "sma": 5.0,
+         "stop_code": 0, "intens_g": 300.0, "intens_r": 150.0},
+        # Out-of-window (sma > sma0 * factor=20): excluded.
+        {"x0": 1000.0, "y0": -1000.0, "eps": 0.9, "pa": 1.5, "sma": 30.0,
+         "stop_code": 0, "intens_g": 1.0, "intens_r": 0.5},
+        # Bad stop_code: excluded.
+        {"x0": 5000.0, "y0": 5000.0, "eps": 0.99, "pa": 0.0, "sma": 7.0,
+         "stop_code": 3, "intens_g": 1e6, "intens_r": 1e6},
+    ]
+    ref = _build_outer_reference_mb(inwards, anchor, cfg)
+    # Brute-force reference: anchor + first two inwards entries.
+    weights = np.array([100.0, 200.0, 300.0])
+    x0s = np.array([100.0, 102.0, 98.0])
+    y0s = np.array([100.0, 99.0, 101.0])
+    eps_arr = np.array([0.30, 0.32, 0.28])
+    expected_x0 = float(np.average(x0s, weights=weights))
+    expected_y0 = float(np.average(y0s, weights=weights))
+    expected_eps = float(np.average(eps_arr, weights=weights))
+    assert ref["x0"] == pytest.approx(expected_x0)
+    assert ref["y0"] == pytest.approx(expected_y0)
+    assert ref["eps"] == pytest.approx(expected_eps)
+    # The garbage entries must not have leaked in (would have shifted the
+    # mean by orders of magnitude).
+    assert abs(ref["x0"] - 100.0) < 5.0
+    assert 0.0 < ref["eps"] < 1.0
+
+
+def test_build_outer_reference_mb_falls_back_to_anchor_with_no_inwards():
+    """No inwards results → reference is the anchor's own geometry."""
+    from isoster.multiband.driver_mb import _build_outer_reference_mb
+    import warnings as _warnings
+    with _warnings.catch_warnings():
+        _warnings.simplefilter("ignore", UserWarning)
+        cfg = IsosterConfigMB(
+            bands=["g", "r"], reference_band="g", sma0=10.0,
+            use_outer_center_regularization=True,
+        )
+    anchor = {
+        "x0": 64.0, "y0": 64.0, "eps": 0.25, "pa": 0.3, "sma": 10.0,
+        "stop_code": 0, "intens_g": 50.0, "intens_r": 25.0,
+    }
+    ref = _build_outer_reference_mb([], anchor, cfg)
+    assert ref["x0"] == pytest.approx(64.0)
+    assert ref["y0"] == pytest.approx(64.0)
+    assert ref["eps"] == pytest.approx(0.25)
+    assert ref["pa"] == pytest.approx(0.3 % np.pi)
+
+
+def test_fit_image_multiband_end_to_end_with_outer_damping():
+    """Driver end-to-end: outer damping enabled converges and gives
+    finite geometry; baseline run with feature off must still match
+    on inner isophotes (where lambda ≈ 0)."""
+    from isoster.multiband import fit_image_multiband
+    import warnings as _warnings
+    img1 = _planted_galaxy(amplitude=100.0, noise_sigma=0.005, seed=51)
+    img2 = _planted_galaxy(amplitude=50.0, noise_sigma=0.005, seed=52)
+
+    cfg_off = IsosterConfigMB(
+        bands=["g", "r"], reference_band="g",
+        sma0=10.0, maxsma=80.0, astep=0.2, debug=True,
+    )
+    with _warnings.catch_warnings():
+        _warnings.simplefilter("ignore", UserWarning)
+        cfg_on = IsosterConfigMB(
+            bands=["g", "r"], reference_band="g",
+            sma0=10.0, maxsma=80.0, astep=0.2, debug=True,
+            use_outer_center_regularization=True,
+            outer_reg_sma_onset=60.0,
+            outer_reg_strength=4.0,
+        )
+    res_off = fit_image_multiband([img1, img2], masks=None, config=cfg_off)
+    res_on = fit_image_multiband([img1, img2], masks=None, config=cfg_on)
+    assert len(res_on["isophotes"]) >= 5
+    inner_smas = [iso["sma"] for iso in res_on["isophotes"] if iso["sma"] < 30.0]
+    assert len(inner_smas) >= 3
+    # Inner isophotes (sma well below onset=60) should be near-identical
+    # between off and on. We check x0 / y0 because eps and pa vary more
+    # under noise; tolerance is generous since seeded RNG noise + lazy
+    # gradient cache differences can land different local minima.
+    for iso_off, iso_on in zip(res_off["isophotes"], res_on["isophotes"]):
+        if float(iso_off["sma"]) < 30.0:
+            assert abs(float(iso_off["x0"]) - float(iso_on["x0"])) < 0.5
+            assert abs(float(iso_off["y0"]) - float(iso_on["y0"])) < 0.5
