@@ -629,6 +629,49 @@ exactly the LSB stabilization the feature is designed for.
 > ``outputs/benchmark_multiband/lsb_auto_lock_{asteris,pgc}/`` to
 > read the trajectory, not just the scatter.
 
+### Central-region geometry regularization (Stage-3 Stage-F)
+
+Verbatim port of the single-band ``central_reg_*`` family. Geometry
+is shared in multi-band, so the penalty is band-agnostic — no
+per-band design choice. Set ``use_central_regularization=True`` to
+add a Gaussian-decaying penalty to the best-iteration selector
+(``effective_amp``):
+
+```
+λ(sma) = central_reg_strength · exp(-(sma / central_reg_sma_threshold)²)
+
+penalty = λ · ( w_eps · Δeps²  +  w_pa · Δpa²  +  w_center · (Δx0² + Δy0²) )
+```
+
+where ``Δ*`` are the per-iteration changes from the previous
+isophote's geometry. PA residual wraps onto ``[-π, π]`` (single-band
+convention). The gate is ``λ < 1e-6`` (penalty becomes exactly
+zero past ~3× the threshold SMA).
+
+This is a **selector-layer** penalty — it does not modify the
+harmonic step. Iterations whose geometry jumped far from the
+previous isophote at low SMA look worse to the selector and are
+not chosen as the new ``best_geometry``. Mechanically distinct from
+``outer_reg_*`` damping (which step-shrinks the harmonic update)
+and from ``lsb_auto_lock`` (which hard-freezes geometry).
+
+Four fields:
+
+| Field | Default | Notes |
+|---|---|---|
+| ``use_central_regularization`` | ``False`` | Master toggle. |
+| ``central_reg_sma_threshold`` | ``5.0`` | Gaussian decay scale (px). Penalty essentially zero beyond ~3× threshold. |
+| ``central_reg_strength`` | ``1.0`` | Maximum strength at SMA=0. ``ge=0`` (zero is legal — feature on but inert). |
+| ``central_reg_weights`` | ``{eps: 1, pa: 1, center: 1}`` | Per-axis weights. Unknown keys are rejected (validated unconditionally, even when the feature is off, to catch typos). |
+
+Use case: stabilize fits in low-S/N central regions where the
+harmonic amplitudes are noise-dominated and small geometry jumps
+get amplified by ``coeff = (1-ε)/grad`` etc. The single-band
+benchmark suite uses this on dim nuclei. Geometry is shared in
+multi-band, so the penalty composes cleanly with all other
+features (``loose_validity``, ``multiband_higher_harmonics``,
+``outer_reg_*``, ``lsb_auto_lock``) without interaction validators.
+
 ### Per-band curve-of-growth (Stage-3 Stage-D)
 
 Set ``compute_cog=True`` to enable per-band cumulative-flux

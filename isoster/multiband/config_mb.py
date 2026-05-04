@@ -377,6 +377,44 @@ class IsosterConfigMB(BaseModel):
         "FIRST_FEW_ISOPHOTE_FAILURE. Same semantics as single-band.",
     )
 
+    # --- Stage-3 Stage-F: central-region geometry regularization ---
+    # Verbatim lift of the single-band central_reg_* family. Geometry is
+    # shared in multi-band so the math is band-agnostic; the penalty
+    # adds to the best-iteration selector (effective_amp) for SMA below
+    # the threshold, discouraging large per-iteration geometry jumps in
+    # the low-S/N central region. Plan section 7 S8.
+    use_central_regularization: bool = Field(
+        default=False,
+        description="Enable geometry regularization for the central region "
+        "to stabilize fitting at low SMA. Adds a Gaussian-decaying penalty "
+        "``λ(sma) = strength · exp(-(sma/threshold)²)`` to the best-"
+        "iteration selector (``effective_amp``); iterations whose "
+        "geometry jumped far from the previous isophote then look worse "
+        "to the selector and are not chosen. Mirrors single-band "
+        "semantics; geometry is shared across bands so no per-band "
+        "design choice is needed.",
+    )
+    central_reg_sma_threshold: float = Field(
+        default=5.0,
+        gt=0.0,
+        description="SMA threshold (pixels) for central regularization. "
+        "Penalty strength decays as ``exp(-(sma/threshold)²)`` and is "
+        "essentially zero beyond ~3× threshold.",
+    )
+    central_reg_strength: float = Field(
+        default=1.0,
+        ge=0.0,
+        description="Maximum regularization strength at SMA=0. 0=no "
+        "regularization, 1=moderate, 10=strong. Typical range 0.1–10.",
+    )
+    central_reg_weights: Dict[str, float] = Field(
+        default_factory=lambda: {"eps": 1.0, "pa": 1.0, "center": 1.0},
+        description="Per-axis weights for the central-region penalty. "
+        "Default ``{eps: 1, pa: 1, center: 1}`` damps eps / PA / center "
+        "uniformly. Unknown keys are rejected; valid keys: ``eps``, "
+        "``pa``, ``center``.",
+    )
+
     # --- Stage-3 Stage-B: outer-region center regularization (damping mode) ---
     # Backport of the single-band ``outer_reg_*`` family with the ``damping``
     # mode only. ``solver`` mode lands in Stage E. See plan section 7 (S5).
@@ -765,6 +803,20 @@ class IsosterConfigMB(BaseModel):
                 f"geometry convergence can never trigger.",
                 UserWarning,
                 stacklevel=2,
+            )
+
+        # --- Stage-3 Stage-F: central-region regularization sanity ---
+        # Always-on hard error: central_reg_weights must use known keys
+        # even when the feature is off (catches typos before the user
+        # toggles use_central_regularization=True). Single-band
+        # behavior matches.
+        valid_central_axes = {"eps", "pa", "center"}
+        unknown_central = set(self.central_reg_weights.keys()) - valid_central_axes
+        if unknown_central:
+            raise ValueError(
+                f"central_reg_weights contains unknown keys: "
+                f"{sorted(unknown_central)}. Valid keys: "
+                f"{sorted(valid_central_axes)}."
             )
 
         # --- Stage-3 Stage-B: outer-region regularization sanity ---

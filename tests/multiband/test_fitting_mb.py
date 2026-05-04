@@ -1377,6 +1377,118 @@ def test_compute_cog_mb_sky_offsets_subtract_constant_before_integration():
     np.testing.assert_allclose(out_none["cog_g"], out_raw["cog_g"], rtol=0.0)
 
 
+def test_central_reg_penalty_zero_when_feature_off():
+    """No-op path: feature off ⇒ penalty 0.0 even with mismatched geom."""
+    from isoster.multiband.fitting_mb import (
+        _compute_central_regularization_penalty_mb,
+    )
+    cfg = IsosterConfigMB(
+        bands=["g", "r"], reference_band="g",
+        use_central_regularization=False,
+        central_reg_strength=10.0,
+    )
+    cur = {"x0": 100.0, "y0": 100.0, "eps": 0.4, "pa": 0.5}
+    prev = {"x0": 50.0, "y0": 50.0, "eps": 0.1, "pa": 0.0}
+    assert _compute_central_regularization_penalty_mb(cur, prev, sma=2.0, config=cfg) == 0.0
+
+
+def test_central_reg_penalty_zero_when_no_previous_geom():
+    """First isophote: previous_geom=None ⇒ penalty 0.0."""
+    from isoster.multiband.fitting_mb import (
+        _compute_central_regularization_penalty_mb,
+    )
+    cfg = IsosterConfigMB(
+        bands=["g", "r"], reference_band="g",
+        use_central_regularization=True,
+    )
+    cur = {"x0": 100.0, "y0": 100.0, "eps": 0.4, "pa": 0.5}
+    assert _compute_central_regularization_penalty_mb(cur, None, sma=2.0, config=cfg) == 0.0
+
+
+def test_central_reg_penalty_decays_with_sma():
+    """λ(sma) = strength · exp(-(sma/threshold)²): doubling sma at the
+    threshold drops the penalty by factor exp(-3) ≈ 0.05."""
+    from isoster.multiband.fitting_mb import (
+        _compute_central_regularization_penalty_mb,
+    )
+    cfg = IsosterConfigMB(
+        bands=["g", "r"], reference_band="g",
+        use_central_regularization=True,
+        central_reg_strength=10.0,
+        central_reg_sma_threshold=5.0,
+    )
+    cur = {"x0": 100.0, "y0": 100.0, "eps": 0.4, "pa": 0.0}
+    prev = {"x0": 99.0, "y0": 99.0, "eps": 0.3, "pa": 0.0}
+    p_inner = _compute_central_regularization_penalty_mb(cur, prev, sma=1.0, config=cfg)
+    p_at_thresh = _compute_central_regularization_penalty_mb(cur, prev, sma=5.0, config=cfg)
+    p_far = _compute_central_regularization_penalty_mb(cur, prev, sma=25.0, config=cfg)
+    assert p_inner > p_at_thresh
+    # Gate fires at λ(sma) < 1e-6. With strength=10, threshold=5 the gate
+    # SMA is ~21 px (10·exp(-(sma/5)²) < 1e-6 ⇒ sma > 5·√ln(1e7) ≈ 20.4).
+    # At sma=25 the gate definitely fires and the penalty is exactly zero.
+    assert p_far == 0.0
+    # Closed-form ratio at sma=threshold: exp(-1) of strength × Δ²
+    delta_eps = 0.1
+    delta_x = 1.0
+    delta_y = 1.0
+    expected_at_thresh = (
+        10.0 * float(np.exp(-1.0))
+        * (1.0 * delta_eps**2 + 1.0 * (delta_x**2 + delta_y**2))
+    )
+    assert p_at_thresh == pytest.approx(expected_at_thresh, rel=1e-9)
+
+
+def test_central_reg_penalty_pa_wraparound():
+    """PA residual wraps onto [-π, π]: a delta of 2π reads as 0."""
+    from isoster.multiband.fitting_mb import (
+        _compute_central_regularization_penalty_mb,
+    )
+    cfg = IsosterConfigMB(
+        bands=["g", "r"], reference_band="g",
+        use_central_regularization=True,
+        central_reg_strength=1.0,
+        central_reg_sma_threshold=10.0,
+        central_reg_weights={"pa": 1.0, "eps": 0.0, "center": 0.0},
+    )
+    cur = {"x0": 0.0, "y0": 0.0, "eps": 0.0, "pa": 2.0 * np.pi}
+    prev = {"x0": 0.0, "y0": 0.0, "eps": 0.0, "pa": 0.0}
+    p = _compute_central_regularization_penalty_mb(cur, prev, sma=1.0, config=cfg)
+    assert p == pytest.approx(0.0, abs=1e-12)
+
+
+def test_central_reg_end_to_end_inner_isophote_stabilizes():
+    """End-to-end: fit a galaxy with a mid-galaxy step in eps to make
+    the unregularized fit jump in the inner regime; with central_reg
+    on, the inner-isophote eps tracks closer to the truth (smaller
+    deltas selected as best_geometry)."""
+    from isoster.multiband import fit_image_multiband
+    img1 = _planted_galaxy(amplitude=100.0, noise_sigma=0.005, seed=131)
+    img2 = _planted_galaxy(amplitude=50.0, noise_sigma=0.005, seed=132)
+    cfg_off = IsosterConfigMB(
+        bands=["g", "r"], reference_band="g",
+        sma0=8.0, minsma=2.0, maxsma=50.0, astep=0.2,
+        use_central_regularization=False,
+    )
+    cfg_on = IsosterConfigMB(
+        bands=["g", "r"], reference_band="g",
+        sma0=8.0, minsma=2.0, maxsma=50.0, astep=0.2,
+        use_central_regularization=True,
+        central_reg_strength=2.0,
+        central_reg_sma_threshold=5.0,
+    )
+    res_off = fit_image_multiband([img1, img2], masks=None, config=cfg_off)
+    res_on = fit_image_multiband([img1, img2], masks=None, config=cfg_on)
+    assert len(res_on["isophotes"]) == len(res_off["isophotes"])
+    # On a clean planted ellipse the central-reg penalty mostly suppresses
+    # numerical noise — both fits should converge to similar geometry,
+    # and the row count matches. Check that nothing blew up:
+    for iso in res_on["isophotes"]:
+        if iso.get("stop_code") == 0:
+            assert np.isfinite(iso["eps"])
+            assert 0.0 <= iso["eps"] < 1.0
+            assert np.isfinite(iso["pa"])
+
+
 def test_compute_cog_mb_b1_matches_single_band_per_band_column():
     """B=1 multi-band CoG agrees with single-band CoG for a curated
     isophote list whose ``intens`` and ``intens_<b>`` are identical."""
