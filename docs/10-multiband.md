@@ -504,32 +504,42 @@ is **0.91×** — the all-axes damper is faster than baseline because
 the auto-enabled ``geometry_convergence`` lets damped fits exit
 earlier than the harmonic-only criterion does in the LSB regime.
 
-> **Real-data caveat for the all-axes default (2026-05-04).** The
-> all-axes ``{center: 1, eps: 1, pa: 1}`` default mirrors single-band
-> and looks excellent on aggregate scatter metrics (eps MAD ≈ 1e-5
-> on asteris, pa MAD = 0 on both targets). But the QA mosaics in
-> ``outputs/benchmark_multiband/outer_reg_damping_{asteris,pgc}/``
-> show that on galaxies with **genuine outer-disc geometry
-> evolution** the all-axes damper is too aggressive: ``alpha → 1``
-> for eps and pa above the onset, pinning the outer-isophote shape
-> to the inner reference and ignoring real structural change. On
-> PGC006669 the outer disc inherits the bar's PA / ellipticity; on
-> asteris the isophotal shape freezes before the LSB envelope
-> rounds off. The ``pa MAD = 0`` is the geometric signature of
-> "PA frozen," not "PA tracked." A bias metric vs a free-fit
-> reference (not just scatter) is needed to distinguish a healthy
-> damper from over-pinning.
+> **Multi-band default is `{1, 0, 0}` (center-only) — different from
+> single-band's `{1, 1, 1}`.** The Stage-B follow-up strength ×
+> weights sweep on PGC006669 (2026-05-04) showed that the per-axis
+> Tikhonov blend factor ``α = λ·w·coeff² / (1 + λ·w·coeff²)``
+> saturates above 99.99% for any positive eps / pa weight in the
+> user-intuition range (0.25–1.0): in the outer LSB the per-axis
+> Jacobian ``coeff = (1-eps)/grad`` reaches ~ 700 because the joint
+> gradient ``→ 0``, so ``λ·w·coeff² ≫ 1`` and α is in the
+> saturation regime regardless of `w`. **The eps / pa weight choice
+> is therefore binary, not graded:** any positive value pins
+> geometry to the inner reference; zero leaves it free.
 >
-> The implementation is correct and matches single-band semantics.
-> The defaults — copied verbatim from single-band — were tuned on
-> HSC BCG fits where the outer envelope is genuinely round and not
-> evolving. For galaxies with bars, structural transitions, or
-> evolving disc geometry, prefer ``outer_reg_weights={center: 1,
-> eps: 0, pa: 0}`` (center-only) or lower ``outer_reg_strength``.
-> A multi-band-specific re-default and a strength sweep on PGC are
-> deferred to a future session; the journal entry
-> ``docs/agent/journal/2026-05-04_stage_b_outer_reg_damping.md``
-> records the open questions.
+> ``{1, 0, 0}`` is the safe default for general multi-band targets
+> (barred / spiral systems, BCG → ICL transitions, anywhere outer-
+> disc geometry might genuinely evolve). The multi-band joint
+> solver already provides cross-band stability on eps / pa via the
+> shared ``(A1, B1, A2, B2)`` harmonic constraint, so eps / pa
+> damping is largely redundant here.
+>
+> ``{1, 1, 1}`` is an **advanced opt-in** for confirmed-static
+> outer envelopes (cD galaxies, isolated massive ellipticals).
+> The asteris benchmark — a massive elliptical with extended LSB
+> envelope — is exactly that regime; on asteris ``{1, 1, 1}``
+> tightens the recorded outer geometry without harm.
+>
+> Down-weighted variants like ``{1, 0.5, 0.5}`` or
+> ``{1, 0.25, 0.25}`` are **empirically NOT a useful middle
+> ground**: the PGC sweep showed PA bias ≈ +0.71 rad for all four
+> down-weighted configs (16× spread in `w·strength`), versus
+> -0.24 rad for center-only. Avoid.
+>
+> See ``outputs/benchmark_multiband/outer_reg_strength_sweep_pgc/
+> alpha_saturation_diagnostic.png`` for the closed-form α-vs-weight
+> curves at four ``λ·coeff²`` regimes, and the journal
+> ``docs/agent/journal/2026-05-04_stage_b_followup_strength_sweep.md``
+> for the full bias / MAD / convergence breakdown.
 
 ### LSB auto-lock (Stage-3 Stage-C)
 

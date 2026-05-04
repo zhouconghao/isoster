@@ -497,7 +497,15 @@ def test_outer_reg_default_off_with_neutral_fields():
     assert cfg.outer_reg_mode == "damping"
     assert cfg.outer_reg_sma_onset == 50.0
     assert cfg.outer_reg_strength == 2.0
-    assert cfg.outer_reg_weights == {"center": 1.0, "eps": 1.0, "pa": 1.0}
+    # Multi-band default is center-only {1, 0, 0} (Stage-B follow-up
+    # 2026-05-04). Differs from the historical single-band default
+    # {1, 1, 1}: the strength × weights sweep on PGC006669 showed
+    # that any positive eps/pa weight saturates the Tikhonov α to ~1
+    # in the outer LSB, pinning genuine outer-disc geometry evolution
+    # to the inner reference. The multi-band joint solver provides
+    # cross-band stability on eps/pa via the shared (A1, B1, A2, B2)
+    # constraint, so eps/pa damping is largely redundant here.
+    assert cfg.outer_reg_weights == {"center": 1.0, "eps": 0.0, "pa": 0.0}
     assert cfg.outer_reg_sma_width is None
     assert cfg.outer_reg_ref_sma_factor == 2.0
 
@@ -593,12 +601,18 @@ def test_outer_reg_no_geom_conv_warning_when_already_enabled():
     [("fix_center", "center"), ("fix_eps", "eps"), ("fix_pa", "pa")],
 )
 def test_outer_reg_fix_axis_warning(fixed_field, axis):
-    """fix_<axis>=True with positive outer_reg_weights[<axis>] warns."""
+    """fix_<axis>=True with positive outer_reg_weights[<axis>] warns.
+
+    Stage-B follow-up: multi-band default is {1, 0, 0} (center-only)
+    so the eps and pa axes are zero by default and the warning would
+    NOT fire spuriously. To exercise the warning we explicitly set
+    a positive weight on the axis being fixed."""
     with warnings.catch_warnings(record=True) as w:
         warnings.simplefilter("always")
         IsosterConfigMB(
             bands=["g", "r"], reference_band="g",
             use_outer_center_regularization=True,
+            outer_reg_weights={"center": 1.0, "eps": 1.0, "pa": 1.0},
             **{fixed_field: True},
         )
     msgs = [str(item.message) for item in w]
