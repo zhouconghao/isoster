@@ -1513,3 +1513,250 @@ def test_compute_cog_mb_b1_matches_single_band_per_band_column():
     np.testing.assert_allclose(
         np.asarray(mb_out["area_annulus"]), sb_out["area_annulus"], rtol=1e-12,
     )
+
+
+# ---------------------------------------------------------------------------
+# Stage-3 Stage-H: forced-photometry workflow (template_isophotes)
+# ---------------------------------------------------------------------------
+
+
+def _template_iso(sma: float, x0=128.0, y0=128.0, eps=0.30, pa=0.50) -> dict:
+    """Minimal template-row dict with required geometry keys."""
+    return {"sma": sma, "x0": x0, "y0": y0, "eps": eps, "pa": pa}
+
+
+def test_resolve_template_mb_accepts_list_of_dicts():
+    from isoster.multiband.driver_mb import _resolve_template_mb
+    template = [_template_iso(20.0), _template_iso(5.0), _template_iso(10.0)]
+    out = _resolve_template_mb(template)
+    # Must come back sorted by SMA ascending.
+    smas = [float(iso["sma"]) for iso in out]
+    assert smas == sorted(smas)
+    assert smas == [5.0, 10.0, 20.0]
+
+
+def test_resolve_template_mb_accepts_results_dict():
+    from isoster.multiband.driver_mb import _resolve_template_mb
+    fake_result = {
+        "isophotes": [_template_iso(15.0), _template_iso(8.0)],
+        "config": None,  # ignored
+    }
+    out = _resolve_template_mb(fake_result)
+    assert [float(iso["sma"]) for iso in out] == [8.0, 15.0]
+
+
+def test_resolve_template_mb_rejects_unknown_input_type():
+    from isoster.multiband.driver_mb import _resolve_template_mb
+    with pytest.raises(TypeError, match="must be a file path"):
+        _resolve_template_mb(42)
+    with pytest.raises(TypeError):
+        _resolve_template_mb(object())
+
+
+def test_resolve_template_mb_rejects_missing_keys():
+    from isoster.multiband.driver_mb import _resolve_template_mb
+    bad_template = [{"sma": 10.0, "x0": 100.0, "y0": 100.0}]  # missing eps, pa
+    with pytest.raises(ValueError, match="missing required keys"):
+        _resolve_template_mb(bad_template)
+
+
+def test_resolve_template_mb_rejects_empty_input():
+    from isoster.multiband.driver_mb import _resolve_template_mb
+    with pytest.raises(ValueError, match="cannot be empty"):
+        _resolve_template_mb([])
+    with pytest.raises(ValueError, match="cannot be empty"):
+        _resolve_template_mb({"isophotes": []})
+
+
+def test_resolve_template_mb_dict_without_isophotes_key_rejected():
+    from isoster.multiband.driver_mb import _resolve_template_mb
+    with pytest.raises(ValueError, match="must contain an 'isophotes' key"):
+        _resolve_template_mb({"foo": "bar"})
+
+
+def test_forced_photometry_pins_geometry_exactly():
+    """Stage-H invariant: every output row's (x0, y0, eps, pa, sma)
+    is bit-identical to the corresponding template row."""
+    from isoster.multiband import fit_image_multiband
+    img1 = _planted_galaxy(amplitude=100.0, noise_sigma=0.005, seed=171)
+    img2 = _planted_galaxy(amplitude=50.0, noise_sigma=0.005, seed=172)
+    cfg = IsosterConfigMB(bands=["g", "r"], reference_band="g")
+    template = [
+        _template_iso(sma=5.0, x0=128.5, y0=128.0, eps=0.20, pa=0.10),
+        _template_iso(sma=10.0, x0=128.4, y0=128.1, eps=0.25, pa=0.15),
+        _template_iso(sma=20.0, x0=128.3, y0=128.2, eps=0.30, pa=0.20),
+        _template_iso(sma=40.0, x0=128.2, y0=128.3, eps=0.35, pa=0.25),
+    ]
+    res = fit_image_multiband(
+        [img1, img2], masks=None, config=cfg,
+        template_isophotes=template,
+    )
+    rows = res["isophotes"]
+    assert len(rows) == 4
+    assert res["forced_photometry_mode"] is True
+    assert res["template_n_isophotes"] == 4
+    for tmpl, iso in zip(template, rows):
+        for k in ("sma", "x0", "y0", "eps", "pa"):
+            assert float(iso[k]) == float(tmpl[k]), f"key {k} drifted"
+        # Per-band intensity columns must exist and be finite.
+        for b in ("g", "r"):
+            assert np.isfinite(float(iso[f"intens_{b}"]))
+
+
+def test_forced_photometry_accepts_singleband_result_as_template():
+    """User's primary use case: fit single-band on i-band, pass the
+    result dict into multi-band forced-photometry mode for g/r/z/y
+    extraction."""
+    from isoster import IsosterConfig, fit_image
+    from isoster.multiband import fit_image_multiband
+    # Fit single-band on a planted galaxy first.
+    img_i = _planted_galaxy(amplitude=100.0, noise_sigma=0.01, seed=200)
+    sb_cfg = IsosterConfig(sma0=10.0, maxsma=40.0, astep=0.2, debug=True)
+    sb_result = fit_image(img_i, mask=None, config=sb_cfg)
+    assert len(sb_result["isophotes"]) > 5
+
+    # Now use that single-band result as a multi-band template.
+    img_g = _planted_galaxy(amplitude=50.0, noise_sigma=0.01, seed=201)
+    img_z = _planted_galaxy(amplitude=200.0, noise_sigma=0.01, seed=202)
+    mb_cfg = IsosterConfigMB(bands=["g", "i", "z"], reference_band="i")
+    res = fit_image_multiband(
+        [img_g, img_i, img_z], masks=None, config=mb_cfg,
+        template_isophotes=sb_result,
+    )
+    rows = res["isophotes"]
+    assert len(rows) == len(sb_result["isophotes"])
+    # Geometry pinned exactly.
+    for sb_iso, mb_iso in zip(
+        sorted(sb_result["isophotes"], key=lambda r: r["sma"]),
+        rows,
+    ):
+        for k in ("sma", "x0", "y0", "eps", "pa"):
+            assert float(mb_iso[k]) == float(sb_iso[k])
+    # All three bands have intensity columns.
+    for iso in rows:
+        for b in ("g", "i", "z"):
+            assert np.isfinite(float(iso[f"intens_{b}"]))
+
+
+def test_forced_photometry_warns_on_meaningless_features():
+    """Validators warn-and-ignore for lock / outer-reg / central-reg /
+    ref-mode when template_isophotes is provided."""
+    import warnings as _warnings
+    from isoster.multiband import fit_image_multiband
+    img = _planted_galaxy(seed=300)
+    with _warnings.catch_warnings():
+        _warnings.simplefilter("ignore", UserWarning)
+        cfg = IsosterConfigMB(
+            bands=["g", "r"], reference_band="g",
+            lsb_auto_lock=True, lsb_auto_lock_integrator="mean",
+            use_outer_center_regularization=True,
+            use_central_regularization=True,
+        )
+    template = [_template_iso(sma=10.0), _template_iso(sma=20.0)]
+    with _warnings.catch_warnings(record=True) as w:
+        _warnings.simplefilter("always")
+        res = fit_image_multiband(
+            [img, img], masks=None, config=cfg,
+            template_isophotes=template,
+        )
+    msgs = [str(item.message) for item in w]
+    relevant = [m for m in msgs if "template_isophotes" in m]
+    assert len(relevant) == 1, f"expected one warning, got: {msgs}"
+    for token in (
+        "lsb_auto_lock", "use_outer_center_regularization",
+        "use_central_regularization",
+    ):
+        assert token in relevant[0]
+    # And the fit still runs end-to-end.
+    assert res["forced_photometry_mode"] is True
+    assert len(res["isophotes"]) == 2
+
+
+def test_forced_photometry_no_warning_when_no_iteration_features():
+    """Sanity: the warn-and-ignore message does NOT fire when none of
+    the iteration-only features is enabled."""
+    import warnings as _warnings
+    from isoster.multiband import fit_image_multiband
+    img = _planted_galaxy(seed=301)
+    cfg = IsosterConfigMB(bands=["g", "r"], reference_band="g")
+    template = [_template_iso(sma=10.0)]
+    with _warnings.catch_warnings(record=True) as w:
+        _warnings.simplefilter("always")
+        fit_image_multiband(
+            [img, img], masks=None, config=cfg,
+            template_isophotes=template,
+        )
+    assert not any("template_isophotes" in str(m.message) for m in w)
+
+
+def test_forced_photometry_composes_with_compute_cog():
+    """compute_cog=True is the primary use case on top of forced
+    extraction. Per-band cog_<b> + shared area_annulus must appear."""
+    from isoster.multiband import fit_image_multiband
+    img1 = _planted_galaxy(amplitude=100.0, noise_sigma=0.005, seed=400)
+    img2 = _planted_galaxy(amplitude=50.0, noise_sigma=0.005, seed=401)
+    cfg = IsosterConfigMB(
+        bands=["g", "r"], reference_band="g", compute_cog=True,
+    )
+    template = [_template_iso(sma=s) for s in (5.0, 10.0, 20.0, 40.0)]
+    res = fit_image_multiband(
+        [img1, img2], masks=None, config=cfg,
+        template_isophotes=template,
+    )
+    for iso in res["isophotes"]:
+        for k in (
+            "area_annulus", "flag_cross", "flag_negative_area",
+            "cog_g", "cog_r", "cog_annulus_g", "cog_annulus_r",
+        ):
+            assert k in iso, f"forced + compute_cog row missing {k}"
+
+
+def test_forced_photometry_central_pixel_dispatch():
+    """sma=0 row dispatches to _fit_central_pixel_mb (single pixel
+    record), not to extract_forced_photometry_mb (ring extraction)."""
+    from isoster.multiband import fit_image_multiband
+    img1 = _planted_galaxy(seed=500)
+    img2 = _planted_galaxy(seed=501)
+    cfg = IsosterConfigMB(bands=["g", "r"], reference_band="g")
+    template = [
+        {"sma": 0.0, "x0": 128.0, "y0": 128.0, "eps": 0.0, "pa": 0.0},
+        _template_iso(sma=10.0),
+        _template_iso(sma=20.0),
+    ]
+    res = fit_image_multiband(
+        [img1, img2], masks=None, config=cfg,
+        template_isophotes=template,
+    )
+    rows = res["isophotes"]
+    assert len(rows) == 3
+    assert float(rows[0]["sma"]) == 0.0
+    assert float(rows[0]["eps"]) == 0.0  # central pixel is a single point
+    # Central pixel is not a ring extraction: niter=0, eps=0.
+    assert int(rows[0]["niter"]) == 0
+
+
+def test_forced_photometry_fits_path_template(tmp_path):
+    """Template input as a Schema-1 multi-band FITS path round-trips
+    through _resolve_template_mb."""
+    from isoster.multiband import (
+        fit_image_multiband, isophote_results_mb_to_fits,
+    )
+    img1 = _planted_galaxy(amplitude=100.0, noise_sigma=0.005, seed=600)
+    img2 = _planted_galaxy(amplitude=50.0, noise_sigma=0.005, seed=601)
+    cfg_fit = IsosterConfigMB(
+        bands=["g", "r"], reference_band="g",
+        sma0=10.0, maxsma=40.0, astep=0.2,
+    )
+    fit_result = fit_image_multiband([img1, img2], masks=None, config=cfg_fit)
+
+    template_fits_path = tmp_path / "mb_template.fits"
+    isophote_results_mb_to_fits(fit_result, template_fits_path)
+
+    # Now use that FITS file as the template.
+    cfg_forced = IsosterConfigMB(bands=["g", "r"], reference_band="g")
+    res = fit_image_multiband(
+        [img1, img2], masks=None, config=cfg_forced,
+        template_isophotes=str(template_fits_path),
+    )
+    assert res["forced_photometry_mode"] is True
+    assert len(res["isophotes"]) == len(fit_result["isophotes"])

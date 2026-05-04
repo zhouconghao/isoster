@@ -682,6 +682,94 @@ multi-band, so the penalty composes cleanly with all other
 features (``loose_validity``, ``multiband_higher_harmonics``,
 ``outer_reg_*``, ``lsb_auto_lock``) without interaction validators.
 
+### Forced-photometry mode (Stage-3 Stage-H)
+
+Pass ``template_isophotes=...`` to ``fit_image_multiband`` to bypass
+the iteration loop entirely and run forced multi-band extraction at
+each template row's exact ``(sma, x0, y0, eps, pa)`` geometry.
+Common workflow:
+
+```python
+from isoster import IsosterConfig, fit_image
+from isoster.multiband import IsosterConfigMB, fit_image_multiband
+
+# 1. Fit single-band on a deep band first.
+sb_cfg = IsosterConfig(sma0=10.0, maxsma=384.0, astep=0.1, debug=True)
+sb_result = fit_image(i_image, mask=mask, config=sb_cfg)
+
+# 2. Pass the single-band result as a multi-band template.
+mb_cfg = IsosterConfigMB(
+    bands=["g", "r", "i", "z", "y"], reference_band="i",
+    compute_cog=True,
+)
+mb_result = fit_image_multiband(
+    [g_image, r_image, i_image, z_image, y_image],
+    masks=mask, config=mb_cfg,
+    template_isophotes=sb_result,
+    variance_maps=[g_var, r_var, i_var, z_var, y_var],
+)
+```
+
+**Use case:** the user wants per-band HSC profiles but is not yet
+ready to trust the joint multi-band fit, OR specifically wants the
+i-band geometry to drive everything. Forced mode runs the per-band
+sampler once across the shared geometry and emits the standard
+multi-band result-dict shape — more efficient than running
+single-band ``B`` times since the geometry pre-resolution and per-
+band sampling work happens in one pass.
+
+**Distinct from `harmonic_combination='ref'`.** Ref-mode still runs
+the iteration loop and lets the geometry walk under the reference
+band's harmonic constraint. Forced mode bypasses the iteration loop
+entirely — geometry is bit-identical to the input template. The
+distinction matters when users invoke forced mode specifically
+because they want guaranteed-pinned geometry from a separate fit.
+
+**Accepted template-input forms:**
+
+- A path to a Schema-1 multi-band FITS file (e.g. an earlier
+  ``fit_image_multiband`` run saved via
+  ``isophote_results_mb_to_fits``).
+- A path to a single-band FITS file (single-band's
+  ``isophote_results_to_fits`` output). Single-band templates work
+  because Stage-H only needs the geometry columns.
+- A multi-band result dict (``fit_image_multiband`` return value).
+- A single-band result dict (``fit_image`` return value).
+- A list of dicts with ``sma`` / ``x0`` / ``y0`` / ``eps`` / ``pa``
+  keys.
+
+The list is sorted by ``sma`` ascending before extraction. ``sma=0``
+rows dispatch to ``_fit_central_pixel_mb`` (per-band central
+record); other rows dispatch to ``extract_forced_photometry_mb``
+(per-band ring extraction).
+
+**Validators (warn-and-ignore).** When ``template_isophotes`` is
+provided, the iteration-loop-only features are no-ops and emit a
+single ``UserWarning`` listing what was ignored:
+
+- ``lsb_auto_lock=True``
+- ``use_outer_center_regularization=True``
+- ``use_central_regularization=True``
+- ``harmonic_combination='ref'``
+
+These features all live inside the iteration loop; forced mode
+skips that loop. ``compute_cog=True`` is fully legal — in fact the
+primary use case on top of forced extraction (per-band CoG against
+fixed geometry).
+
+**Output schema** matches the standard multi-band schema with all
+geometry columns carrying the template values exactly. Two extra
+top-level keys signal the workflow:
+
+- ``result['forced_photometry_mode']`` — ``True``.
+- ``result['template_n_isophotes']`` — count of input rows.
+
+Per-band ``intens_<b>`` / ``intens_err_<b>`` come from
+``extract_forced_photometry_mb`` per template SMA. Harmonic columns
+``a<n>_<b>`` / ``b<n>_<b>`` are zero-filled in forced mode (matches
+single-band's forced-photometry convention — harmonics are NOT
+re-fit in forced mode).
+
 ### Per-band curve-of-growth (Stage-3 Stage-D)
 
 Set ``compute_cog=True`` to enable per-band cumulative-flux

@@ -36,6 +36,15 @@ from .sampling_mb import prepare_inputs
 
 ACCEPTABLE_STOP_CODES = {0, 1, 2}
 
+# Stage-3 Stage-H: forced-photometry workflow. Mirrors single-band's
+# _TEMPLATE_REQUIRED_KEYS — geometry is what we copy from the template,
+# everything else (per-band intensities, harmonics) gets re-extracted
+# from the multi-band image stack. Per-band ``intens_<b>`` columns may
+# be present in the template (e.g. when the template is a multi-band
+# result dict) but they are not required — Stage H accepts single-band
+# templates too.
+_TEMPLATE_REQUIRED_KEYS_MB = {"sma", "x0", "y0", "eps", "pa"}
+
 
 # ---------------------------------------------------------------------------
 # Lightweight helpers
@@ -132,6 +141,68 @@ def _build_locked_cfg_mb(
     # Outer-region damping is meaningless once geometry is frozen.
     locked.use_outer_center_regularization = False
     return locked
+
+
+def _resolve_template_mb(template: object) -> List[Dict[str, object]]:
+    """Normalize a template input into a validated, SMA-sorted list.
+
+    Stage-3 Stage-H. Accepted input forms:
+
+    - ``str`` or ``Path``: path to a Schema-1 multi-band FITS file
+      OR a single-band FITS file. Single-band templates work because
+      we only need ``sma`` / ``x0`` / ``y0`` / ``eps`` / ``pa`` —
+      per-band ``intens_<b>`` columns get re-extracted from the
+      multi-band image stack regardless.
+    - ``dict`` with an ``'isophotes'`` key: a results dict (multi-band
+      or single-band).
+    - ``list`` of dicts: isophote dicts directly.
+
+    Raises:
+        TypeError: input not a recognized type.
+        ValueError: template empty or any dict is missing required keys.
+    """
+    from pathlib import Path as _Path
+
+    if isinstance(template, (str, _Path)):
+        path_str = str(template)
+        # Try multi-band first (most common Stage-H workflow); fall
+        # back to single-band on the typical "MULTIBND" header miss.
+        try:
+            from .utils_mb import isophote_results_mb_from_fits
+            loaded = isophote_results_mb_from_fits(path_str)
+        except Exception:
+            from ..utils import isophote_results_from_fits
+            loaded = isophote_results_from_fits(path_str)
+        iso_list = loaded["isophotes"]
+    elif isinstance(template, dict):
+        if "isophotes" not in template:
+            raise ValueError(
+                f"template dict must contain an 'isophotes' key; got "
+                f"keys: {sorted(template.keys())}"
+            )
+        iso_list = template["isophotes"]
+    elif isinstance(template, list):
+        iso_list = template
+    else:
+        raise TypeError(
+            f"template_isophotes must be a file path (str / Path), "
+            f"results dict, or list of isophote dicts; got "
+            f"{type(template).__name__}"
+        )
+
+    if not iso_list:
+        raise ValueError("template_isophotes cannot be empty")
+
+    for i, iso in enumerate(iso_list):
+        missing = _TEMPLATE_REQUIRED_KEYS_MB - set(iso.keys())
+        if missing:
+            raise ValueError(
+                f"template isophote at index {i} missing required keys: "
+                f"{sorted(missing)}. Required: "
+                f"{sorted(_TEMPLATE_REQUIRED_KEYS_MB)}."
+            )
+
+    return sorted(iso_list, key=lambda x: float(x["sma"]))
 
 
 def _build_outer_reference_mb(
@@ -443,6 +514,126 @@ def _fit_central_pixel_mb(
     return row
 
 
+def _fit_image_template_forced_mb(
+    images: Sequence[NDArray[np.floating]],
+    masks: Union[None, NDArray[np.bool_], Sequence[Optional[NDArray[np.bool_]]]],
+    config: IsosterConfigMB,
+    variance_maps: Union[None, NDArray[np.floating], Sequence[NDArray[np.floating]]],
+    template: object,
+) -> Dict[str, object]:
+    """Stage-3 Stage-H: walk a template isophote list and run forced
+    multi-band extraction at each row's geometry.
+
+    Mirrors single-band ``isoster.driver._fit_image_template_forced``.
+    Per-row dispatch:
+
+    - ``sma == 0`` → :func:`_fit_central_pixel_mb` (per-band central
+      record).
+    - otherwise → :func:`isoster.multiband.fitting_mb.extract_forced_photometry_mb`
+      (per-band ring extraction at the template's exact geometry).
+
+    Validators (warn-and-ignore):
+
+    - ``lsb_auto_lock=True`` — meaningless under forced extraction
+      (no outward sweep that could trigger the lock).
+    - ``use_outer_center_regularization=True`` — meaningless (no
+      iteration loop that consumes the damping term).
+    - ``use_central_regularization=True`` — meaningless (no
+      iteration loop that consumes the selector penalty).
+    - ``harmonic_combination='ref'`` — meaningless (no joint solve
+      to bypass; geometry is fixed).
+
+    The forced path otherwise composes cleanly with all other
+    Stage-3 features. ``compute_cog=True`` is the primary use case
+    on top of forced extraction (per-band CoG against a fixed
+    geometry).
+    """
+    template_list = _resolve_template_mb(template)
+
+    # Warn-and-ignore validators. The features are no-ops in forced
+    # mode but their being on indicates the user may have a config
+    # mistake; surface it via a clear UserWarning.
+    forced_noop_features = []
+    if config.lsb_auto_lock:
+        forced_noop_features.append("lsb_auto_lock")
+    if config.use_outer_center_regularization:
+        forced_noop_features.append("use_outer_center_regularization")
+    if config.use_central_regularization:
+        forced_noop_features.append("use_central_regularization")
+    if config.harmonic_combination == "ref":
+        forced_noop_features.append("harmonic_combination='ref'")
+    if forced_noop_features:
+        warnings.warn(
+            "template_isophotes=<provided> bypasses the iteration loop, "
+            "so the following config features have no effect in forced "
+            f"mode and are silently ignored: {', '.join(forced_noop_features)}.",
+            UserWarning,
+            stacklevel=3,
+        )
+
+    bands = list(config.bands)
+
+    isophotes: List[Dict[str, object]] = []
+    for template_iso in template_list:
+        sma = float(template_iso["sma"])  # type: ignore[arg-type]
+        if sma == 0.0:
+            iso = _fit_central_pixel_mb(
+                images, masks,
+                float(template_iso["x0"]), float(template_iso["y0"]),  # type: ignore[arg-type]
+                config,
+            )
+        else:
+            iso = extract_forced_photometry_mb(
+                images=images, masks=masks,
+                x0=float(template_iso["x0"]),  # type: ignore[arg-type]
+                y0=float(template_iso["y0"]),  # type: ignore[arg-type]
+                sma=sma,
+                eps=float(template_iso["eps"]),  # type: ignore[arg-type]
+                pa=float(template_iso["pa"]),  # type: ignore[arg-type]
+                bands=bands,
+                config=config,
+                variance_maps=variance_maps,
+            )
+        isophotes.append(iso)
+
+    _validate_non_negative_error_fields(isophotes)
+
+    # Stage-3 Stage-D: per-band CoG composes with forced extraction.
+    if config.compute_cog and isophotes:
+        from .cog_mb import add_cog_mb_to_isophotes, compute_cog_mb
+
+        cog_results = compute_cog_mb(
+            isophotes,
+            bands=list(config.bands),
+            fix_center=True,  # geometry is pinned by template — no fits
+            fix_geometry=True,
+        )
+        add_cog_mb_to_isophotes(isophotes, list(config.bands), cog_results)
+
+    result: Dict[str, object] = {
+        "isophotes": isophotes,
+        "config": config,
+        "bands": list(config.bands),
+        "multiband": True,
+        "harmonic_combination": config.harmonic_combination,
+        "reference_band": config.reference_band,
+        "band_weights": config.resolved_band_weights(),
+        "variance_mode": config.variance_mode or (
+            "wls" if variance_maps is not None else "ols"
+        ),
+        "fit_per_band_intens_jointly": config.fit_per_band_intens_jointly,
+        "loose_validity": config.loose_validity,
+        "multiband_higher_harmonics": config.multiband_higher_harmonics,
+        "harmonic_orders": list(config.harmonic_orders),
+        "harmonics_shared": config.multiband_higher_harmonics != "independent",
+        # Stage-H: surface forced-mode metadata so downstream tooling
+        # can detect the workflow and show appropriate banners.
+        "forced_photometry_mode": True,
+        "template_n_isophotes": len(template_list),
+    }
+    return result
+
+
 # ---------------------------------------------------------------------------
 # Public entry point
 # ---------------------------------------------------------------------------
@@ -453,6 +644,8 @@ def fit_image_multiband(
     masks: Union[None, NDArray[np.bool_], Sequence[Optional[NDArray[np.bool_]]]] = None,
     config: Optional[IsosterConfigMB] = None,
     variance_maps: Union[None, NDArray[np.floating], Sequence[NDArray[np.floating]]] = None,
+    *,
+    template_isophotes: object = None,
 ) -> Dict[str, object]:
     """
     Fit isophotes jointly across multiple aligned same-pixel-grid images.
@@ -473,6 +666,22 @@ def fit_image_multiband(
         required; everything else has sensible defaults.
     variance_maps : None | ndarray | sequence of ndarray, optional
         Per-pixel variance for WLS. All-or-nothing.
+    template_isophotes : path / dict / list, optional
+        **Stage-3 Stage-H forced-photometry mode.** When provided,
+        bypass the iteration loop entirely and run forced extraction
+        at the template's exact ``(sma, x0, y0, eps, pa)`` geometry on
+        every band simultaneously. Accepts a Schema-1 multi-band FITS
+        path, a single-band FITS path, a result dict (multi- or
+        single-band), or a list of isophote dicts. Common workflow:
+        run single-band ``isoster.fit_image`` on a deep band first,
+        then pass the result here to extract per-band profiles at
+        bit-identical geometry in one call (more efficient than
+        running single-band ``B`` times). Validators warn-and-ignore
+        ``lsb_auto_lock`` / ``use_outer_center_regularization`` /
+        ``use_central_regularization`` / ``harmonic_combination='ref'``
+        in this mode (the iteration loop, the inward / outward
+        sweeps, the reference-geom build, and the lock state machine
+        all become no-ops).
 
     Returns
     -------
@@ -482,6 +691,9 @@ def fit_image_multiband(
         :class:`IsosterConfigMB`. Multi-band top-level keys (decision D14):
         ``'bands'``, ``'multiband'``, ``'harmonic_combination'``,
         ``'reference_band'``, ``'band_weights'``, ``'variance_mode'``.
+        In forced-photometry mode the result also carries
+        ``'forced_photometry_mode': True`` and
+        ``'template_n_isophotes': len(template)``.
 
     Notes
     -----
@@ -501,6 +713,18 @@ def fit_image_multiband(
     # the FITS CONFIG HDU later.
     variance_mode = "wls" if variance_maps is not None else "ols"
     config.variance_mode = variance_mode
+
+    # Stage-3 Stage-H: forced-photometry mode bypasses everything else.
+    # Validators warn-and-ignore the iteration-only features that are
+    # meaningless under forced extraction (lsb_auto_lock, outer-reg,
+    # central-reg, harmonic_combination='ref'); the dispatcher returns
+    # the standard multi-band result-dict shape.
+    if template_isophotes is not None:
+        return _fit_image_template_forced_mb(
+            images=images, masks=masks, config=config,
+            variance_maps=variance_maps,
+            template=template_isophotes,
+        )
 
     # Pre-resolve image / mask / variance arrays exactly once and reuse
     # across every per-isophote call. This is the dominant performance
