@@ -202,6 +202,19 @@ recording multi-band parameters (`BANDS`, `REFERENCE_BAND`, `BAND_WEIGHTS`,
 `HARMONIC_COMBINATION`, `VARIANCE_MODE`, `MULTIBAND`) alongside the usual
 single-band fields.
 
+**ASDF I/O symmetry:** `isophote_results_mb_to_asdf(result, filename)` and
+`isophote_results_mb_from_asdf(filename)` mirror the single-band ASDF
+helpers and are the recommended interchange format for downstream
+Python pipelines that already consume ASDF. The on-disk tree stores the
+full result dict natively (no JSON workaround), preserving per-band
+suffix columns (`intens_<b>`, `a3_<b>`, `cog_<b>`, …), the
+`IsosterConfigMB` model dump, multi-band top-level keys, and optional
+`lsb_auto_lock` / `lsb_locked` lock-state metadata. The reader
+reconstructs an `IsosterConfigMB` (or returns `None` if the schema has
+moved on, mirroring the FITS forward-compatibility contract). The
+`asdf` package is an optional dependency; both helpers raise an
+`ImportError` with install hint if it is unavailable.
+
 **B=1 fallback:** when `len(bands) == 1`, `fit_image_multiband`
 delegates to `fit_image` and returns the legacy single-band schema
 unmodified, with an informational warning.
