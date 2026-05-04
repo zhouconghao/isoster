@@ -437,6 +437,61 @@ class IsosterConfigMB(BaseModel):
         "single-band; typical range 1.5–3. Expert tuning only.",
     )
 
+    # --- Stage-3 Stage-C: automatic LSB geometry lock (lsb_auto_lock_*) ---
+    # Backport of single-band lsb_auto_lock. Once the joint combined
+    # gradient degrades, freeze the shared geometry and switch the
+    # remaining outward isophotes to the configured locked integrator.
+    # Mirrors single-band semantics; trigger surface is the joint
+    # combined gradient (plan S3); lock anchor is the converged shared
+    # geometry (S4) — no per-band lock state.
+    lsb_auto_lock: bool = Field(
+        default=False,
+        description="Enable automatic LSB geometry lock on the outward "
+        "sweep. When True, fitting starts in free-geometry mode; once "
+        "the joint combined gradient quality degrades (relative joint "
+        "gradient error above ``lsb_auto_lock_maxgerr`` for "
+        "``lsb_auto_lock_debounce`` consecutive outward isophotes, or "
+        "a stop_code=-1 hits), the lock commits: remaining outward "
+        "isophotes inherit the anchor's shared geometry (frozen "
+        "``x0``, ``y0``, ``eps``, ``pa``) and switch to the configured "
+        "``lsb_auto_lock_integrator``. Inward growth and the central "
+        "pixel are unaffected. Trigger surface is the **joint combined "
+        "gradient** (plan section 7 S3): tune ``reference_band`` and "
+        "``band_weights`` to influence which band(s) drive the trigger. "
+        "Default False; recommended for outer LSB / ICL fits where the "
+        "free-mode fit would otherwise produce stop_code=-1 in the "
+        "outer regime.",
+    )
+    lsb_auto_lock_maxgerr: float = Field(
+        default=0.3,
+        gt=0.0,
+        description="Trigger threshold on the relative joint gradient "
+        "error ``|grad_err_joint / grad_joint|``. The lock commits when "
+        "this threshold is exceeded on ``lsb_auto_lock_debounce`` "
+        "consecutive outward isophotes. Default 0.3 is stricter than "
+        "the free-fit ``maxgerr`` (0.5) so the lock fires before a "
+        "stop_code=-1 would have.",
+    )
+    lsb_auto_lock_debounce: int = Field(
+        default=2,
+        ge=1,
+        le=10,
+        description="Consecutive triggered outward isophotes required "
+        "before the LSB lock commits. Debounces single-isophote noise "
+        "spikes. The lock anchor is the isophote immediately BEFORE "
+        "the streak. Default 2 mirrors single-band.",
+    )
+    lsb_auto_lock_integrator: Literal["mean", "median"] = Field(
+        default="median",
+        description="Integrator used for the locked-region isophotes. "
+        "Default ``'median'`` for robustness against contaminants that "
+        "the fixed-geometry path would otherwise average in. When set "
+        "to ``'median'``, the validator requires "
+        "``fit_per_band_intens_jointly=False`` (plan S1: median cannot "
+        "ride inside the matrix-mode joint LS solve) so the lock-fire "
+        "path produces a config the fitter accepts.",
+    )
+
     # --- Read-only field surfaced after driver entry ---
     # ``variance_mode`` is auto-derived from whether ``variance_maps`` is
     # provided to ``fit_image_multiband``. It is exposed as a config field
@@ -748,6 +803,57 @@ class IsosterConfigMB(BaseModel):
                     stacklevel=2,
                 )
                 self.geometry_convergence = True
+
+        # --- Stage-3 Stage-C: lsb_auto_lock validators ---
+        # The lock is meaningful only when starting from free geometry —
+        # mirror single-band's hard-error on fix_*. Section 7.5 item 2.
+        if self.lsb_auto_lock:
+            conflicting = [
+                name for name in ("fix_center", "fix_pa", "fix_eps")
+                if getattr(self, name)
+            ]
+            if conflicting:
+                raise ValueError(
+                    f"lsb_auto_lock=True conflicts with "
+                    f"{', '.join(conflicting)}=True: the auto-lock requires "
+                    f"free geometry at the start of outward growth. Either "
+                    f"disable lsb_auto_lock or unfreeze the listed "
+                    f"geometry parameter(s)."
+                )
+            # Section 7.5 item 3: the locked-region clone would set
+            # integrator='median' AND keep fit_per_band_intens_jointly,
+            # which Stage-A's S1 rejects. Catch the illegal combination
+            # at config construction so the lock-fire path cannot trip
+            # the validator at clone time.
+            if (
+                self.lsb_auto_lock_integrator == "median"
+                and self.fit_per_band_intens_jointly
+            ):
+                raise ValueError(
+                    "lsb_auto_lock_integrator='median' with "
+                    "fit_per_band_intens_jointly=True is not supported: "
+                    "the locked-region cfg clone would switch the "
+                    "integrator to median, which Stage-A's S1 rejects "
+                    "for matrix-mode joint LS (median cannot ride "
+                    "inside the design matrix). Set "
+                    "fit_per_band_intens_jointly=False to use the "
+                    "decoupled intercept mode (which legally hosts the "
+                    "median path), or set "
+                    "lsb_auto_lock_integrator='mean' to keep the "
+                    "matrix-mode joint solve."
+                )
+            # Soft warning + auto-enable debug: the lock trigger reads
+            # top-level grad / grad_error scalars that the fitter only
+            # writes when debug=True (mirrors single-band).
+            if not self.debug:
+                warnings.warn(
+                    "lsb_auto_lock=True requires the joint gradient "
+                    "diagnostics on each isophote; debug will be enabled "
+                    "internally for this fit.",
+                    UserWarning,
+                    stacklevel=2,
+                )
+                self.debug = True
 
         return self
 

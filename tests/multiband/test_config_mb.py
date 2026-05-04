@@ -623,3 +623,140 @@ def test_outer_reg_off_does_not_emit_warnings():
         assert not any(kw in m for m in msgs), msgs
     assert cfg.use_outer_center_regularization is False
     assert cfg.geometry_convergence is False  # NOT auto-enabled
+
+
+# ---------------------------------------------------------------------------
+# Stage-3 Stage-C: lsb_auto_lock validators
+# ---------------------------------------------------------------------------
+
+
+def test_lsb_auto_lock_default_off_with_neutral_fields():
+    cfg = IsosterConfigMB(bands=["g", "r"], reference_band="g")
+    assert cfg.lsb_auto_lock is False
+    assert cfg.lsb_auto_lock_maxgerr == 0.3
+    assert cfg.lsb_auto_lock_debounce == 2
+    assert cfg.lsb_auto_lock_integrator == "median"
+
+
+def test_lsb_auto_lock_default_median_requires_decoupled_mode():
+    """Default ``lsb_auto_lock_integrator='median'`` × default
+    ``fit_per_band_intens_jointly=True`` is illegal: the lock-fire
+    cfg clone would set integrator='median' on a matrix-mode solve,
+    which Stage-A S1 rejects. Catch at construction."""
+    with pytest.raises(ValidationError) as exc_info:
+        IsosterConfigMB(
+            bands=["g", "r"], reference_band="g",
+            lsb_auto_lock=True,
+        )
+    msg = str(exc_info.value)
+    assert "lsb_auto_lock_integrator='median'" in msg
+    assert "fit_per_band_intens_jointly" in msg
+
+
+def test_lsb_auto_lock_median_decoupled_legal():
+    """Composes: lsb_auto_lock + median + decoupled intercept mode."""
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", UserWarning)
+        cfg = IsosterConfigMB(
+            bands=["g", "r"], reference_band="g",
+            lsb_auto_lock=True,
+            lsb_auto_lock_integrator="median",
+            fit_per_band_intens_jointly=False,
+        )
+    assert cfg.lsb_auto_lock is True
+
+
+def test_lsb_auto_lock_mean_legal_under_matrix_mode():
+    """integrator='mean' is unconditionally legal (Stage A S1)."""
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", UserWarning)
+        cfg = IsosterConfigMB(
+            bands=["g", "r"], reference_band="g",
+            lsb_auto_lock=True,
+            lsb_auto_lock_integrator="mean",
+        )
+    assert cfg.lsb_auto_lock is True
+    assert cfg.fit_per_band_intens_jointly is True
+
+
+@pytest.mark.parametrize("fixed_field", ["fix_center", "fix_eps", "fix_pa"])
+def test_lsb_auto_lock_rejects_frozen_geometry(fixed_field):
+    """The lock requires free geometry on the outward sweep —
+    fix_<axis>=True conflicts (mirror single-band)."""
+    with pytest.raises(ValidationError) as exc_info:
+        IsosterConfigMB(
+            bands=["g", "r"], reference_band="g",
+            lsb_auto_lock=True,
+            lsb_auto_lock_integrator="mean",
+            **{fixed_field: True},
+        )
+    msg = str(exc_info.value)
+    assert "lsb_auto_lock=True" in msg
+    assert fixed_field in msg
+
+
+def test_lsb_auto_lock_auto_enables_debug():
+    """Lock on with debug=False (default) emits a warning + flips debug."""
+    with warnings.catch_warnings(record=True) as w:
+        warnings.simplefilter("always")
+        cfg = IsosterConfigMB(
+            bands=["g", "r"], reference_band="g",
+            lsb_auto_lock=True,
+            lsb_auto_lock_integrator="mean",
+        )
+    msgs = [str(item.message) for item in w]
+    assert any(
+        "joint gradient diagnostics" in m and "debug" in m for m in msgs
+    ), msgs
+    assert cfg.debug is True
+
+
+def test_lsb_auto_lock_no_debug_warning_when_already_enabled():
+    with warnings.catch_warnings(record=True) as w:
+        warnings.simplefilter("always")
+        cfg = IsosterConfigMB(
+            bands=["g", "r"], reference_band="g",
+            lsb_auto_lock=True, debug=True,
+            lsb_auto_lock_integrator="mean",
+        )
+    msgs = [str(item.message) for item in w]
+    assert not any("joint gradient diagnostics" in m for m in msgs), msgs
+    assert cfg.debug is True
+
+
+def test_lsb_auto_lock_off_does_not_emit_warnings():
+    with warnings.catch_warnings(record=True) as w:
+        warnings.simplefilter("always")
+        cfg = IsosterConfigMB(
+            bands=["g", "r"], reference_band="g",
+            lsb_auto_lock=False,
+            fix_center=True,
+            lsb_auto_lock_integrator="median",
+        )
+    msgs = [str(item.message) for item in w]
+    assert not any("lsb_auto_lock" in m for m in msgs), msgs
+    assert cfg.lsb_auto_lock is False
+    assert cfg.debug is False
+
+
+def test_lsb_auto_lock_debounce_bounds():
+    """ge=1, le=10 enforced on lsb_auto_lock_debounce."""
+    with pytest.raises(ValidationError):
+        IsosterConfigMB(
+            bands=["g", "r"], reference_band="g",
+            lsb_auto_lock_debounce=0,
+        )
+    with pytest.raises(ValidationError):
+        IsosterConfigMB(
+            bands=["g", "r"], reference_band="g",
+            lsb_auto_lock_debounce=11,
+        )
+
+
+def test_lsb_auto_lock_integrator_only_mean_or_median():
+    """``adaptive`` rejected at the Literal level."""
+    with pytest.raises(ValidationError):
+        IsosterConfigMB(
+            bands=["g", "r"], reference_band="g",
+            lsb_auto_lock_integrator="adaptive",  # type: ignore[arg-type]
+        )

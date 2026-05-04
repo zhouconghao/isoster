@@ -1049,3 +1049,174 @@ def test_fit_image_multiband_end_to_end_with_outer_damping():
         if float(iso_off["sma"]) < 30.0:
             assert abs(float(iso_off["x0"]) - float(iso_on["x0"])) < 0.5
             assert abs(float(iso_off["y0"]) - float(iso_on["y0"])) < 0.5
+
+
+# ---------------------------------------------------------------------------
+# Stage-3 Stage-C: lsb_auto_lock state machine
+# ---------------------------------------------------------------------------
+
+
+def test_is_lsb_isophote_mb_predicate():
+    """Direct unit test on the lock-trigger predicate (joint gradient)."""
+    from isoster.multiband.driver_mb import _is_lsb_isophote_mb
+    # Healthy: small relative grad error, negative grad → no trigger.
+    assert not _is_lsb_isophote_mb(
+        {"grad": -10.0, "grad_error": 1.0, "stop_code": 0}, 0.3,
+    )
+    # Above threshold: |0.5 / -1.0| = 0.5 > 0.3 → trigger.
+    assert _is_lsb_isophote_mb(
+        {"grad": -1.0, "grad_error": 0.5, "stop_code": 0}, 0.3,
+    )
+    # Positive grad → trigger (galaxy gradient should be negative).
+    assert _is_lsb_isophote_mb(
+        {"grad": 5.0, "grad_error": 1.0, "stop_code": 0}, 0.3,
+    )
+    # stop_code=-1 → trigger regardless of gradient values.
+    assert _is_lsb_isophote_mb(
+        {"grad": -10.0, "grad_error": 0.1, "stop_code": -1}, 0.3,
+    )
+    # Missing keys → cannot assess, no trigger.
+    assert not _is_lsb_isophote_mb({}, 0.3)
+    assert not _is_lsb_isophote_mb({"grad": -10.0}, 0.3)
+    # Non-finite values → no trigger.
+    assert not _is_lsb_isophote_mb(
+        {"grad": float("nan"), "grad_error": 1.0, "stop_code": 0}, 0.3,
+    )
+    assert not _is_lsb_isophote_mb(
+        {"grad": -10.0, "grad_error": 0.0, "stop_code": 0}, 0.3,
+    )
+
+
+def test_build_locked_cfg_mb_freezes_geometry_and_disables_outer_reg():
+    """The lock clone must freeze geometry, disable auto-lock and
+    outer-reg on itself, and (when integrator='median') flip
+    fit_per_band_intens_jointly to False to satisfy Stage-A S1."""
+    from isoster.multiband.driver_mb import _build_locked_cfg_mb
+    import warnings as _warnings
+    with _warnings.catch_warnings():
+        _warnings.simplefilter("ignore", UserWarning)
+        cfg = IsosterConfigMB(
+            bands=["g", "r"], reference_band="g",
+            lsb_auto_lock=True,
+            lsb_auto_lock_integrator="median",
+            fit_per_band_intens_jointly=False,
+            use_outer_center_regularization=True,
+            sma0=10.0,
+        )
+    anchor = {
+        "x0": 100.0, "y0": 100.0, "eps": 0.3, "pa": 0.5, "sma": 25.0,
+        "stop_code": 0,
+    }
+    locked = _build_locked_cfg_mb(cfg, anchor, "median")
+    assert locked.x0 == 100.0 and locked.y0 == 100.0
+    assert locked.eps == 0.3 and locked.pa == 0.5
+    assert locked.fix_center is True
+    assert locked.fix_pa is True
+    assert locked.fix_eps is True
+    assert locked.integrator == "median"
+    assert locked.fit_per_band_intens_jointly is False  # Stage-A S1
+    assert locked.lsb_auto_lock is False  # one-way state machine
+    assert locked.use_outer_center_regularization is False  # disabled on clone
+
+
+def test_build_locked_cfg_mb_mean_keeps_intercept_mode():
+    """Locked-region mean integrator does NOT need to flip the
+    intercept mode."""
+    from isoster.multiband.driver_mb import _build_locked_cfg_mb
+    import warnings as _warnings
+    with _warnings.catch_warnings():
+        _warnings.simplefilter("ignore", UserWarning)
+        cfg = IsosterConfigMB(
+            bands=["g", "r"], reference_band="g",
+            lsb_auto_lock=True,
+            lsb_auto_lock_integrator="mean",
+        )
+    anchor = {"x0": 50.0, "y0": 50.0, "eps": 0.2, "pa": 0.0, "sma": 15.0}
+    locked = _build_locked_cfg_mb(cfg, anchor, "mean")
+    assert locked.integrator == "mean"
+    assert locked.fit_per_band_intens_jointly is True  # untouched
+
+
+def test_lsb_auto_lock_fires_on_synthetic_galaxy():
+    """End-to-end: build a multi-band image where the gradient quality
+    falls off in the outer region, run the driver with lsb_auto_lock on,
+    confirm the lock fires and the outer isophotes carry the locked
+    state metadata."""
+    from isoster.multiband import fit_image_multiband
+    import warnings as _warnings
+
+    # Compact planted galaxy + heavy noise so the outer-region gradient
+    # quality drops below the trigger threshold deterministically.
+    img1 = _planted_galaxy(
+        h=200, w=200, x0=100.0, y0=100.0, eps=0.25, pa=0.4,
+        amplitude=50.0, re=10.0, noise_sigma=2.0, seed=2026,
+    )
+    img2 = _planted_galaxy(
+        h=200, w=200, x0=100.0, y0=100.0, eps=0.25, pa=0.4,
+        amplitude=25.0, re=10.0, noise_sigma=2.0, seed=2027,
+    )
+
+    with _warnings.catch_warnings():
+        _warnings.simplefilter("ignore", UserWarning)
+        cfg = IsosterConfigMB(
+            bands=["g", "r"], reference_band="g",
+            sma0=5.0, minsma=2.0, maxsma=80.0, astep=0.15,
+            lsb_auto_lock=True,
+            lsb_auto_lock_integrator="mean",  # avoid S1; keep matrix-mode
+            lsb_auto_lock_maxgerr=0.2,
+            lsb_auto_lock_debounce=2,
+        )
+    res = fit_image_multiband(images=[img1, img2], masks=None, config=cfg)
+
+    assert res.get("lsb_auto_lock") is True
+    # The lock should fire SOMEWHERE in the outer sweep on this seeded
+    # synthetic image — beyond ~ 2-3× re the gradient is essentially
+    # noise. ``lsb_auto_lock_sma`` may be None if the trigger never
+    # debounced, in which case the test data is wrong; assert non-None.
+    assert res["lsb_auto_lock_sma"] is not None
+    assert float(res["lsb_auto_lock_sma"]) > cfg.sma0  # locked outward
+    assert int(res["lsb_auto_lock_count"]) >= 1
+    # At least one isophote is marked lsb_locked=True; at least the
+    # anchor gets lsb_locked=False (lock_state initialized).
+    iso_locked = [iso for iso in res["isophotes"] if iso.get("lsb_locked")]
+    assert len(iso_locked) >= 1
+    # The locked isophotes' geometry must match the lock anchor exactly
+    # (since fix_center / fix_pa / fix_eps fire on the cloned cfg).
+    locked_x0s = [float(iso["x0"]) for iso in iso_locked]
+    locked_y0s = [float(iso["y0"]) for iso in iso_locked]
+    locked_eps = [float(iso["eps"]) for iso in iso_locked]
+    locked_pa = [float(iso["pa"]) for iso in iso_locked]
+    # All locked isophotes share the same geometry to numerical noise.
+    assert max(locked_x0s) - min(locked_x0s) < 1e-9
+    assert max(locked_y0s) - min(locked_y0s) < 1e-9
+    assert max(locked_eps) - min(locked_eps) < 1e-9
+    assert max(locked_pa) - min(locked_pa) < 1e-9
+
+
+def test_lsb_auto_lock_off_no_metadata():
+    """With lsb_auto_lock=False, the result dict carries no lock keys."""
+    from isoster.multiband import fit_image_multiband
+    img = _planted_galaxy(seed=4242)
+    cfg = IsosterConfigMB(
+        bands=["g", "r"], reference_band="g",
+        sma0=10.0, maxsma=60.0, astep=0.15, debug=True,
+    )
+    res = fit_image_multiband([img, img], masks=None, config=cfg)
+    assert "lsb_auto_lock" not in res
+    for iso in res["isophotes"]:
+        assert "lsb_locked" not in iso
+
+
+def test_top_level_grad_keys_under_debug():
+    """Stage-C added top-level ``grad`` / ``grad_error`` to the row
+    when debug=True. Required for the lock predicate."""
+    img = _planted_galaxy(amplitude=100.0, noise_sigma=0.001, seed=99)
+    cfg = IsosterConfigMB(bands=["g", "r"], reference_band="g", debug=True)
+    out = fit_isophote_mb(
+        images=[img, img], masks=None, sma=20.0,
+        start_geometry={"x0": 128.0, "y0": 128.0, "eps": 0.2, "pa": 0.0},
+        config=cfg,
+    )
+    assert "grad" in out
+    assert "grad_error" in out
+    assert np.isfinite(float(out["grad"]))

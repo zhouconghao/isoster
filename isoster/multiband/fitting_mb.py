@@ -1716,6 +1716,17 @@ def fit_isophote_mb(
             if debug:
                 best_geometry["ndata"] = actual_points
                 best_geometry["nflag"] = total_points - actual_points
+                # Stage-3 Stage-C: top-level joint gradient scalars mirror
+                # the single-band ``grad`` / ``grad_error`` API. The
+                # multi-band lsb_auto_lock trigger reads these (per S3:
+                # joint combined gradient). Single-band downstream tooling
+                # that consumes ``iso['grad']`` works on multi-band too.
+                best_geometry["grad"] = (
+                    float(grad_joint) if grad_joint is not None else float("nan")
+                )
+                best_geometry["grad_error"] = (
+                    float(grad_err_joint) if grad_err_joint is not None else float("nan")
+                )
         else:
             no_improvement_count += 1
 
