@@ -30,6 +30,7 @@ def compute_cog_mb(
     bands: Sequence[str],
     fix_center: bool = False,
     fix_geometry: bool = False,
+    sky_offsets: Dict[str, float] | None = None,
 ) -> Dict[str, object]:
     """
     Compute per-band CoG for a multi-band isophote list.
@@ -46,6 +47,17 @@ def compute_cog_mb(
         Forwarded to :func:`isoster.cog.detect_crossing` to gate the
         crossing diagnostics. Multi-band typically uses fix_center=
         fix_geometry=False (free shared geometry).
+    sky_offsets : dict mapping band name to offset, optional
+        Per-band scalar subtracted from ``intens_<b>`` BEFORE the
+        trapezoidal annulus average is computed. Use this to feed in
+        the inferred sky offsets from
+        :func:`isoster.multiband.plotting_mb.subtract_outermost_sky_offset`
+        (or a user-supplied sky estimator) so the cumulative flux
+        does not asymptote / dip in the LSB regime where the joint
+        solver's per-band intercept tracks residual sky. Default
+        ``None`` (no correction) preserves the historical raw-CoG
+        behavior bit-identically; passing an empty dict ``{}`` is
+        equivalent. Bands missing from the dict get a zero offset.
 
     Returns
     -------
@@ -100,6 +112,7 @@ def compute_cog_mb(
     }
 
     # --- Per-band cumulative flux ---
+    sky_map: Dict[str, float] = dict(sky_offsets) if sky_offsets else {}
     for b in bands:
         intens_col = np.array(
             [
@@ -109,6 +122,16 @@ def compute_cog_mb(
             ],
             dtype=np.float64,
         )
+        # Optional per-band sky correction: subtract a scalar offset
+        # before the trapezoidal average. Sky offset is a downstream
+        # correction (the fitter reports faithful per-band intercepts);
+        # without it, the cumulative flux can dip past the LSB
+        # transition because the joint solver's I0_b carries the
+        # residual sky.
+        sky_b = float(sky_map.get(b, 0.0))
+        if sky_b != 0.0:
+            intens_col = intens_col - sky_b
+
         # Trapezoidal annulus integration: average of inner+outer per-band
         # intensities. First annulus uses the band's own intensity (no
         # inner). NaNs in intens_<b> propagate — the band-drop case

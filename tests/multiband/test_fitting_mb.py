@@ -1347,6 +1347,36 @@ def test_fit_image_multiband_compute_cog_off_no_extra_columns():
             assert key not in iso, f"unexpected {key} in row at sma={iso['sma']}"
 
 
+def test_compute_cog_mb_sky_offsets_subtract_constant_before_integration():
+    """Per-band sky_offsets shift intens_<b> by a constant before the
+    trapezoidal average; the cog_total picks up exactly
+    -sky_offset * total_area."""
+    from isoster.multiband.cog_mb import compute_cog_mb
+    smas = np.linspace(5.0, 50.0, 8)
+    intens_g = np.exp(-smas / 12.0) * 50.0
+    isos = [
+        {"sma": float(s), "eps": 0.0, "x0": 0.0, "y0": 0.0, "pa": 0.0,
+         "stop_code": 0, "intens": float(intens_g[i]),
+         "intens_g": float(intens_g[i])}
+        for i, s in enumerate(smas)
+    ]
+    out_raw = compute_cog_mb(isos, bands=["g"])
+    out_corr = compute_cog_mb(isos, bands=["g"], sky_offsets={"g": 0.05})
+
+    # Total area enclosed at the outermost isophote.
+    total_area = float(np.pi * smas[-1] ** 2)
+    raw_total = float(out_raw["cog_g"][-1])
+    corr_total = float(out_corr["cog_g"][-1])
+    expected_diff = -0.05 * total_area
+    np.testing.assert_allclose(corr_total - raw_total, expected_diff, rtol=1e-9)
+    # Empty dict ≡ no correction.
+    out_empty = compute_cog_mb(isos, bands=["g"], sky_offsets={})
+    np.testing.assert_allclose(out_empty["cog_g"], out_raw["cog_g"], rtol=0.0)
+    # None ≡ no correction (default).
+    out_none = compute_cog_mb(isos, bands=["g"], sky_offsets=None)
+    np.testing.assert_allclose(out_none["cog_g"], out_raw["cog_g"], rtol=0.0)
+
+
 def test_compute_cog_mb_b1_matches_single_band_per_band_column():
     """B=1 multi-band CoG agrees with single-band CoG for a curated
     isophote list whose ``intens`` and ``intens_<b>`` are identical."""

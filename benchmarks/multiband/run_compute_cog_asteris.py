@@ -115,29 +115,49 @@ def _half_light_sma(sma: np.ndarray, cog: np.ndarray) -> float:
 
 
 def _curves_figure(
-    result: dict, bands: List[str], out_path: Path, title: str,
+    result: dict, result_sky: dict, sky_offsets: Dict[str, float],
+    bands: List[str], out_path: Path, title: str,
 ) -> None:
     """Two-panel figure: cumulative-flux profile (cog) and annular
-    flux trace (cog_annulus), per-band overlay."""
+    flux trace (cog_annulus), per-band overlay. Solid = raw CoG
+    (joint solver's I0_b carries residual sky); dashed = background-
+    corrected CoG (sky offset subtracted before trapezoidal
+    integration). Past the LSB transition the two curves diverge —
+    the raw CoG dips because the residual sky goes slightly negative
+    on these denoised images."""
     rows = result["isophotes"]
+    rows_sky = result_sky["isophotes"]
     sma = np.array([float(r["sma"]) for r in rows])
     fig, (ax_cog, ax_ann) = plt.subplots(
         2, 1, figsize=(7.0, 6.0), sharex=True,
     )
     for b in bands:
-        cog = np.array([float(r.get(f"cog_{b}", float("nan"))) for r in rows])
-        ann = np.array([float(r.get(f"cog_annulus_{b}", float("nan"))) for r in rows])
-        ax_cog.plot(sma, cog, color=BAND_COLORS.get(b, None), lw=1.4, label=b)
-        ax_ann.plot(sma, ann, color=BAND_COLORS.get(b, None), lw=1.0)
+        cog_raw = np.array([float(r.get(f"cog_{b}", float("nan"))) for r in rows])
+        ann_raw = np.array([float(r.get(f"cog_annulus_{b}", float("nan"))) for r in rows])
+        cog_corr = np.array([float(r.get(f"cog_{b}", float("nan"))) for r in rows_sky])
+        ann_corr = np.array([float(r.get(f"cog_annulus_{b}", float("nan"))) for r in rows_sky])
+        color = BAND_COLORS.get(b, None)
+        # Solid = raw, dashed = background-corrected.
+        ax_cog.plot(sma, cog_raw, color=color, lw=1.4, ls="-", label=b)
+        ax_cog.plot(sma, cog_corr, color=color, lw=1.4, ls="--", alpha=0.85)
+        ax_ann.plot(sma, ann_raw, color=color, lw=1.0, ls="-")
+        ax_ann.plot(sma, ann_corr, color=color, lw=1.0, ls="--", alpha=0.85)
     ax_cog.set_ylabel("Cumulative flux (cog)")
-    ax_cog.legend(loc="lower right", frameon=False)
+    band_legend = ax_cog.legend(loc="lower right", frameon=False, title="band")
+    ax_cog.add_artist(band_legend)
+    style_handles = [
+        plt.Line2D([0], [0], color="0.3", ls="-", lw=1.4, label="raw"),
+        plt.Line2D([0], [0], color="0.3", ls="--", lw=1.4, label="bg-corrected"),
+    ]
+    ax_cog.legend(handles=style_handles, loc="upper left", frameon=False)
     ax_cog.grid(True, alpha=0.3)
     ax_ann.set_ylabel("Annular flux (cog_annulus)")
     ax_ann.set_xlabel("SMA (px)")
     ax_ann.grid(True, alpha=0.3)
     ax_ann.axhline(0.0, color="0.6", lw=0.5, zorder=-1)
-    fig.suptitle(title, fontsize=11, y=0.995)
-    fig.tight_layout(rect=(0, 0, 1, 0.97))
+    sky_text = ", ".join(f"{b}={sky_offsets.get(b, 0.0):+.3g}" for b in bands)
+    fig.suptitle(f"{title}\nsky offsets subtracted: {sky_text}", fontsize=10, y=0.995)
+    fig.tight_layout(rect=(0, 0, 1, 0.96))
     fig.savefig(out_path, dpi=150)
     plt.close(fig)
 
@@ -185,6 +205,22 @@ def run(
     )
     images_corr = [im - sky_offsets[b] for im, b in zip(images, DEMO_BANDS)]
 
+    # Stage-3 Stage-D follow-up: recompute CoG with sky offsets
+    # subtracted from intens_<b> before the trapezoidal integration.
+    # The raw CoG (already stamped onto res by the driver) shows the
+    # cumulative flux of the joint solver's per-band intercept,
+    # which carries residual sky and dips past the LSB transition.
+    # The background-corrected CoG asymptotes properly.
+    from isoster.multiband.cog_mb import (
+        add_cog_mb_to_isophotes, compute_cog_mb,
+    )
+    import copy as _copy
+    res_bg = _copy.deepcopy(res)  # avoid stomping the raw cog_<b> columns
+    cog_bg = compute_cog_mb(
+        res_bg["isophotes"], bands=DEMO_BANDS, sky_offsets=sky_offsets,
+    )
+    add_cog_mb_to_isophotes(res_bg["isophotes"], DEMO_BANDS, cog_bg)
+
     qa_path = out_dir / f"asteris_{obj_id}_compute_cog.png"
     plot_qa_summary_mb(
         result=res_corr,
@@ -201,23 +237,37 @@ def run(
 
     curves_path = out_dir / f"asteris_{obj_id}_compute_cog_curves.png"
     _curves_figure(
-        res, DEMO_BANDS, curves_path,
-        title=f"asteris {obj_id} — per-band CoG (cumulative flux + annular flux)",
+        res, res_bg, sky_offsets, DEMO_BANDS, curves_path,
+        title=f"asteris {obj_id} — per-band CoG (raw vs background-corrected)",
     )
     print(f"  wrote {curves_path}")
 
-    # Per-band summary stats: total cog at the outermost finite
-    # isophote, plus half-light SMA per band.
+    # Per-band summary stats: cog totals + half-light SMAs for both
+    # the raw CoG and the background-corrected CoG (sky offsets
+    # subtracted before integration).
     rows = res["isophotes"]
+    rows_bg = res_bg["isophotes"]
     sma_arr = np.array([float(r["sma"]) for r in rows])
-    summary: Dict[str, Dict[str, float]] = {}
+    summary_raw: Dict[str, Dict[str, float]] = {}
+    summary_bg: Dict[str, Dict[str, float]] = {}
     for b in DEMO_BANDS:
-        cog = np.array([float(r.get(f"cog_{b}", float("nan"))) for r in rows])
-        finite = np.isfinite(cog)
-        cog_total = float(cog[finite][-1]) if int(finite.sum()) > 0 else float("nan")
-        summary[b] = {
-            "cog_total_outermost": cog_total,
-            "half_light_sma_px": _half_light_sma(sma_arr, cog),
+        cog_raw = np.array([float(r.get(f"cog_{b}", float("nan"))) for r in rows])
+        cog_bg_arr = np.array([float(r.get(f"cog_{b}", float("nan"))) for r in rows_bg])
+        finite_raw = np.isfinite(cog_raw)
+        finite_bg = np.isfinite(cog_bg_arr)
+        summary_raw[b] = {
+            "cog_total_outermost": (
+                float(cog_raw[finite_raw][-1]) if int(finite_raw.sum()) > 0
+                else float("nan")
+            ),
+            "half_light_sma_px": _half_light_sma(sma_arr, cog_raw),
+        }
+        summary_bg[b] = {
+            "cog_total_outermost": (
+                float(cog_bg_arr[finite_bg][-1]) if int(finite_bg.sum()) > 0
+                else float("nan")
+            ),
+            "half_light_sma_px": _half_light_sma(sma_arr, cog_bg_arr),
         }
 
     stats_path = out_dir / f"asteris_{obj_id}_compute_cog_stats.json"
@@ -225,18 +275,26 @@ def run(
         "obj_id": obj_id,
         "n_isophotes": len(rows),
         "shape": list(images[0].shape),
-        "per_band_summary": summary,
+        "sky_offsets": sky_offsets,
+        "per_band_summary_raw": summary_raw,
+        "per_band_summary_bg_corrected": summary_bg,
     }, indent=2))
     print(f"Wrote {stats_path}")
 
     print()
-    print(f"{'band':<6} {'cog_total':>14} {'half-light SMA (px)':>20}")
-    print("-" * 45)
+    print(
+        f"{'band':<6} {'raw cog_total':>14} {'raw r1/2':>10} "
+        f"{'bg cog_total':>14} {'bg r1/2':>10}"
+    )
+    print("-" * 60)
     for b in DEMO_BANDS:
-        s = summary[b]
+        sr = summary_raw[b]
+        sb = summary_bg[b]
         print(
-            f"{b:<6} {s['cog_total_outermost']:>14.4e} "
-            f"{s['half_light_sma_px']:>20.2f}"
+            f"{b:<6} {sr['cog_total_outermost']:>14.4e} "
+            f"{sr['half_light_sma_px']:>10.2f} "
+            f"{sb['cog_total_outermost']:>14.4e} "
+            f"{sb['half_light_sma_px']:>10.2f}"
         )
 
 
