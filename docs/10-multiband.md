@@ -126,6 +126,52 @@ result = fit_image_multiband(
 )
 ```
 
+### Command-line interface (Stage-J, ``isoster-mb``)
+
+The multi-band path ships a **separate** console script ``isoster-mb``
+(entry point ``isoster.multiband.cli_mb:main``). This is intentionally a
+parallel CLI to the stable single-band ``isoster`` script: while the
+multi-band path remains experimental the two CLIs do **not** share
+implementation, so multi-band-specific fixes cannot regress the
+single-band entry point. Argument layout mirrors single-band for user
+familiarity (``--config``, ``--output``, ``--x0``, ``--y0``, ``--sma0``,
+``--fix-center``, ``--fix-eps``, ``--fix-pa``, ``--template``) but
+takes one positional FITS path per band plus a ``--bands`` flag.
+
+The CLI prints an ``EXPERIMENTAL`` banner per invocation while in beta;
+suppress with ``--quiet``.
+
+```bash
+# Joint multi-band fit (FITS output uses Schema-1 multi-HDU writer).
+isoster-mb image_g.fits image_r.fits image_i.fits \
+    --bands g r i --reference-band i \
+    --config config.yaml \
+    --output isophotes_mb.fits
+
+# Forced-photometry workflow: fit a deep band first, reuse its geometry
+# across every band in one call (more efficient than running single-band
+# B times — see Stage-H above).
+isoster image_i.fits --output template_i.fits --config single_band.yaml
+isoster-mb image_g.fits image_r.fits image_i.fits image_z.fits image_y.fits \
+    --bands g r i z y --reference-band i \
+    --template template_i.fits \
+    --output isophotes_mb_forced.fits
+
+# Per-band masks / variance maps + WLS:
+isoster-mb image_g.fits image_r.fits \
+    --bands g r --reference-band g \
+    --masks mask_g.fits mask_r.fits \
+    --variance-maps var_g.fits var_r.fits \
+    --output isophotes_mb.fits
+```
+
+The ``--config`` YAML accepts any field of
+:class:`isoster.multiband.IsosterConfigMB`; CLI flags layer on top.
+``bands`` and ``reference_band`` may be set in YAML in lieu of
+``--bands`` / ``--reference-band``. Output extension drives the writer:
+``.fits`` (Schema-1 multi-HDU), ``.asdf`` (Stage-I native tree), or
+anything else (astropy ``Table.write`` of the per-isophote table).
+
 ## Input contract (placeholder)
 
 - `images`: `list[ndarray]` of length B, all of shape `(H, W)`.
