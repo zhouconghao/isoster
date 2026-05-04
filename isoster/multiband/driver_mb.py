@@ -456,8 +456,19 @@ def _fit_central_pixel_mb(
     masks: Union[None, NDArray[np.bool_], Sequence[Optional[NDArray[np.bool_]]]],
     x0: float, y0: float,
     config: IsosterConfigMB,
+    variance_maps: Union[
+        None, NDArray[np.floating], Sequence[NDArray[np.floating]]
+    ] = None,
 ) -> Dict[str, object]:
-    """Per-band central-pixel record at SMA=0."""
+    """Per-band central-pixel record at SMA=0.
+
+    When ``variance_maps`` is provided (WLS mode), ``intens_err_<b>`` is
+    set to ``sqrt(variance_maps_b[iy, ix])`` (review fix H3). In OLS
+    mode the central pixel still reports ``intens_err_<b>=0.0`` because
+    a single sample admits no internal error estimate. ``rms_<b>``
+    remains ``0.0`` in both modes — RMS is the ring-residual scatter
+    around the harmonic model and is undefined for a single pixel.
+    """
     bands = list(config.bands)
     debug = bool(config.debug)
     h, w = np.asarray(images[0]).shape
@@ -498,7 +509,25 @@ def _fit_central_pixel_mb(
             val = float("nan")
             valid_b = False
         row[f"intens_{b}"] = val if valid_b else float("nan")
-        row[f"intens_err_{b}"] = 0.0
+
+        # Review fix H3: under WLS, the per-pixel variance map gives an
+        # honest standard error at the central pixel. Under OLS (no
+        # variance map) keep the legacy 0.0 — a single sample admits no
+        # internal error estimate.
+        intens_err_b = 0.0
+        if valid_b and variance_maps is not None:
+            if isinstance(variance_maps, np.ndarray):
+                # Single (H, W) ndarray broadcast to all bands.
+                var_b = variance_maps
+            else:
+                var_b = variance_maps[b_idx]
+            try:
+                v = float(np.asarray(var_b)[iy, ix])
+                if np.isfinite(v) and v > 0.0:
+                    intens_err_b = float(np.sqrt(v))
+            except (IndexError, TypeError):
+                intens_err_b = 0.0
+        row[f"intens_err_{b}"] = intens_err_b
         row[f"rms_{b}"] = 0.0
         for n_order in config.harmonic_orders:
             for prefix in ("a", "b"):
@@ -607,6 +636,7 @@ def _fit_image_template_forced_mb(
                 images, masks,
                 float(template_iso["x0"]), float(template_iso["y0"]),  # type: ignore[arg-type]
                 config,
+                variance_maps=variance_maps,
             )
             ring_data_per_row.append(None)  # central pixel: no ring
         else:
@@ -843,7 +873,9 @@ def fit_image_multiband(
     linear_growth = config.linear_growth
 
     # Central-pixel record (when minsma <= 0).
-    central_result = _fit_central_pixel_mb(images, masks, x0, y0, config)
+    central_result = _fit_central_pixel_mb(
+        images, masks, x0, y0, config, variance_maps=variance_maps,
+    )
 
     # First isophote at sma0.
     start_geometry = {"x0": x0, "y0": y0, "eps": config.eps, "pa": config.pa}

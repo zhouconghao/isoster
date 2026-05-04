@@ -2130,3 +2130,103 @@ def test_h1_user_config_variance_mode_unchanged_across_fits():
     res_ols2 = fit_image_multiband([img_g, img_r], None, cfg)
     assert res_ols2["variance_mode"] == "ols"
     assert cfg.variance_mode == initial_variance_mode
+
+
+def test_h3_central_pixel_wls_uses_variance_map_for_intens_err():
+    """Review fix H3: under WLS, the central-pixel record's
+    ``intens_err_<b>`` must read the per-pixel variance map at
+    ``(iy, ix)``, not be hardcoded to 0.0.
+
+    Build a known constant-σ² variance map per band (different σ per
+    band) and a config with ``minsma=0`` so the central pixel is
+    recorded. Verify ``intens_err_<b> ≈ σ_b`` on the central row of
+    each band, and ``rms_<b>`` stays 0.0 (ring-residual scatter is
+    undefined for a single sample).
+
+    OLS run on the same setup keeps ``intens_err_<b> = 0.0`` (legacy
+    behavior — no per-pixel error estimate is available).
+    """
+    from isoster.multiband import fit_image_multiband
+
+    img_g = _planted_galaxy(amplitude=100.0, noise_sigma=0.005, seed=950)
+    img_r = _planted_galaxy(amplitude=200.0, noise_sigma=0.005, seed=951)
+    sigma_g, sigma_r = 0.05, 0.20
+    var_g = np.full_like(img_g, sigma_g**2)
+    var_r = np.full_like(img_r, sigma_r**2)
+
+    cfg = IsosterConfigMB(
+        bands=["g", "r"], reference_band="g",
+        sma0=12.0, minsma=0.0, eps=0.2, pa=0.4, astep=0.2, maxsma=30.0,
+        minit=6, maxit=30, conver=0.05, fix_center=True, nclip=0,
+    )
+
+    # WLS run.
+    res_wls = fit_image_multiband(
+        [img_g, img_r], None, cfg, variance_maps=[var_g, var_r],
+    )
+    central = next(iso for iso in res_wls["isophotes"] if iso["sma"] == 0.0)
+    assert central["intens_err_g"] == pytest.approx(sigma_g, rel=1e-9)
+    assert central["intens_err_r"] == pytest.approx(sigma_r, rel=1e-9)
+    # rms_<b> stays 0 by design (single sample → no ring residual).
+    assert central["rms_g"] == 0.0
+    assert central["rms_r"] == 0.0
+
+    # OLS run (no variance map): legacy 0.0 preserved.
+    res_ols = fit_image_multiband([img_g, img_r], None, cfg)
+    central_ols = next(iso for iso in res_ols["isophotes"] if iso["sma"] == 0.0)
+    assert central_ols["intens_err_g"] == 0.0
+    assert central_ols["intens_err_r"] == 0.0
+
+
+def test_h3_central_pixel_wls_with_single_broadcast_variance_map():
+    """Companion: a single ndarray broadcast as variance_maps must also
+    feed the central-pixel error correctly (the broadcast contract is
+    used in the asteris demo with shared-σ across bands)."""
+    from isoster.multiband import fit_image_multiband
+
+    img_g = _planted_galaxy(amplitude=100.0, noise_sigma=0.005, seed=960)
+    img_r = _planted_galaxy(amplitude=200.0, noise_sigma=0.005, seed=961)
+    sigma = 0.10
+    var_shared = np.full_like(img_g, sigma**2)
+
+    cfg = IsosterConfigMB(
+        bands=["g", "r"], reference_band="g",
+        sma0=12.0, minsma=0.0, eps=0.2, pa=0.4, astep=0.2, maxsma=30.0,
+        minit=6, maxit=30, conver=0.05, fix_center=True, nclip=0,
+    )
+    res = fit_image_multiband(
+        [img_g, img_r], None, cfg, variance_maps=var_shared,
+    )
+    central = next(iso for iso in res["isophotes"] if iso["sma"] == 0.0)
+    assert central["intens_err_g"] == pytest.approx(sigma, rel=1e-9)
+    assert central["intens_err_r"] == pytest.approx(sigma, rel=1e-9)
+
+
+def test_h3_central_pixel_masked_wls_keeps_zero_error():
+    """When the central pixel is masked under WLS, ``intens_err_<b>``
+    must stay 0.0 (the value is NaN and no error can be assigned)."""
+    from isoster.multiband import fit_image_multiband
+
+    img = _planted_galaxy(amplitude=100.0, noise_sigma=0.005, seed=970)
+    var_map = np.full_like(img, 0.05**2)
+    # Mask the exact central pixel of band g; band r stays clean.
+    iy = ix = 128
+    mask_g = np.zeros_like(img, dtype=bool)
+    mask_g[iy, ix] = True
+    mask_r = np.zeros_like(img, dtype=bool)
+
+    cfg = IsosterConfigMB(
+        bands=["g", "r"], reference_band="r",
+        sma0=12.0, minsma=0.0, eps=0.2, pa=0.4, astep=0.2, maxsma=30.0,
+        minit=6, maxit=30, conver=0.05, fix_center=True, nclip=0,
+    )
+    res = fit_image_multiband(
+        [img, img], [mask_g, mask_r], cfg,
+        variance_maps=[var_map, var_map],
+    )
+    central = next(iso for iso in res["isophotes"] if iso["sma"] == 0.0)
+    # Masked band: NaN intens, zero error.
+    assert np.isnan(central["intens_g"])
+    assert central["intens_err_g"] == 0.0
+    # Unmasked band: the WLS error is set from the variance map.
+    assert central["intens_err_r"] == pytest.approx(0.05, rel=1e-9)
