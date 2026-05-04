@@ -2520,7 +2520,9 @@ def extract_forced_photometry_mb(
     bands: Sequence[str],
     config: IsosterConfigMB,
     variance_maps: Union[None, NDArray[np.floating], Sequence[NDArray[np.floating]]] = None,
-) -> Dict[str, object]:
+    *,
+    return_ring_data: bool = False,
+) -> Union[Dict[str, object], Tuple[Dict[str, object], object]]:
     """
     Single-isophote forced multi-band extraction (no fitting).
 
@@ -2528,6 +2530,15 @@ def extract_forced_photometry_mb(
     growth and as a defensive fallback when an isophote fails the
     iterative fit. Produces the same per-isophote dict layout as
     :func:`fit_isophote_mb` with ``stop_code=0`` and ``niter=0``.
+
+    Stage-H.1: when ``return_ring_data=True``, returns a
+    ``(geom, ring_data)`` tuple where ``ring_data`` is the
+    ``MultiIsophoteData`` (or None on empty extraction). The
+    forced-photometry orchestrator uses this to compute per-band
+    harmonic deviations post-hoc with neighbor-derived per-band
+    gradients, mirroring the iteration loop's
+    ``_attach_per_band_harmonics`` path. Default ``False`` preserves
+    bit-identical behavior for all existing callers.
     """
     debug = bool(config.debug)
     band_list = list(bands)
@@ -2537,11 +2548,14 @@ def extract_forced_photometry_mb(
         variance_maps=variance_maps,
     )
     if data.valid_count == 0:
-        return _empty_isophote_dict(
+        empty = _empty_isophote_dict(
             sma, x0, y0, eps, pa, band_list, config.use_eccentric_anomaly,
             stop_code=3, niter=0, debug=debug,
             harmonic_orders=config.harmonic_orders,
         )
+        if return_ring_data:
+            return empty, None
+        return empty
 
     geom: Dict[str, object] = {
         "sma": sma,
@@ -2588,4 +2602,6 @@ def extract_forced_photometry_mb(
             geom[f"grad_{b}"] = float("nan")
             geom[f"grad_error_{b}"] = float("nan")
             geom[f"grad_r_error_{b}"] = float("nan")
+    if return_ring_data:
+        return geom, data
     return geom

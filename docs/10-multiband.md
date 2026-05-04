@@ -765,10 +765,23 @@ top-level keys signal the workflow:
 - ``result['template_n_isophotes']`` — count of input rows.
 
 Per-band ``intens_<b>`` / ``intens_err_<b>`` come from
-``extract_forced_photometry_mb`` per template SMA. Harmonic columns
-``a<n>_<b>`` / ``b<n>_<b>`` are zero-filled in forced mode (matches
-single-band's forced-photometry convention — harmonics are NOT
-re-fit in forced mode).
+``extract_forced_photometry_mb`` per template SMA.
+
+**Per-band harmonic deviations are computed (Stage-H.1, 2026-05-04).**
+When ``compute_deviations=True`` (the default), the orchestrator
+runs a second pass after the per-row sampling to fill the per-band
+harmonic columns ``a<n>_<b>`` / ``b<n>_<b>`` (and their error
+variants) for every order in ``harmonic_orders``. The per-band
+gradient required by the Bender normalization comes from
+``np.gradient(intens_<b>_col, sma_col)`` over the full template —
+neighbor-derived per-band gradients, the same fallback the audit
+pipeline uses on tools that ship no usable ``grad`` column. Ring
+data is captured during the first pass via the helper's
+``return_ring_data=True`` flag, so harmonic computation does not
+re-sample the rings. Set ``compute_deviations=False`` to skip the
+harmonic-fill pass and keep the columns zero (the original
+Stage-H behavior, matching single-band's forced-photometry
+convention).
 
 ### Per-band curve-of-growth (Stage-3 Stage-D)
 

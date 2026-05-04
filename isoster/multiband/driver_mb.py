@@ -573,7 +573,17 @@ def _fit_image_template_forced_mb(
 
     bands = list(config.bands)
 
+    # Stage-H.1: capture per-row raw ring data so we can compute per-
+    # band gradients post-hoc (via np.gradient on each band's intens
+    # column) and fill harmonic deviations using
+    # _attach_per_band_harmonics. Mirrors the iteration loop's per-band
+    # harmonic path.
+    do_harmonics = bool(
+        config.compute_deviations and len(config.harmonic_orders) > 0
+    )
+
     isophotes: List[Dict[str, object]] = []
+    ring_data_per_row: List[object] = []  # MultiIsophoteData | None per row
     for template_iso in template_list:
         sma = float(template_iso["sma"])  # type: ignore[arg-type]
         if sma == 0.0:
@@ -582,19 +592,79 @@ def _fit_image_template_forced_mb(
                 float(template_iso["x0"]), float(template_iso["y0"]),  # type: ignore[arg-type]
                 config,
             )
+            ring_data_per_row.append(None)  # central pixel: no ring
         else:
-            iso = extract_forced_photometry_mb(
-                images=images, masks=masks,
-                x0=float(template_iso["x0"]),  # type: ignore[arg-type]
-                y0=float(template_iso["y0"]),  # type: ignore[arg-type]
-                sma=sma,
-                eps=float(template_iso["eps"]),  # type: ignore[arg-type]
-                pa=float(template_iso["pa"]),  # type: ignore[arg-type]
-                bands=bands,
-                config=config,
-                variance_maps=variance_maps,
-            )
+            if do_harmonics:
+                iso, ring = extract_forced_photometry_mb(
+                    images=images, masks=masks,
+                    x0=float(template_iso["x0"]),  # type: ignore[arg-type]
+                    y0=float(template_iso["y0"]),  # type: ignore[arg-type]
+                    sma=sma,
+                    eps=float(template_iso["eps"]),  # type: ignore[arg-type]
+                    pa=float(template_iso["pa"]),  # type: ignore[arg-type]
+                    bands=bands,
+                    config=config,
+                    variance_maps=variance_maps,
+                    return_ring_data=True,
+                )
+                ring_data_per_row.append(ring)
+            else:
+                iso = extract_forced_photometry_mb(
+                    images=images, masks=masks,
+                    x0=float(template_iso["x0"]),  # type: ignore[arg-type]
+                    y0=float(template_iso["y0"]),  # type: ignore[arg-type]
+                    sma=sma,
+                    eps=float(template_iso["eps"]),  # type: ignore[arg-type]
+                    pa=float(template_iso["pa"]),  # type: ignore[arg-type]
+                    bands=bands,
+                    config=config,
+                    variance_maps=variance_maps,
+                )
+                ring_data_per_row.append(None)
         isophotes.append(iso)
+
+    # Stage-H.1 second pass: compute per-band gradients via
+    # np.gradient(intens_col, sma_col), then overwrite the zero-filled
+    # harmonic columns with real values via _attach_per_band_harmonics.
+    # Skip rows whose ring_data is None (central pixel or empty
+    # extraction) — those keep the zero-filled defaults.
+    if do_harmonics:
+        from .fitting_mb import _attach_per_band_harmonics
+
+        sma_col = np.array(
+            [float(iso["sma"]) for iso in isophotes],  # type: ignore[arg-type]
+            dtype=np.float64,
+        )
+        per_band_grad_col: Dict[str, NDArray[np.float64]] = {}
+        for b in bands:
+            intens_col = np.array(
+                [float(iso.get(f"intens_{b}", float("nan"))) for iso in isophotes],
+                dtype=np.float64,
+            )
+            # np.gradient requires at least 2 points and a strictly
+            # monotonic x-axis. The template is sma-sorted by
+            # _resolve_template_mb so monotonicity is fine. Non-finite
+            # values fall through as NaN gradients — _attach_per_band_
+            # harmonics handles that as zero-output.
+            if intens_col.size >= 2 and np.all(np.isfinite(intens_col)):
+                per_band_grad_col[b] = np.gradient(intens_col, sma_col)
+            else:
+                # Fallback: zero gradient → harmonics return zero (the
+                # factor = sma * abs(grad) gate in compute_deviations
+                # short-circuits cleanly).
+                per_band_grad_col[b] = np.zeros_like(intens_col)
+
+        for i, (iso, ring) in enumerate(zip(isophotes, ring_data_per_row)):
+            if ring is None:
+                continue  # central pixel or empty ring — keep zeros
+            per_band_grad = [float(per_band_grad_col[b][i]) for b in bands]
+            _attach_per_band_harmonics(
+                iso, bands,
+                ring.angles, ring.intens, ring.variances,
+                float(iso["sma"]),  # type: ignore[arg-type]
+                per_band_grad,
+                harmonic_orders=config.harmonic_orders,
+            )
 
     _validate_non_negative_error_fields(isophotes)
 
