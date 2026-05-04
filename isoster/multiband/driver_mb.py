@@ -542,6 +542,13 @@ def _fit_image_template_forced_mb(
       iteration loop that consumes the selector penalty).
     - ``harmonic_combination='ref'`` — meaningless (no joint solve
       to bypass; geometry is fixed).
+    - ``loose_validity=True`` — meaningless: forced extraction
+      always uses shared-validity sampling (review fix B2).
+    - ``multiband_higher_harmonics ∈ {shared, simultaneous_in_loop,
+      simultaneous_original}`` — meaningless (review fix B2): the
+      forced post-hoc harmonic step runs only the per-band
+      independent path; non-independent modes need the iteration-
+      loop joint solve that the forced workflow bypasses.
 
     The forced path otherwise composes cleanly with all other
     Stage-3 features. ``compute_cog=True`` is the primary use case
@@ -562,6 +569,15 @@ def _fit_image_template_forced_mb(
         forced_noop_features.append("use_central_regularization")
     if config.harmonic_combination == "ref":
         forced_noop_features.append("harmonic_combination='ref'")
+    # Review fix B2: forced extraction always runs shared-validity
+    # sampling and the per-band independent harmonic path; flag
+    # configs whose iteration-only semantics are silently lost.
+    if config.loose_validity:
+        forced_noop_features.append("loose_validity")
+    if config.multiband_higher_harmonics != "independent":
+        forced_noop_features.append(
+            f"multiband_higher_harmonics='{config.multiband_higher_harmonics}'"
+        )
     if forced_noop_features:
         warnings.warn(
             "template_isophotes=<provided> bypasses the iteration loop, "
@@ -658,6 +674,14 @@ def _fit_image_template_forced_mb(
             if ring is None:
                 continue  # central pixel or empty ring — keep zeros
             per_band_grad = [float(per_band_grad_col[b][i]) for b in bands]
+            # Review fix B3: write per-band gradients into the row so
+            # downstream plotting Bender normalization
+            # (A_n_norm = -A_n / (a · dI/da_b)) has a non-NaN denominator.
+            # extract_forced_photometry_mb leaves grad_<b>=NaN by design;
+            # the post-hoc np.gradient over the template column is the
+            # only finite-difference estimate available in forced mode.
+            for b, g_b in zip(bands, per_band_grad):
+                iso[f"grad_{b}"] = g_b
             _attach_per_band_harmonics(
                 iso, bands,
                 ring.angles, ring.intens, ring.variances,

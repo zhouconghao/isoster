@@ -1871,3 +1871,212 @@ def test_forced_photometry_fits_path_template(tmp_path):
     )
     assert res["forced_photometry_mode"] is True
     assert len(res["isophotes"]) == len(fit_result["isophotes"])
+
+
+# ===========================================================================
+# Review-fix regression tests (B1 / B2 / B3)
+# ===========================================================================
+
+
+def test_b1_simultaneous_in_loop_ols_errors_rescaled_by_residual_variance():
+    """Review fix B1: in OLS mode, ``simultaneous_in_loop`` higher-order
+    standard errors must be rescaled by the joint-fit residual variance.
+
+    Direct unit test: synthesize a perfect-ring intensity (no Sersic
+    radial slope so the harmonic model can fit exactly) plus pure
+    gaussian noise, run the helper twice with two noise amplitudes,
+    and verify the errors scale as σ (not σ²/0). Without the rescale,
+    ``a_n_err`` would be the same in both runs (raw ``(A^T A)^-1``
+    diagonal depends only on the design matrix). With the rescale,
+    the errors must scale roughly with the noise std.
+    """
+    from isoster.multiband.fitting_mb import (
+        _attach_simultaneous_higher_harmonics_from_coeffs,
+        evaluate_joint_model,
+        fit_simultaneous_joint,
+    )
+
+    n = 64
+    angles = np.linspace(0.0, 2 * np.pi, n, endpoint=False)
+    n_bands = 2
+    bands = ["g", "r"]
+    orders = [3, 4]
+    L = len(orders)
+
+    # Truth: I0_g, I0_r, A1, B1, A2, B2, A3, B3, A4, B4 — ALL zero
+    # higher orders. The helper fits any spurious harmonic against pure
+    # noise; the OLS-rescaled SE must scale as the noise std.
+    truth_geom = np.array(
+        [100.0, 200.0,
+         0.0, 0.0, 0.0, 0.0,
+         0.0, 0.0, 0.0, 0.0],
+        dtype=np.float64,
+    )
+    base_intens = evaluate_joint_model(angles, truth_geom, n_bands)
+
+    def _run(sigma: float, seed: int) -> float:
+        rng = np.random.default_rng(seed)
+        intens = base_intens + rng.normal(0.0, sigma, size=base_intens.shape)
+        coeffs, cov, wls = fit_simultaneous_joint(
+            angles, intens,
+            band_weights_arr=np.ones(n_bands, dtype=np.float64),
+            harmonic_orders=orders, variances_per_band=None,
+        )
+        assert wls is False  # OLS mode (no variance map)
+        geom: dict = {}
+        _attach_simultaneous_higher_harmonics_from_coeffs(
+            geom, bands, coeffs, cov,
+            harmonic_orders=orders,
+            wls_mode=False,
+            angles=angles,
+            intens_per_band=intens,
+            band_weights_arr=np.ones(n_bands, dtype=np.float64),
+            jagged=False,
+        )
+        return float(geom["a3_err_g"])
+
+    # 10× noise should produce ~10× standard error after the B1 rescale;
+    # without rescale the ratio would be ≈ 1 (raw cov diagonal).
+    err_low = _run(sigma=0.05, seed=42)
+    err_high = _run(sigma=0.50, seed=42)
+    assert err_low > 0.0 and err_high > 0.0
+    ratio = err_high / err_low
+    assert 8.0 < ratio < 12.0, (
+        f"OLS rescale wrong: 10× noise → a3_err ratio = {ratio:.2f}; "
+        f"expected ≈ 10 after the B1 fix."
+    )
+
+
+def test_b1_simultaneous_original_post_hoc_ols_errors_rescaled():
+    """Review fix B1 (companion): the post-hoc helper for
+    ``simultaneous_original`` mode must apply the same OLS rescale.
+    Direct unit test mirroring the simultaneous_in_loop case."""
+    from isoster.multiband.fitting_mb import (
+        _attach_simultaneous_original_post_hoc,
+        evaluate_joint_model,
+    )
+
+    n = 64
+    angles = np.linspace(0.0, 2 * np.pi, n, endpoint=False)
+    n_bands = 2
+    bands = ["g", "r"]
+    orders = [3, 4]
+
+    truth_geom = np.array(
+        [100.0, 200.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+        dtype=np.float64,
+    )
+    base_intens = evaluate_joint_model(angles, truth_geom, n_bands)
+
+    cfg = IsosterConfigMB(
+        bands=bands, reference_band="g",
+        multiband_higher_harmonics="simultaneous_original",
+        harmonic_orders=orders,
+    )
+
+    def _run(sigma: float, seed: int) -> float:
+        rng = np.random.default_rng(seed)
+        intens = base_intens + rng.normal(0.0, sigma, size=base_intens.shape)
+        geom: dict = {}
+        _attach_simultaneous_original_post_hoc(
+            geom, bands, cfg, angles, intens, None,
+            np.ones(n_bands, dtype=np.float64),
+            jagged=False,
+        )
+        return float(geom["a3_err_g"])
+
+    err_low = _run(sigma=0.05, seed=42)
+    err_high = _run(sigma=0.50, seed=42)
+    assert err_low > 0.0 and err_high > 0.0
+    ratio = err_high / err_low
+    assert 8.0 < ratio < 12.0, (
+        f"simultaneous_original OLS rescale wrong: 10× noise → "
+        f"ratio = {ratio:.2f}; expected ≈ 10."
+    )
+
+
+def test_b2_forced_mode_warns_on_loose_validity():
+    """Review fix B2: forced extraction silently no-ops loose_validity;
+    the warn-and-ignore message must surface it."""
+    import warnings as _warnings
+    from isoster.multiband import fit_image_multiband
+
+    img = _planted_galaxy(seed=600)
+    cfg = IsosterConfigMB(
+        bands=["g", "r"], reference_band="g", loose_validity=True,
+    )
+    template = [_template_iso(sma=10.0)]
+    with _warnings.catch_warnings(record=True) as w:
+        _warnings.simplefilter("always")
+        fit_image_multiband(
+            [img, img], masks=None, config=cfg,
+            template_isophotes=template,
+        )
+    msgs = [str(item.message) for item in w if "template_isophotes" in str(item.message)]
+    assert msgs, "expected the forced-mode warn-and-ignore message"
+    assert "loose_validity" in msgs[0]
+
+
+def test_b2_forced_mode_warns_on_non_independent_higher_harmonics():
+    """Review fix B2: forced post-hoc harmonic step uses only the per-
+    band independent path. Non-independent ``multiband_higher_harmonics``
+    modes are silently lost in forced mode and must surface in the warn-
+    and-ignore message."""
+    import warnings as _warnings
+    from isoster.multiband import fit_image_multiband
+
+    img = _planted_galaxy(seed=601)
+    for mode in ("shared", "simultaneous_in_loop", "simultaneous_original"):
+        cfg = IsosterConfigMB(
+            bands=["g", "r"], reference_band="g",
+            multiband_higher_harmonics=mode,
+            harmonic_orders=[3, 4],
+        )
+        template = [_template_iso(sma=10.0)]
+        with _warnings.catch_warnings(record=True) as w:
+            _warnings.simplefilter("always")
+            fit_image_multiband(
+                [img, img], masks=None, config=cfg,
+                template_isophotes=template,
+            )
+        msgs = [
+            str(item.message) for item in w
+            if "template_isophotes" in str(item.message)
+        ]
+        assert msgs, f"expected forced-mode warning for mode={mode!r}"
+        assert "multiband_higher_harmonics" in msgs[0], (
+            f"warning for mode={mode!r} did not mention multiband_higher_harmonics: "
+            f"{msgs[0]}"
+        )
+
+
+def test_b3_forced_mode_stamps_per_band_grad_columns():
+    """Review fix B3: forced extraction post-hoc fills ``grad_<b>`` so
+    the Bender-normalized harmonic plot has a non-NaN denominator."""
+    from isoster.multiband import fit_image_multiband
+
+    img1 = _planted_galaxy(amplitude=100.0, noise_sigma=0.005, seed=700)
+    img2 = _planted_galaxy(amplitude=200.0, noise_sigma=0.005, seed=701)
+    cfg = IsosterConfigMB(
+        bands=["g", "r"], reference_band="g",
+        compute_deviations=True, harmonic_orders=[3, 4], debug=True,
+    )
+    template = [
+        _template_iso(sma=10.0, x0=128.0, y0=128.0),
+        _template_iso(sma=20.0, x0=128.0, y0=128.0),
+        _template_iso(sma=30.0, x0=128.0, y0=128.0),
+    ]
+    res = fit_image_multiband(
+        [img1, img2], masks=None, config=cfg,
+        template_isophotes=template,
+    )
+    assert res["forced_photometry_mode"] is True
+    rings = [iso for iso in res["isophotes"] if float(iso["sma"]) > 0.0]
+    assert rings, "expected at least one ring isophote in the forced result"
+    for iso in rings:
+        for b in ("g", "r"):
+            grad = iso.get(f"grad_{b}")
+            assert grad is not None, f"missing grad_{b} on forced ring iso"
+            assert np.isfinite(float(grad)), (
+                f"grad_{b} is non-finite on forced ring: {grad!r}"
+            )
