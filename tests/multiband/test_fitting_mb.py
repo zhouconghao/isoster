@@ -2080,3 +2080,53 @@ def test_b3_forced_mode_stamps_per_band_grad_columns():
             assert np.isfinite(float(grad)), (
                 f"grad_{b} is non-finite on forced ring: {grad!r}"
             )
+
+
+def test_h1_user_config_variance_mode_unchanged_across_fits():
+    """Review fix H1: ``fit_image_multiband`` must not mutate the user's
+    :class:`IsosterConfigMB` instance. Reusing one config across an OLS
+    run and a WLS run (or vice versa) previously leaked the prior run's
+    ``variance_mode`` into the user's instance via direct assignment
+    (``config.variance_mode = ...``). After the fix, the driver builds a
+    private ``model_copy(update={...})`` and threads it through the fit;
+    the user's original instance stays whatever they constructed (the
+    default is ``"ols"``).
+    """
+    from isoster.multiband import fit_image_multiband
+
+    img_g = _planted_galaxy(amplitude=100.0, noise_sigma=0.005, seed=900)
+    img_r = _planted_galaxy(amplitude=200.0, noise_sigma=0.005, seed=901)
+    var_g = np.full_like(img_g, 0.005**2)
+    var_r = np.full_like(img_r, 0.005**2)
+
+    cfg = IsosterConfigMB(
+        bands=["g", "r"], reference_band="g",
+        sma0=15.0, eps=0.2, pa=0.4, astep=0.2, maxsma=40.0,
+        minit=6, maxit=30, conver=0.05, fix_center=True,
+        compute_deviations=True, nclip=0,
+    )
+    # Default is "ols" until the driver overrides; capture and ensure
+    # the field never changes on the user's instance.
+    initial_variance_mode = cfg.variance_mode
+
+    # First run: OLS (no variance maps).
+    res_ols = fit_image_multiband([img_g, img_r], None, cfg)
+    assert res_ols["variance_mode"] == "ols"
+    assert cfg.variance_mode == initial_variance_mode, (
+        "OLS run mutated user's IsosterConfigMB.variance_mode"
+    )
+
+    # Second run: WLS (variance maps provided). The driver's resolved
+    # config sees ``"wls"``, but the user's instance must NOT have
+    # acquired that value.
+    res_wls = fit_image_multiband([img_g, img_r], None, cfg, variance_maps=[var_g, var_r])
+    assert res_wls["variance_mode"] == "wls"
+    assert cfg.variance_mode == initial_variance_mode, (
+        "WLS run mutated user's IsosterConfigMB.variance_mode"
+    )
+
+    # Third run: back to OLS — verify the WLS run did not stick on the
+    # user's instance and the OLS path resolves cleanly again.
+    res_ols2 = fit_image_multiband([img_g, img_r], None, cfg)
+    assert res_ols2["variance_mode"] == "ols"
+    assert cfg.variance_mode == initial_variance_mode

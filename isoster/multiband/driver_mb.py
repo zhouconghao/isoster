@@ -804,9 +804,15 @@ def fit_image_multiband(
         return _delegate_single_band(images, masks, variance_maps, config)
 
     # Surface the variance mode on the resolved config so it lands in
-    # the FITS CONFIG HDU later.
+    # the FITS CONFIG HDU later. Review fix H1: build a model_copy with
+    # the override rather than mutating the user's instance — reusing
+    # the same config across an OLS run followed by a WLS run (or vice
+    # versa) previously leaked the prior run's variance_mode into the
+    # user's instance. ``config.model_copy(update={...})`` returns a
+    # fresh, internally-resolved config that the driver threads through
+    # the rest of the fit; the caller's original instance is untouched.
     variance_mode = "wls" if variance_maps is not None else "ols"
-    config.variance_mode = variance_mode
+    config = config.model_copy(update={"variance_mode": variance_mode})
 
     # Stage-3 Stage-H: forced-photometry mode bypasses everything else.
     # Validators warn-and-ignore the iteration-only features that are
