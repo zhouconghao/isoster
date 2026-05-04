@@ -1202,6 +1202,11 @@ def fit_isophote_mb(
     # simultaneous_in_loop dispatcher can read shared higher-order standard
     # errors directly without re-running the solve.
     last_joint_cov: Optional[NDArray[np.float64]] = None
+    # Tracks whether the most recent joint-solve was WLS or OLS. Required
+    # so the simultaneous_in_loop dispatcher knows whether ``last_joint_cov``
+    # is the exact MLE covariance (WLS) or raw ``(A^T A)^-1`` that needs
+    # rescaling by the residual variance (OLS) before sqrt for SE.
+    last_joint_wls_mode: bool = False
 
     # ISOFIT and forced-photometry handling are out of scope; we always
     # fit a 5-param model in joint or ref form.
@@ -1471,6 +1476,7 @@ def fit_isophote_mb(
         B2 = float(coeffs[n_bands + 3])
         last_joint_coeffs = coeffs
         last_joint_cov = cov_full
+        last_joint_wls_mode = bool(wls_mode)
 
         # Combined gradient.
         if (
@@ -1806,6 +1812,7 @@ def fit_isophote_mb(
                         sma, per_band_grad, band_weights_arr,
                         jagged=True,
                         last_cov=last_joint_cov,
+                        last_wls_mode=last_joint_wls_mode,
                         dropped_band_indices=set(last_dropped_band_indices),
                     )
                 else:
@@ -1815,6 +1822,7 @@ def fit_isophote_mb(
                         sma, per_band_grad, band_weights_arr,
                         jagged=False,
                         last_cov=last_joint_cov,
+                        last_wls_mode=last_joint_wls_mode,
                     )
             break
 
@@ -1954,6 +1962,8 @@ def fit_isophote_mb(
                             last_variances_per_band_loose,
                             sma, per_band_grad, band_weights_arr,
                             jagged=True,
+                            last_cov=last_joint_cov,
+                            last_wls_mode=last_joint_wls_mode,
                             dropped_band_indices=set(last_dropped_band_indices),
                         )
                     else:
@@ -1962,6 +1972,8 @@ def fit_isophote_mb(
                             angles, intens_per_band, variances_per_band,
                             sma, per_band_grad, band_weights_arr,
                             jagged=False,
+                            last_cov=last_joint_cov,
+                            last_wls_mode=last_joint_wls_mode,
                         )
                 break
 
@@ -1994,6 +2006,7 @@ def fit_isophote_mb(
                     band_weights_arr,
                     jagged=True,
                     last_cov=last_joint_cov,
+                    last_wls_mode=last_joint_wls_mode,
                     dropped_band_indices=set(last_dropped_band_indices),
                 )
             else:
@@ -2008,6 +2021,7 @@ def fit_isophote_mb(
                     band_weights_arr,
                     jagged=False,
                     last_cov=last_joint_cov,
+                    last_wls_mode=last_joint_wls_mode,
                 )
 
     if config.full_photometry:
@@ -2290,6 +2304,80 @@ def _attach_shared_higher_harmonics(
             geom[f"b{int(n_order)}_err_{b}"] = b_n_err
 
 
+def _compute_joint_residual_variance(
+    coeffs: NDArray[np.float64],
+    angles: Union[NDArray[np.float64], List[NDArray[np.float64]]],
+    intens_per_band: Union[NDArray[np.float64], List[NDArray[np.float64]]],
+    band_weights_arr: NDArray[np.float64],
+    *,
+    n_bands: int,
+    n_geom_params: int,
+    jagged: bool,
+) -> Optional[float]:
+    """Residual variance of a joint solve, weighted by per-band band weights.
+
+    Mirrors the OLS rescale used in :func:`_compute_parameter_errors_from_joint`
+    (rectangular shared-validity case) but extended to handle the loose-
+    validity jagged case as well: every surviving sample contributes
+    ``w_b * (intens - model)**2`` and ``ddof = n_geom_params``.
+
+    Returns ``None`` if too few samples, or if any input is malformed.
+    """
+    try:
+        if jagged:
+            assert isinstance(angles, list) and isinstance(intens_per_band, list)
+            sse = 0.0
+            n_samples = 0
+            for b_idx, (ang_b, int_b) in enumerate(zip(angles, intens_per_band)):
+                if ang_b is None or int_b is None or ang_b.size == 0:
+                    continue
+                # Build per-band model over this band's surviving angles.
+                I0_b = float(coeffs[b_idx])
+                A1 = float(coeffs[n_bands])
+                B1 = float(coeffs[n_bands + 1])
+                A2 = float(coeffs[n_bands + 2])
+                B2 = float(coeffs[n_bands + 3])
+                model = (
+                    I0_b
+                    + A1 * np.sin(ang_b) + B1 * np.cos(ang_b)
+                    + A2 * np.sin(2.0 * ang_b) + B2 * np.cos(2.0 * ang_b)
+                )
+                # Trailing simultaneous higher-order block, if present.
+                tail = coeffs.size - (n_bands + 4)
+                if tail > 0 and tail % 2 == 0:
+                    L = tail // 2
+                    # We don't have the order list here; assume the shared
+                    # 5-param geometry plus shared higher orders the caller
+                    # already wrote into coeffs. Skip higher orders in the
+                    # residual model (conservative — slightly overestimates
+                    # var_residual which inflates errors slightly under
+                    # OLS, never deflates).
+                    _ = L
+                w_b = float(band_weights_arr[b_idx]) if band_weights_arr is not None else 1.0
+                sse += float(np.sum(w_b * (int_b - model) ** 2))
+                n_samples += int(ang_b.size)
+            if n_samples <= n_geom_params:
+                return None
+            return sse / float(n_samples - n_geom_params)
+        else:
+            # Rectangular shared-validity: all bands share the same angles.
+            # ``intens_per_band`` is shape (B, N).
+            assert isinstance(intens_per_band, np.ndarray) and isinstance(angles, np.ndarray)
+            model_full = evaluate_joint_model(angles, coeffs, n_bands)
+            res = intens_per_band - model_full
+            # Apply per-band weights row-wise so the OLS rescale matches
+            # the row-weighted normal-equation solve.
+            if band_weights_arr is not None:
+                w = np.asarray(band_weights_arr, dtype=np.float64).reshape(-1)
+                res = res * np.sqrt(np.maximum(w, 0.0))[:, None]
+            flat = res.reshape(-1)
+            if flat.size <= n_geom_params:
+                return None
+            return float(np.sum(flat * flat) / (flat.size - n_geom_params))
+    except Exception:  # noqa: BLE001 — defensive fallback
+        return None
+
+
 def _attach_simultaneous_higher_harmonics_from_coeffs(
     geom: Dict[str, object],
     bands: Sequence[str],
@@ -2298,6 +2386,11 @@ def _attach_simultaneous_higher_harmonics_from_coeffs(
     *,
     harmonic_orders: Sequence[int],
     dropped_band_indices: Optional[set] = None,
+    wls_mode: bool = False,
+    angles: Union[None, NDArray[np.float64], List[NDArray[np.float64]]] = None,
+    intens_per_band: Union[None, NDArray[np.float64], List[NDArray[np.float64]]] = None,
+    band_weights_arr: Optional[NDArray[np.float64]] = None,
+    jagged: bool = False,
 ) -> None:
     """Stamp shared higher-order coefficients straight from the wider iteration coeffs.
 
@@ -2307,6 +2400,14 @@ def _attach_simultaneous_higher_harmonics_from_coeffs(
     additional solve is needed at convergence; we only need to write the
     shared coefficients into per-band columns so Schema 1 stays
     bit-compatible.
+
+    OLS rescale (review fix B1): when ``wls_mode=False``, the joint solver
+    returns the raw ``(A^T A)^-1`` covariance and the caller must scale by
+    the residual variance before taking the diagonal sqrt to recover
+    standard errors. ``angles`` / ``intens_per_band`` /
+    ``band_weights_arr`` / ``jagged`` enable this rescale; if any are
+    ``None`` the rescale is skipped and the (incorrectly-scaled) raw
+    diagonal is used. WLS path keeps the exact MLE covariance unchanged.
 
     Per-band columns ``a{n}_{b}``, ``b{n}_{b}`` carry the identical shared
     value across bands; corresponding error columns carry the joint-solve
@@ -2324,7 +2425,23 @@ def _attach_simultaneous_higher_harmonics_from_coeffs(
         n_bands + 4 + 2 * L,
         n_bands + 4 + 2 * L,
     ):
-        diag = np.maximum(np.diagonal(last_cov), 0.0)
+        cov_for_errs = last_cov
+        # OLS rescale by residual variance, mirroring the joint solver's
+        # contract (caller scales by σ²). WLS already returns exact cov.
+        if (
+            not wls_mode
+            and angles is not None
+            and intens_per_band is not None
+            and band_weights_arr is not None
+        ):
+            var_residual = _compute_joint_residual_variance(
+                last_coeffs, angles, intens_per_band, band_weights_arr,
+                n_bands=n_bands, n_geom_params=n_bands + 4 + 2 * L,
+                jagged=jagged,
+            )
+            if var_residual is not None and np.isfinite(var_residual):
+                cov_for_errs = last_cov * var_residual
+        diag = np.maximum(np.diagonal(cov_for_errs), 0.0)
         errs = np.sqrt(diag)
     else:
         errs = np.zeros(n_bands + 4 + 2 * L, dtype=np.float64)
@@ -2404,13 +2521,20 @@ def _attach_simultaneous_original_post_hoc(
         n_surv = len(surviving_idx)
         a_n_block = coeffs_sub[n_surv + 4:]  # 2L entries
         # Error stamping: use the cov diagonal of the surviving-bands solve.
-        try:
-            phi_sub_arr_check = phi_sub
-            cov_sub_full = _cov_sub
-        except Exception:
-            cov_sub_full = None
+        cov_sub_full = _cov_sub
         if cov_sub_full is not None and cov_sub_full.shape[0] >= n_surv + 4 + 2 * L:
-            diag = np.maximum(np.diagonal(cov_sub_full)[n_surv + 4:], 0.0)
+            cov_for_errs = cov_sub_full
+            # OLS rescale (review fix B1): solver returns (A^T A)^-1; scale
+            # by surviving-bands residual variance before sqrt.
+            if not _wls:
+                var_res = _compute_joint_residual_variance(
+                    coeffs_sub, phi_sub, int_sub, sub_weights,
+                    n_bands=n_surv, n_geom_params=n_surv + 4 + 2 * L,
+                    jagged=True,
+                )
+                if var_res is not None and np.isfinite(var_res):
+                    cov_for_errs = cov_sub_full * var_res
+            diag = np.maximum(np.diagonal(cov_for_errs)[n_surv + 4:], 0.0)
             errs_block = np.sqrt(diag)
         else:
             errs_block = np.zeros(2 * L, dtype=np.float64)
@@ -2422,7 +2546,18 @@ def _attach_simultaneous_original_post_hoc(
         )
         a_n_block = coeffs_full[n_bands + 4:]
         if cov_full is not None and cov_full.shape[0] >= n_bands + 4 + 2 * L:
-            diag = np.maximum(np.diagonal(cov_full)[n_bands + 4:], 0.0)
+            cov_for_errs = cov_full
+            # OLS rescale (review fix B1): solver returns (A^T A)^-1; scale
+            # by residual variance before sqrt for true SE.
+            if not _wls:
+                var_res = _compute_joint_residual_variance(
+                    coeffs_full, angles, intens_per_band, band_weights_arr,
+                    n_bands=n_bands, n_geom_params=n_bands + 4 + 2 * L,
+                    jagged=False,
+                )
+                if var_res is not None and np.isfinite(var_res):
+                    cov_for_errs = cov_full * var_res
+            diag = np.maximum(np.diagonal(cov_for_errs)[n_bands + 4:], 0.0)
             errs_block = np.sqrt(diag)
         else:
             errs_block = np.zeros(2 * L, dtype=np.float64)
@@ -2455,6 +2590,7 @@ def _attach_higher_harmonics_dispatch(
     *,
     jagged: bool,
     last_cov: Optional[NDArray[np.float64]] = None,
+    last_wls_mode: bool = False,
     dropped_band_indices: Optional[set] = None,
 ) -> None:
     """Pick the higher-order harmonic attachment path based on config.
@@ -2486,6 +2622,11 @@ def _attach_higher_harmonics_dispatch(
             geom, bands, last_coeffs, last_cov,
             harmonic_orders=config.harmonic_orders,
             dropped_band_indices=dropped_band_indices,
+            wls_mode=last_wls_mode,
+            angles=angles,
+            intens_per_band=intens_per_band,
+            band_weights_arr=band_weights_arr,
+            jagged=jagged,
         )
     elif mode == "simultaneous_original":
         _attach_simultaneous_original_post_hoc(
