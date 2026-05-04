@@ -2202,6 +2202,147 @@ def test_h3_central_pixel_wls_with_single_broadcast_variance_map():
     assert central["intens_err_r"] == pytest.approx(sigma, rel=1e-9)
 
 
+def test_h4_forced_mode_ols_mean_sem_uses_unbiased_sample_std():
+    """Review fix H4: forced extraction OLS-mean ``intens_err_<b>`` must
+    use the unbiased sample std (ddof=1) divided by ``sqrt(n)``, not
+    the biased population std. On a flat synthetic ring (constant
+    intensity + gaussian noise), the recovered SEM must match the
+    closed form ``σ/sqrt(n)`` to within Monte-Carlo tolerance,
+    NOT ``σ·sqrt((n-1)/n)/sqrt(n)`` which the old population-std
+    formula would have produced.
+    """
+    from isoster.multiband.fitting_mb import extract_forced_photometry_mb
+
+    # Build a flat constant-intensity image with known pixel-level
+    # noise. A circular ring sample at fixed geometry feeds the
+    # forced-mode SEM computation.
+    h = w = 256
+    x0 = y0 = 128.0
+    sigma = 0.5
+    rng = np.random.default_rng(13_000)
+    base_g = 100.0 * np.ones((h, w), dtype=np.float64)
+    base_r = 200.0 * np.ones((h, w), dtype=np.float64)
+    img_g = base_g + rng.normal(0.0, sigma, size=base_g.shape)
+    img_r = base_r + rng.normal(0.0, sigma, size=base_r.shape)
+
+    cfg = IsosterConfigMB(
+        bands=["g", "r"], reference_band="g",
+        integrator="mean",
+    )
+    geom = extract_forced_photometry_mb(
+        images=[img_g, img_r], masks=None,
+        x0=x0, y0=y0, sma=40.0, eps=0.0, pa=0.0,
+        bands=["g", "r"], config=cfg, variance_maps=None,
+    )
+    # The unbiased SEM of N≈251 samples drawn from N(μ, σ²) should be
+    # σ/√N to within 5% (large-N regime). The old (biased) formula
+    # would underestimate by factor sqrt((n-1)/n) — only 0.2% at n≈250
+    # so this test cannot distinguish biased vs unbiased at n=250 alone.
+    # Instead we cross-check that the reported SEM matches the
+    # ``np.std(intens, ddof=1) / sqrt(n)`` math — the user-visible
+    # contract that previously was wrong.
+    from isoster.multiband.sampling_mb import extract_isophote_data_multi
+
+    data = extract_isophote_data_multi(
+        [img_g, img_r], None, x0, y0, 40.0, 0.0, 0.0,
+        use_eccentric_anomaly=False,
+    )
+    n_b = data.intens.shape[1]
+    expected_sem_g = float(np.std(data.intens[0], ddof=1) / np.sqrt(n_b))
+    expected_sem_r = float(np.std(data.intens[1], ddof=1) / np.sqrt(n_b))
+    assert geom["intens_err_g"] == pytest.approx(expected_sem_g, rel=1e-9)
+    assert geom["intens_err_r"] == pytest.approx(expected_sem_r, rel=1e-9)
+    # And the biased ddof=0 formula must NOT match (sanity that the
+    # contract change is observable).
+    biased_sem_g = float(np.std(data.intens[0], ddof=0) / np.sqrt(n_b))
+    assert geom["intens_err_g"] != pytest.approx(biased_sem_g, rel=1e-9)
+
+
+def test_h4_forced_mode_ols_median_sem_applies_gaussian_factor():
+    """Review fix H4: forced extraction with ``integrator='median'``
+    must apply the Gaussian-asymptotic median-SEM factor
+    ``sqrt(π/2) ≈ 1.2533`` on top of the mean's SEM. Previously the
+    median branch used the mean's SEM formula verbatim, biasing the
+    reported error low by ~25%.
+    """
+    from isoster.multiband.fitting_mb import extract_forced_photometry_mb
+    from isoster.multiband.sampling_mb import extract_isophote_data_multi
+
+    h = w = 256
+    x0 = y0 = 128.0
+    sigma = 0.4
+    rng = np.random.default_rng(14_000)
+    base_g = 100.0 * np.ones((h, w), dtype=np.float64)
+    base_r = 200.0 * np.ones((h, w), dtype=np.float64)
+    img_g = base_g + rng.normal(0.0, sigma, size=base_g.shape)
+    img_r = base_r + rng.normal(0.0, sigma, size=base_r.shape)
+
+    # ``integrator='median'`` requires fit_per_band_intens_jointly=False
+    # (Stage-A's S1 hard-error in joint matrix mode).
+    cfg = IsosterConfigMB(
+        bands=["g", "r"], reference_band="g",
+        integrator="median", fit_per_band_intens_jointly=False,
+    )
+    geom = extract_forced_photometry_mb(
+        images=[img_g, img_r], masks=None,
+        x0=x0, y0=y0, sma=40.0, eps=0.0, pa=0.0,
+        bands=["g", "r"], config=cfg, variance_maps=None,
+    )
+
+    data = extract_isophote_data_multi(
+        [img_g, img_r], None, x0, y0, 40.0, 0.0, 0.0,
+        use_eccentric_anomaly=False,
+    )
+    n_b = data.intens.shape[1]
+    median_factor = float(np.sqrt(np.pi / 2.0))
+    expected_sem_g = float(
+        median_factor * np.std(data.intens[0], ddof=1) / np.sqrt(n_b)
+    )
+    expected_sem_r = float(
+        median_factor * np.std(data.intens[1], ddof=1) / np.sqrt(n_b)
+    )
+    assert geom["intens_err_g"] == pytest.approx(expected_sem_g, rel=1e-9)
+    assert geom["intens_err_r"] == pytest.approx(expected_sem_r, rel=1e-9)
+    # And the mean-branch formula must NOT match — the user-visible
+    # change is the factor sqrt(π/2).
+    mean_sem_g = float(np.std(data.intens[0], ddof=1) / np.sqrt(n_b))
+    assert geom["intens_err_g"] != pytest.approx(mean_sem_g, rel=1e-9)
+    # Median value is the actual median (sanity).
+    assert geom["intens_g"] == pytest.approx(float(np.median(data.intens[0])), rel=1e-9)
+
+
+def test_h4_forced_mode_wls_intens_err_unchanged():
+    """Sanity: H4 only touches the OLS branch. The WLS path continues
+    to report ``1 / sqrt(Σ 1/var_i)`` — the variance-weighted mean's
+    exact standard error."""
+    from isoster.multiband.fitting_mb import extract_forced_photometry_mb
+    from isoster.multiband.sampling_mb import extract_isophote_data_multi
+
+    h = w = 256
+    x0 = y0 = 128.0
+    sigma = 0.4
+    rng = np.random.default_rng(15_000)
+    img_g = 100.0 * np.ones((h, w), dtype=np.float64) + rng.normal(0.0, sigma, (h, w))
+    img_r = 200.0 * np.ones((h, w), dtype=np.float64) + rng.normal(0.0, sigma, (h, w))
+    var_g = np.full_like(img_g, sigma**2)
+    var_r = np.full_like(img_r, sigma**2)
+
+    cfg = IsosterConfigMB(bands=["g", "r"], reference_band="g")
+    geom = extract_forced_photometry_mb(
+        images=[img_g, img_r], masks=None,
+        x0=x0, y0=y0, sma=40.0, eps=0.0, pa=0.0,
+        bands=["g", "r"], config=cfg, variance_maps=[var_g, var_r],
+    )
+    data = extract_isophote_data_multi(
+        [img_g, img_r], None, x0, y0, 40.0, 0.0, 0.0,
+        use_eccentric_anomaly=False, variance_maps=[var_g, var_r],
+    )
+    sum_w_g = float((1.0 / data.variances[0]).sum())
+    sum_w_r = float((1.0 / data.variances[1]).sum())
+    assert geom["intens_err_g"] == pytest.approx(1.0 / np.sqrt(sum_w_g), rel=1e-9)
+    assert geom["intens_err_r"] == pytest.approx(1.0 / np.sqrt(sum_w_r), rel=1e-9)
+
+
 def test_h3_central_pixel_masked_wls_keeps_zero_error():
     """When the central pixel is masked under WLS, ``intens_err_<b>``
     must stay 0.0 (the value is NaN and no error can be assigned)."""

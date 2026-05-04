@@ -2738,20 +2738,45 @@ def extract_forced_photometry_mb(
         geom["ndata"] = data.valid_count
         geom["nflag"] = data.n_samples - data.valid_count
 
+    # Asymptotic Gaussian factor for the median's standard error
+    # relative to the mean's: sqrt(π/2) ≈ 1.2533 (review fix H4).
+    _MEDIAN_SEM_FACTOR = float(np.sqrt(np.pi / 2.0))
+
     for b_idx, b in enumerate(band_list):
         intens_b = data.intens[b_idx]
+        n_b = int(len(intens_b))
         if data.variances is not None:
             v_b = data.variances[b_idx]
             weights = 1.0 / v_b
             sum_w = float(weights.sum())
             intens_val = float((weights * intens_b).sum() / sum_w)
             intens_err = float(1.0 / np.sqrt(sum_w))
-        elif config.integrator == "median":
-            intens_val = float(np.median(intens_b))
-            intens_err = float(np.std(intens_b) / np.sqrt(len(intens_b)))
         else:
-            intens_val = float(np.mean(intens_b))
-            intens_err = float(np.std(intens_b) / np.sqrt(len(intens_b)))
+            # Review fix H4: use the unbiased sample standard deviation
+            # (ddof=1) for the SEM, and apply the Gaussian-asymptotic
+            # median scaling factor sqrt(π/2) when integrator='median'.
+            # The previous code used np.std default (ddof=0, biased low)
+            # and the mean's SEM formula for both branches.
+            if n_b >= 2:
+                sample_std = float(np.std(intens_b, ddof=1))
+                base_sem = sample_std / np.sqrt(n_b)
+            else:
+                sample_std = 0.0
+                base_sem = float("nan")
+            if config.integrator == "median":
+                intens_val = float(np.median(intens_b))
+                intens_err = (
+                    base_sem * _MEDIAN_SEM_FACTOR
+                    if np.isfinite(base_sem)
+                    else float("nan")
+                )
+            else:
+                intens_val = float(np.mean(intens_b))
+                intens_err = base_sem
+        # rms_<b> reports the ring-intensity dispersion (population std,
+        # ddof=0). This conflates noise with any unmodeled harmonic
+        # signal but matches the iteration-loop's rms convention; H4 is
+        # only about the standard-error scaling above, not rms.
         rms_b = float(np.std(intens_b))
         geom[f"intens_{b}"] = intens_val
         geom[f"intens_err_{b}"] = intens_err
