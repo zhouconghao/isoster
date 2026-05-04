@@ -46,6 +46,94 @@ def _is_acceptable(iso: Dict[str, object]) -> bool:
     return int(iso.get("stop_code", -1)) in ACCEPTABLE_STOP_CODES  # type: ignore[arg-type]
 
 
+# ---------------------------------------------------------------------------
+# Stage-3 Stage-C: LSB auto-lock helpers (port of isoster.driver._is_lsb_isophote
+# / _mark_lsb_lock_state / _build_locked_cfg, adapted to multi-band)
+# ---------------------------------------------------------------------------
+
+
+def _is_lsb_isophote_mb(iso: Dict[str, object], maxgerr_thresh: float) -> bool:
+    """Lock-trigger predicate for the multi-band outward sweep.
+
+    Plan section 7 S3: the trigger surface is the **joint combined
+    gradient** (``grad_joint`` / ``grad_err_joint``), exposed by the
+    fitter as top-level ``grad`` / ``grad_error`` row keys when
+    ``debug=True``. A relative joint gradient error above
+    ``maxgerr_thresh``, OR a stop_code=-1 (gradient-error stop), OR a
+    non-negative joint gradient (galaxies have negative dI/da; positive
+    values mean the fit has lost the profile) all count as triggering.
+
+    None / non-finite values mean "cannot assess" and return False —
+    the next isophote will get another chance to trigger.
+    """
+    if iso.get("stop_code") == -1:
+        return True
+    grad = iso.get("grad")
+    grad_err = iso.get("grad_error")
+    if grad is None or grad_err is None:
+        return False
+    try:
+        grad_f = float(grad)
+        grad_err_f = float(grad_err)
+    except (TypeError, ValueError):
+        return False
+    if not np.isfinite(grad_f) or not np.isfinite(grad_err_f) or grad_err_f == 0.0:
+        return False
+    if grad_f >= 0.0:
+        return True
+    return abs(grad_err_f / grad_f) > maxgerr_thresh
+
+
+def _mark_lsb_lock_state_mb(
+    iso: Dict[str, object], locked: bool, is_anchor: bool = False,
+) -> None:
+    """Stamp ``lsb_locked`` and (optionally) ``lsb_auto_lock_anchor``
+    onto a multi-band result row. Centralized so future loop reorders
+    cannot accidentally write the wrong flag."""
+    iso["lsb_locked"] = bool(locked)
+    if is_anchor:
+        iso["lsb_auto_lock_anchor"] = True
+
+
+def _build_locked_cfg_mb(
+    cfg: IsosterConfigMB, anchor_iso: Dict[str, object], locked_integrator: str,
+) -> IsosterConfigMB:
+    """Clone the multi-band config and freeze geometry to a clean anchor.
+
+    Mirrors :func:`isoster.driver._build_locked_cfg` with two multi-
+    band-specific tweaks:
+
+    1. When ``locked_integrator='median'``, also flip
+       ``fit_per_band_intens_jointly=False`` on the clone so Stage A's
+       S1 validator accepts the result. The config-time validator
+       already rejects ``lsb_auto_lock_integrator='median'`` ∧
+       ``fit_per_band_intens_jointly=True`` (S1 × S3 composition);
+       this branch makes the lock-fire path consistent regardless of
+       what the user originally set.
+    2. Disable outer-region damping on the clone — it makes no sense
+       once geometry is hard-locked, and would consume the outer
+       reference geom for nothing.
+    """
+    locked = cfg.model_copy(deep=True)
+    locked.x0 = float(anchor_iso["x0"])  # type: ignore[arg-type]
+    locked.y0 = float(anchor_iso["y0"])  # type: ignore[arg-type]
+    locked.eps = float(anchor_iso["eps"])  # type: ignore[arg-type]
+    locked.pa = float(anchor_iso["pa"])  # type: ignore[arg-type]
+    locked.fix_center = True
+    locked.fix_pa = True
+    locked.fix_eps = True
+    locked.integrator = locked_integrator  # type: ignore[assignment]
+    if locked_integrator == "median":
+        # Median requires the decoupled intercept mode (Stage A S1).
+        locked.fit_per_band_intens_jointly = False
+    # The auto-lock has already committed; the clone should not try to
+    # re-detect on its own isophotes.
+    locked.lsb_auto_lock = False
+    # Outer-region damping is meaningless once geometry is frozen.
+    locked.use_outer_center_regularization = False
+    return locked
+
+
 def _build_outer_reference_mb(
     inwards_results: Sequence[Dict[str, object]],
     anchor_iso: Dict[str, object],
@@ -533,7 +621,19 @@ def fit_image_multiband(
 
     # Outward growth.
     outwards_results: List[Dict[str, object]] = []
+    # Stage-3 Stage-C: LSB auto-lock state. Only mutated when
+    # config.lsb_auto_lock=True; the dict is always initialized so
+    # the post-loop metadata block stays uniform. Mirrors single-band.
+    lsb_state: Dict[str, object] = {
+        "locked": False,
+        "consec": 0,
+        "transition_sma": None,
+        "anchor_index": None,
+    }
+    active_cfg: IsosterConfigMB = config
     if anchor_iso is not None:
+        if config.lsb_auto_lock:
+            _mark_lsb_lock_state_mb(anchor_iso, locked=False)
         outwards_results.append(anchor_iso)
         current_iso = anchor_iso
         current_sma = float(anchor_iso["sma"])  # type: ignore[arg-type]
@@ -549,15 +649,51 @@ def fit_image_multiband(
                 "pa": float(current_iso["pa"]),  # type: ignore[arg-type]
             }
             next_iso = fit_isophote_mb(
-                images, masks, current_sma, current_geom, config,
+                images, masks, current_sma, current_geom, active_cfg,
                 previous_geometry=current_geom,
                 variance_maps=variance_maps,
                 image_stack=image_stack, masks_resolved=masks_resolved, var_stack=var_stack,
                 outer_reference_geom=outer_ref_geom,
             )
+            if config.lsb_auto_lock:
+                _mark_lsb_lock_state_mb(next_iso, locked=bool(lsb_state["locked"]))
             outwards_results.append(next_iso)
-            if _is_acceptable(next_iso) or config.permissive_geometry:
+            if _is_acceptable(next_iso) or active_cfg.permissive_geometry:
                 current_iso = next_iso
+
+            # LSB auto-lock detector: free-mode only. Once locked, stays
+            # locked for the rest of outward growth (one-way state
+            # machine). Trigger surface is the joint combined gradient
+            # (plan section 7 S3) via _is_lsb_isophote_mb.
+            if config.lsb_auto_lock and not lsb_state["locked"]:
+                triggered = _is_lsb_isophote_mb(
+                    next_iso, config.lsb_auto_lock_maxgerr,
+                )
+                if triggered:
+                    lsb_state["consec"] = int(lsb_state["consec"]) + 1
+                    if int(lsb_state["consec"]) >= config.lsb_auto_lock_debounce:
+                        # Anchor = isophote immediately BEFORE the streak,
+                        # NOT the trigger isophote itself. The trigger
+                        # isophotes are already partially in LSB and their
+                        # geometries may have begun drifting.
+                        anchor_local_idx = (
+                            len(outwards_results) - 1 - config.lsb_auto_lock_debounce
+                        )
+                        anchor_local_idx = max(0, anchor_local_idx)
+                        lock_anchor = outwards_results[anchor_local_idx]
+                        active_cfg = _build_locked_cfg_mb(
+                            config, lock_anchor, config.lsb_auto_lock_integrator,
+                        )
+                        lsb_state["locked"] = True
+                        lsb_state["transition_sma"] = float(next_iso["sma"])  # type: ignore[arg-type]
+                        lsb_state["anchor_index"] = anchor_local_idx
+                        _mark_lsb_lock_state_mb(next_iso, locked=True, is_anchor=True)
+                        # Restart the geometry carry-forward from the
+                        # clean anchor so the next isophote is seeded by
+                        # it, not by the (degraded) trigger isophote.
+                        current_iso = lock_anchor
+                else:
+                    lsb_state["consec"] = 0
 
     # Assemble final list (ascending SMA).
     if minsma <= 0.0:
@@ -595,4 +731,11 @@ def fit_image_multiband(
         result["first_isophote_failure"] = True
     if retry_log:
         result["first_isophote_retry_log"] = retry_log
+    # Stage-3 Stage-C: surface lsb_auto_lock metadata when enabled.
+    if config.lsb_auto_lock:
+        result["lsb_auto_lock"] = True
+        result["lsb_auto_lock_sma"] = lsb_state["transition_sma"]
+        result["lsb_auto_lock_count"] = sum(
+            1 for iso in final_list if bool(iso.get("lsb_locked", False))
+        )
     return result

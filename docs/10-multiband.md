@@ -531,6 +531,104 @@ earlier than the harmonic-only criterion does in the LSB regime.
 > ``docs/agent/journal/2026-05-04_stage_b_outer_reg_damping.md``
 > records the open questions.
 
+### LSB auto-lock (Stage-3 Stage-C)
+
+Backport of the single-band ``lsb_auto_lock`` family. Outward growth
+starts in free-geometry mode; once the **joint combined gradient**
+(plan section 7 S3) degrades — a relative joint gradient error
+above ``lsb_auto_lock_maxgerr`` for ``lsb_auto_lock_debounce``
+consecutive isophotes, OR a ``stop_code=-1``, OR a non-negative
+joint gradient — the lock commits. Remaining outward isophotes
+inherit the **shared geometry** of the anchor (the isophote
+immediately *before* the streak) and switch to the configured
+``lsb_auto_lock_integrator``. Inward growth and the central pixel
+are untouched.
+
+Four fields:
+
+| Field | Default | Notes |
+|---|---|---|
+| ``lsb_auto_lock`` | ``False`` | Master toggle. |
+| ``lsb_auto_lock_maxgerr`` | ``0.3`` | Trigger threshold on \|grad_err / grad\| (joint scalars). Stricter than the free-fit ``maxgerr=0.5`` so the lock fires before a stop_code=-1 would have. |
+| ``lsb_auto_lock_debounce`` | ``2`` | Consecutive triggered isophotes before commit. |
+| ``lsb_auto_lock_integrator`` | ``'median'`` | Integrator used in the locked region. |
+
+**Hard-error validators** (plan section 7.5 items 2–3):
+
+1. ``lsb_auto_lock=True`` ∧ any of ``fix_center`` / ``fix_pa`` /
+   ``fix_eps`` ⇒ ``ValueError``. The lock requires free geometry on
+   the outward sweep (mirrors single-band).
+2. ``lsb_auto_lock_integrator='median'`` ∧
+   ``fit_per_band_intens_jointly=True`` ⇒ ``ValueError``. The lock-
+   fire path would clone the cfg with ``integrator='median'`` on a
+   matrix-mode joint LS, which Stage-A's S1 rejects. **Default
+   ``lsb_auto_lock_integrator='median'`` therefore requires the
+   user to also set ``fit_per_band_intens_jointly=False`` when
+   enabling the lock.** To use the matrix-mode joint solve with the
+   lock, set ``lsb_auto_lock_integrator='mean'``.
+
+**Soft warning + auto-enable.** ``lsb_auto_lock=True`` with
+``debug=False`` (the default) emits a ``UserWarning`` and flips
+``debug=True`` internally — the lock trigger reads top-level
+``grad`` / ``grad_error`` row keys that the fitter only writes
+under debug.
+
+**Top-level result keys** (when ``lsb_auto_lock=True``):
+
+- ``result['lsb_auto_lock']`` — ``True``.
+- ``result['lsb_auto_lock_sma']`` — SMA of the trigger isophote
+  (``None`` if the lock never committed).
+- ``result['lsb_auto_lock_count']`` — number of isophotes carrying
+  ``lsb_locked=True`` in their row dict.
+
+**Per-isophote keys** (when ``lsb_auto_lock=True``):
+
+- ``iso['lsb_locked']`` — ``True`` for outward isophotes after the
+  lock fires (the trigger isophote and all subsequent), ``False``
+  for the anchor and earlier isophotes.
+- ``iso['lsb_auto_lock_anchor']`` — only set on the trigger isophote
+  itself, marks the SMA at which the lock committed.
+
+**Asteris benchmark.**
+``benchmarks/multiband/bench_lsb_auto_lock_asteris.py`` compares
+three configs (no lock, lock-mean, lock-median) on HSC g/r/i/z/y
+(n_repeats=3, B=5, 768², 250k masked):
+
+| configuration | median (s) | ratio vs SB | lock fires | lock SMA | n_locked | outer pa MAD |
+|---|---:|---:|:---:|---:|---:|---:|
+| singleband (i-band) | 0.219 | 1.00× | — | — | — | — |
+| baseline (no lock) | 0.299 | 1.37× | no | — | 0 | 9.19e-02 |
+| lock-mean | 0.280 | **1.28×** | yes | 238.4 | 9 | 6.31e-02 |
+| lock-median | 0.313 | 1.43× | yes | 238.4 | 9 | **1.01e-02** |
+
+All PASS the ≤ 2.5× single-band bar. ``lock-mean`` is actually
+*faster* than ``baseline`` because the locked-region isophotes skip
+the iteration loop (frozen geometry → forced photometry style).
+Outer-tail PA MAD drops from 9.19e-02 (baseline) → 1.01e-02
+(lock-median): the lock pins outer geometry at the clean anchor,
+exactly the LSB stabilization the feature is designed for.
+
+> **Galaxy-type caveat (2026-05-04).** The lock is designed for
+> **massive ellipticals / cD galaxies with extended LSB envelopes**
+> — the regime where the inner geometry is the best estimate of the
+> outer envelope's geometry and a hard freeze is the right LSB
+> stabilizer. **Do not enable it as a default on arbitrary galaxy
+> types.** On systems with genuine outer-disc geometry evolution
+> (barred galaxies, S0 / spiral systems with a real bulge → disc
+> transition, BCG → ICL transitions where the envelope rounds off),
+> a hard lock pins the outer envelope to the inner geometry and
+> obscures real structural change — the same failure mode the
+> Stage-B outer-reg ``{1, 1, 1}`` caveat documents. For those
+> targets, either leave the lock off, or raise
+> ``lsb_auto_lock_maxgerr`` (e.g. to ``0.5``, matching the free-fit
+> ``maxgerr``) so the lock delays firing until the joint gradient
+> is genuinely lost. The aggregate scatter metrics (eps MAD ≈ 0,
+> pa MAD ≈ 0) on locked isophotes look great in benchmarks but are
+> the geometric signature of "geometry pinned at anchor," not
+> "geometry tracked." Use the QA mosaics in
+> ``outputs/benchmark_multiband/lsb_auto_lock_{asteris,pgc}/`` to
+> read the trajectory, not just the scatter.
+
 ## Testing
 
 Multi-band tests live under `tests/multiband/` (152 total, all green):
