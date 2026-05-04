@@ -20,7 +20,9 @@ from .plotting_mb import (
     subtract_outermost_sky_offset,
 )
 from .utils_mb import (
+    isophote_results_mb_from_asdf,
     isophote_results_mb_from_fits,
+    isophote_results_mb_to_asdf,
     isophote_results_mb_to_astropy_table,
     isophote_results_mb_to_fits,
     load_bands_from_hdus,
@@ -31,6 +33,8 @@ __all__ = [
     "fit_image_multiband",
     "isophote_results_mb_to_fits",
     "isophote_results_mb_from_fits",
+    "isophote_results_mb_to_asdf",
+    "isophote_results_mb_from_asdf",
     "isophote_results_mb_to_astropy_table",
     "load_bands_from_hdus",
     "plot_qa_summary_mb",
