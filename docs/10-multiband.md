@@ -493,6 +493,33 @@ is **0.91×** — the all-axes damper is faster than baseline because
 the auto-enabled ``geometry_convergence`` lets damped fits exit
 earlier than the harmonic-only criterion does in the LSB regime.
 
+> **Real-data caveat for the all-axes default (2026-05-04).** The
+> all-axes ``{center: 1, eps: 1, pa: 1}`` default mirrors single-band
+> and looks excellent on aggregate scatter metrics (eps MAD ≈ 1e-5
+> on asteris, pa MAD = 0 on both targets). But the QA mosaics in
+> ``outputs/benchmark_multiband/outer_reg_damping_{asteris,pgc}/``
+> show that on galaxies with **genuine outer-disc geometry
+> evolution** the all-axes damper is too aggressive: ``alpha → 1``
+> for eps and pa above the onset, pinning the outer-isophote shape
+> to the inner reference and ignoring real structural change. On
+> PGC006669 the outer disc inherits the bar's PA / ellipticity; on
+> asteris the isophotal shape freezes before the LSB envelope
+> rounds off. The ``pa MAD = 0`` is the geometric signature of
+> "PA frozen," not "PA tracked." A bias metric vs a free-fit
+> reference (not just scatter) is needed to distinguish a healthy
+> damper from over-pinning.
+>
+> The implementation is correct and matches single-band semantics.
+> The defaults — copied verbatim from single-band — were tuned on
+> HSC BCG fits where the outer envelope is genuinely round and not
+> evolving. For galaxies with bars, structural transitions, or
+> evolving disc geometry, prefer ``outer_reg_weights={center: 1,
+> eps: 0, pa: 0}`` (center-only) or lower ``outer_reg_strength``.
+> A multi-band-specific re-default and a strength sweep on PGC are
+> deferred to a future session; the journal entry
+> ``docs/agent/journal/2026-05-04_stage_b_outer_reg_damping.md``
+> records the open questions.
+
 ## Testing
 
 Multi-band tests live under `tests/multiband/` (152 total, all green):

@@ -384,10 +384,28 @@ class IsosterConfigMB(BaseModel):
         default_factory=lambda: {"center": 1.0, "eps": 1.0, "pa": 1.0},
         description="Per-axis weights for the outer-region damping. Default "
         "``{center: 1, eps: 1, pa: 1}`` damps all four geometry parameters "
-        "uniformly — required to prevent the selector-asymmetry failure "
-        "mode where center-only damping redirects the outer random walk "
-        "from ``(x0, y0)`` into ``(eps, pa)``. Set an axis weight to 0 to "
-        "disable damping on that axis (rare). Unknown keys are rejected.",
+        "uniformly — required (in the single-band benchmark suite) to "
+        "prevent the selector-asymmetry failure mode where center-only "
+        "damping redirects the outer random walk from ``(x0, y0)`` into "
+        "``(eps, pa)``. Set an axis weight to 0 to disable damping on that "
+        "axis. Unknown keys are rejected.\n"
+        "\n"
+        "**Real-data caveat (multi-band, 2026-05-04).** On galaxies with "
+        "genuine outer-disc geometry evolution — e.g. a barred system "
+        "where the inner reference inherits the bar's PA / ellipticity, "
+        "or a BCG → ICL transition where the outer envelope rounds off — "
+        "the all-axes default can be **too aggressive**: ``alpha → 1`` "
+        "for eps/pa above the onset, pinning the outer geometry to the "
+        "inner reference and ignoring real structural change. On the "
+        "asteris HSC and PGC006669 LegacySurvey demos this is visible as "
+        "outer-disc isophotes inheriting the bar's shape (PGC) or the "
+        "isophotal ellipticity freezing too early (asteris). Consider "
+        "``{center: 1, eps: 0, pa: 0}`` (center-only damping) on targets "
+        "with genuine outer geometry evolution, or lower "
+        "``outer_reg_strength`` if you want all-axes damping but less "
+        "aggression. The Stage-B default mirrors single-band; a "
+        "multi-band-specific re-default is deferred to a strength sweep "
+        "in a future session.",
     )
     outer_reg_mode: Literal["damping"] = Field(
         default="damping",
