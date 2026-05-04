@@ -1,12 +1,123 @@
 # Multi-Band Isoster (Experimental)
 
-> **Status: experimental, Stage-1 shipped on `feat/multiband-feasibility`
-> on 2026-04-30.** API and output schema are subject to change before
-> the feature is merged to `main`. No CLI integration. ASDF I/O, ISOFIT,
-> LSB auto-lock, and outer-center regularization are not supported in
-> Stage 1. See `docs/agent/plan-2026-04-29-multiband-feasibility.md`
-> for the locked design record (24 decisions captured from a structured
-> interview before any code was written).
+> **Status: experimental.** Stage-1 (joint fit) shipped 2026-04-30; the
+> Stage-3 backport campaign + Phase 39 finalization shipped 2026-05-04
+> on `feat/multiband-feasibility`. API and output schema are subject
+> to change before the feature is merged to `main`. The pre-merge code
+> review (see `docs/agent/journal/`) cleared three correctness blockers
+> (B1/B2/B3) and six high-priority issues (H1–H6). See
+> `docs/agent/plan-2026-04-29-multiband-feasibility.md` for the locked
+> design record (24 decisions captured from a structured interview
+> before any code was written) plus Phase-38 / Phase-39 update.
+
+## Status: shipped vs not-shipped vs experimental
+
+The table below tracks every Stage backport from single-band into the
+multi-band path, plus the Phase 39 finalization. Use it to decide
+whether the feature you want is available in this code path.
+
+| Stage | Feature | Status |
+|---|---|---|
+| 1 | Joint multi-band fit (shared geometry, per-band intensities + harmonics) | ✅ shipped |
+| A | `integrator='median'` for `intens_<b>` (decoupled mode) | ✅ shipped |
+| B | `outer_reg_*` damping (Tikhonov, default `outer_reg_weights = {1, 0, 0}` — center only) | ✅ shipped |
+| C | `lsb_auto_lock` family (matrix-mode lock, anchor capture, debounce) | ✅ shipped |
+| D | `compute_cog` per-band curve-of-growth + `sky_offsets` post-hoc kwarg | ✅ shipped |
+| F | `central_reg_*` (LSB-central geometry penalty) | ✅ shipped |
+| H | Forced-photometry mode (`template_isophotes`) | ✅ shipped |
+| H.1 | Post-hoc per-band harmonics in forced mode | ✅ shipped |
+| I | ASDF I/O symmetry (`isophote_results_mb_to_asdf` / `_from_asdf`) | ✅ shipped |
+| J | Parallel CLI (`isoster-mb` console script, separate from `isoster`) | ✅ shipped |
+| 6 | Higher-order harmonic modes: `independent` / `shared` / `simultaneous_in_loop` / `simultaneous_original` | ✅ shipped (`simultaneous_*` carries an experimental warning) |
+| E | `outer_reg_mode='solver'` (reference-pull solver mode) | ⏸ deprioritized — same failure mode as `{1, 1, 1}` damping default. Reactivate on user request. |
+| G | `'adaptive'` integrator | ⏸ deprioritized — superseded by Stage-C `lsb_auto_lock`. |
+| — | ISOFIT (`simultaneous_harmonics` flag from single-band) | ❌ not ported. The Section-6 `multiband_higher_harmonics` enum is the multi-band replacement. |
+
+## Known limitations and gotchas
+
+Read this list before running multi-band on real data. Most items are
+real-data findings codified during the Stage-3 campaign and the
+pre-merge review pass.
+
+1. **`outer_reg_weights = {1, 1, 1}` over-pins on barred / spiral / BCG-ICL
+   systems.** The Stage-B follow-up sweep on PGC006669 showed Tikhonov
+   `α` saturates above 99.99 % for any positive eps / pa weight in the
+   user-intuition range — the eps / pa choice is **binary, not graded**.
+   Default flipped to `{1, 0, 0}` (center-only). Opt back into
+   `{1, 1, 1}` only for confirmed-static outer envelopes (cD galaxies,
+   isolated massive ellipticals).
+
+2. **`lsb_auto_lock` is for cD / massive ellipticals only.** On barred /
+   spiral targets the lock fires inside the disc (sma ~ 100 px, well
+   before the LSB regime) and pins outer geometry to the bar shape. The
+   MAD-based scatter metric does NOT catch this; visual QA on the
+   comparison panel does. The field docstring carries the galaxy-type
+   caveat.
+
+3. **Forced-photometry mode silently ignores several iteration-only
+   features.** `lsb_auto_lock`, `use_outer_center_regularization`,
+   `use_central_regularization`, `harmonic_combination='ref'`,
+   `loose_validity`, and `multiband_higher_harmonics ∈ {shared,
+   simultaneous_in_loop, simultaneous_original}` are no-ops under
+   forced extraction. The driver emits a `UserWarning` listing which
+   features were dropped (review fix B2).
+
+4. **Bender-normalized harmonics are required for interpretation.** Raw
+   `a_n_<b>` / `b_n_<b>` values scale with local flux and are NOT
+   directly comparable across bands or rings. Always plot
+   `A_n_norm = -A_n / (a · dI/da_b)` per band. The repo plotting helpers
+   enforce this convention (see `CLAUDE.md`).
+
+5. **PSF-matched inputs assumed.** No PSF handling in the driver. If
+   the per-band PSFs differ, isophotes whose SMA is comparable to the
+   worst PSF FWHM will carry PSF-mismatch artifacts; the user must
+   accept that or PSF-match upstream.
+
+6. **Variance maps are all-or-nothing.** Either every band has one
+   (full WLS) or no band has one (full OLS). Mixed-mode rejection at
+   driver entry.
+
+7. **`compute_cog`'s raw curve-of-growth dips past the LSB transition**
+   on real data because the joint solver's `I0_b` carries residual sky
+   (~ −1×10⁻³ e⁻/s on denoised cutouts, even after upstream
+   sky-subtraction). Use the `sky_offsets` post-hoc kwarg on
+   `compute_cog_mb` to apply an outermost-tail-derived offset before
+   plotting `cog`/`r1/2`. Demos under
+   `examples/example_asteris_denoised/` apply this explicitly between
+   FITS write and QA plot generation; raw FITS files always preserve
+   uncorrected `intens_<b>`.
+
+8. **Single-band `integrator='median'` requires
+   `fit_per_band_intens_jointly=False`.** The matrix-mode joint LS
+   solve cannot host a median (non-linear). The validator hard-errors
+   the combination at config construction with a remediation hint.
+
+9. **Sample-validity is shared across bands by default.** A sample is
+   dropped from the joint solve if any band's mask flags it, any band
+   has NaN there, or any band's variance is non-positive. Set
+   `IsosterConfigMB.loose_validity=True` to relax this — see the
+   "Loose validity (D9 backport)" subsection below for per-band-drop
+   semantics, the `n_valid_<b>` column, and the optional
+   `loose_validity_band_normalization` knob.
+
+10. **Forced-mode `intens_err_<b>` (OLS) uses unbiased sample std.**
+    Review fix H4: `extract_forced_photometry_mb` returns
+    `np.std(intens, ddof=1) / sqrt(n)` for the mean integrator and
+    `sqrt(π/2) · np.std(intens, ddof=1) / sqrt(n)` for the median
+    integrator (Gaussian-asymptotic median SEM). For `n < 2` the
+    error is `NaN` rather than a misleading 0.0. WLS branch is
+    unchanged — `1 / sqrt(Σ 1/var_i)` is the exact MLE error.
+
+11. **Central-pixel `intens_err_<b>` reads the variance map under
+    WLS** (review fix H3). In OLS mode (no variance map provided) the
+    central-pixel record still reports `intens_err_<b> = 0.0` because
+    a single sample admits no internal error estimate. `rms_<b>`
+    stays `0.0` in both modes.
+
+12. **`fit_image_multiband` does NOT mutate the user's
+    `IsosterConfigMB`** (review fix H1). Internal resolution like the
+    WLS / OLS variance-mode tag goes onto a `model_copy` so the
+    caller's instance is safe to reuse across runs.
 
 ## What it does
 
@@ -101,11 +212,11 @@ HSC bands), the joint multi-band fit runs in **~2× single-band wall
 time end-to-end** (0.49 s for B=5 vs 0.25 s for single-band on i-band,
 including FITS I/O). This is well within the Stage-1 quality bar of
 ≤2.5× and reflects two key optimizations: (1) the
-``(N × (B+4))`` joint design matrix builder is numba-accelerated with
-a NumPy fallback (``isoster/multiband/numba_kernels_mb.py``); (2) the
-driver pre-resolves image / mask / variance arrays once per fit and
-threads them through every per-iteration sampler call instead of
-re-allocating per call. See decision D19 in the plan doc.
+``(B·N × (B + 4))`` joint design matrix builder is numba-accelerated
+with a NumPy fallback (``isoster/multiband/numba_kernels_mb.py``);
+(2) the driver pre-resolves image / mask / variance arrays once per
+fit and threads them through every per-iteration sampler call instead
+of re-allocating per call. See decision D19 in the plan doc.
 
 ## Public API
 
@@ -885,41 +996,26 @@ heavy is recorded in the plan doc.
 
 ## Testing
 
-Multi-band tests live under `tests/multiband/` (152 total, all green):
+Multi-band tests live under `tests/multiband/` (264 total, all green
+as of the Phase-39 + review-pass merge). The per-module counts below
+are approximate (collected at merge time):
 
 | Module | Cases | Coverage |
 |---|---|---|
-| `test_config_mb.py` | 60 | band-name regex, duplicate detection, reference-band membership, band_weights validation, integrator restriction, SMA/iteration consistency, loose-validity field defaults + normalization compatibility, multiband_higher_harmonics enum (4 values + parametrized variants), harmonic_orders validator (empty / <3 / duplicates / unique-sort), simultaneous_* experimental warning, shared-mode no-warn, ring-mean intercept × ref-mode incompatibility, ring-mean intercept × loose-validity composition. |
-| `test_sampling_mb.py` | 19 | B=1 numerical parity with single-band sampler, shared-validity (per-band masks, NaN), variance sanitization (NaN/inf → 1e30, non-positive clamped + warning), all-masked degeneracy, mask broadcasting, variance all-or-nothing rejection, joint design matrix kernel parity. |
-| `test_fitting_mb.py` | 23 | joint solver coefficient recovery, B=1 single-band parity, WLS exact covariance, band-weight scaling, per-band sigma clip + AND, fit_isophote_mb planted-galaxy recovery, too-few-points → stop_code=3, B=1 schema, ref-mode fallback, forced photometry, mixed-variance rejection, ring-mean intercept mode (fit_per_band_intens_jointly=False), ref-mode error scaling, loose-validity band drop / n_valid columns / normalization / combinations with ref + ring-mean intercept, legacy field-name rejection. |
-| `test_higher_harmonics.py` | 20 | All four enum values; per-band-equality of shared higher orders; planted-m=4 recovery (shared + simultaneous_*); loose-validity × simultaneous (jagged kernel); simultaneous_original ≈ shared within tolerance; experimental UserWarning; FITS round-trip; harmonic_orders=[3,4,5,6] writes 16 expected per-band columns; D16 normalization separates curves under sharing; direct solver-level fit_simultaneous_joint{,_loose} planted-recovery. |
-| `test_driver_mb.py` | 17 | B=1 → single-band delegation (incl. variance/mask unwrap), B=2 end-to-end recovery, WLS variance-mode tagging, band_weights passthrough, ref-mode end-to-end, missing config, image / shape / variance-sequence-or-tuple / mask-list / non-sequence mismatches, FIRST_FEW_ISOPHOTE_FAILURE. |
-| `test_utils_mb.py` | 8 | per-band column presence, FITS round-trip, PrimaryHDU multi-band keywords, WLS round-trip, loose-validity n_valid round-trip, load_bands_from_hdus. |
-| `test_plotting_mb.py` | 5 | composite QA renders without exception, with SB constants, missing-bands error, image-count mismatch, loose-validity n_valid panel rendered. |
+| `test_config_mb.py` | ~96 | band-name regex, duplicate detection, reference-band membership, band_weights validation, integrator restriction, SMA/iteration consistency, loose-validity field defaults + normalization compatibility, multiband_higher_harmonics enum (4 values + parametrized variants), harmonic_orders validator (empty / <3 / duplicates / unique-sort), simultaneous_* experimental warning, shared-mode no-warn, ring-mean intercept × ref-mode incompatibility, Stage-3 fields (outer_reg / lsb_auto_lock / central_reg / compute_cog / forced-photometry validators). |
+| `test_sampling_mb.py` | ~19 | B=1 numerical parity with single-band sampler, shared-validity (per-band masks, NaN), variance sanitization (NaN/inf → 1e30, non-positive clamped + warning), all-masked degeneracy, mask broadcasting, variance all-or-nothing rejection, joint design matrix kernel parity. |
+| `test_fitting_mb.py` | ~82 | joint solver recovery, B=1 single-band parity, WLS exact covariance, band-weight scaling, per-band sigma clip + AND, planted-galaxy recovery, ref-mode fallback, forced photometry, ring-mean intercept mode, loose-validity (band drop / n_valid columns / normalization), Stage-3 features (median intercept, outer-reg damping, lsb_auto_lock state machine, compute_cog wiring, central-reg penalty, forced-mode end-to-end + warn-list), **review-pass regressions** (B1 OLS rescale, B2 forced warn-list extensions, B3 forced-mode `grad_<b>`, H1 config immutability, H3 central-pixel WLS error, H4 SEM scaling). |
+| `test_higher_harmonics.py` | ~20 | All four enum values; per-band-equality of shared higher orders; planted-m=4 recovery (shared + simultaneous_*); loose-validity × simultaneous (jagged kernel); simultaneous_original ≈ shared within tolerance; experimental UserWarning; FITS round-trip; harmonic_orders=[3,4,5,6] writes 16 expected per-band columns; D16 normalization separates curves under sharing; direct solver-level fit_simultaneous_joint{,_loose} planted-recovery. |
+| `test_driver_mb.py` | ~17 | B=1 → single-band delegation, B=2 end-to-end recovery, WLS variance-mode tagging, band_weights passthrough, ref-mode end-to-end, error paths. |
+| `test_utils_mb.py` | ~14 | FITS Schema-1 round-trip (per-band columns, loose validity, WLS variance mode, compute_cog), PrimaryHDU multi-band keywords, ASDF round-trip (Stage I — per-band columns, IsosterConfigMB recovery, compute_cog, lsb_auto_lock metadata, import guard), `load_bands_from_hdus`. |
+| `test_plotting_mb.py` | 5 | Composite QA renders without exception, with SB constants, missing-bands error, image-count mismatch, loose-validity n_valid panel. |
+| `test_cli_mb.py` | 10 | Stage-J: smoke runs (FITS / CSV / ASDF), banner output + `--quiet`, YAML-only bands, `--template` forced-photometry geometry parity, error paths (missing `--bands`, mismatched counts, `--reference-band` not in `--bands`, `--mask`/`--masks` mutual exclusion). |
 
 Run with:
 
 ```bash
 uv run pytest tests/multiband/ -v
 ```
-
-## Caveats
-
-- Inputs are assumed to be PSF-matched, or the user accepts PSF-mismatch
-  artifacts on isophotes whose SMA is comparable to or smaller than the
-  worst per-band PSF FWHM. No PSF handling in the driver.
-- Sample-validity is shared across bands by default: a sample is
-  dropped from the joint solve if any band's mask flags it, any band
-  has NaN at that location, or any band's variance is non-positive.
-  Set ``IsosterConfigMB.loose_validity=True`` to relax this — see the
-  "Loose validity (D9 backport)" subsection above for the per-band-drop
-  semantics, the new ``n_valid_<b>`` column, and the optional
-  ``loose_validity_band_normalization`` knob.
-- Variance maps are all-or-nothing: either every band has one (full
-  WLS) or no band has one (full OLS). Mixed mode is rejected.
-- The driver runs no LSB auto-lock and no outer-center regularization
-  in Stage 1. Run single-band isoster on the reference band if those
-  features are needed.
 
 ## Related docs
 
