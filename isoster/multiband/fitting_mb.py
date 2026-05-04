@@ -97,6 +97,50 @@ def _per_band_column_names(bands: Sequence[str], debug: bool) -> List[str]:
 # ---------------------------------------------------------------------------
 
 
+def _compute_central_regularization_penalty_mb(
+    current_geom: Dict[str, float],
+    previous_geom: Optional[Dict[str, float]],
+    sma: float,
+    config: IsosterConfigMB,
+) -> float:
+    """Stage-3 Stage-F: central-region regularization penalty (multi-band).
+
+    Geometry is shared in multi-band, so this is a verbatim port of the
+    single-band ``compute_central_regularization_penalty``: a Gaussian-
+    decaying penalty that adds to the best-iteration selector
+    (``effective_amp``) for SMA below the threshold, discouraging
+    large per-iteration geometry jumps in the low-S/N central region.
+    No per-band design choice — the penalty operates on the shared
+    ``(x0, y0, eps, pa)`` only.
+
+    Returns 0.0 when the feature is off, the previous-isophote geometry
+    is None (e.g. the first isophote), or the SMA is far enough above
+    the threshold that ``λ(sma) < 1e-6``.
+    """
+    if not config.use_central_regularization:
+        return 0.0
+    if previous_geom is None:
+        return 0.0
+    lambda_sma = config.central_reg_strength * float(
+        np.exp(-((sma / config.central_reg_sma_threshold) ** 2))
+    )
+    if lambda_sma < 1e-6:
+        return 0.0
+    weights = config.central_reg_weights
+    delta_eps = current_geom["eps"] - previous_geom["eps"]
+    delta_pa = current_geom["pa"] - previous_geom["pa"]
+    # Wrap PA residual onto [-π, π] (single-band convention).
+    delta_pa = ((delta_pa + np.pi) % (2.0 * np.pi)) - np.pi
+    delta_x0 = current_geom["x0"] - previous_geom["x0"]
+    delta_y0 = current_geom["y0"] - previous_geom["y0"]
+    penalty = lambda_sma * (
+        float(weights.get("eps", 1.0)) * delta_eps**2
+        + float(weights.get("pa", 1.0)) * delta_pa**2
+        + float(weights.get("center", 1.0)) * (delta_x0**2 + delta_y0**2)
+    )
+    return float(penalty)
+
+
 def _per_band_mean_or_median(
     intens_per_band: NDArray[np.float64],
     variances_per_band: Optional[NDArray[np.float64]],
@@ -1554,7 +1598,19 @@ def fit_isophote_mb(
         max_idx = int(np.argmax(np.abs(harmonics)))
         max_amp = harmonics[max_idx]
 
-        effective_amp = abs(max_amp)
+        # Stage-3 Stage-F: central-region regularization penalty enters
+        # the best-iteration selector. Iterations whose geometry jumped
+        # far from the previous isophote at low SMA look worse to the
+        # selector and are not chosen as best_geometry. No-op when the
+        # feature is off, when previous_geometry is None (first
+        # isophote), or above ~3× the threshold SMA.
+        central_reg_penalty = _compute_central_regularization_penalty_mb(
+            {"x0": x0, "y0": y0, "eps": eps, "pa": pa},
+            previous_geometry,
+            sma,
+            config,
+        )
+        effective_amp = abs(max_amp) + central_reg_penalty
         if effective_amp < min_amplitude:
             min_amplitude = effective_amp
             no_improvement_count = 0

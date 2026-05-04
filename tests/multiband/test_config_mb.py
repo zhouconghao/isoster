@@ -777,3 +777,70 @@ def test_compute_cog_accepts_bool():
     cfg_on = IsosterConfigMB(bands=["g", "r"], reference_band="g", compute_cog=True)
     assert cfg_off.compute_cog is False
     assert cfg_on.compute_cog is True
+
+
+# ---------------------------------------------------------------------------
+# Stage-3 Stage-F: central-region regularization
+# ---------------------------------------------------------------------------
+
+
+def test_central_reg_default_off_with_neutral_fields():
+    cfg = IsosterConfigMB(bands=["g", "r"], reference_band="g")
+    assert cfg.use_central_regularization is False
+    assert cfg.central_reg_sma_threshold == 5.0
+    assert cfg.central_reg_strength == 1.0
+    assert cfg.central_reg_weights == {"eps": 1.0, "pa": 1.0, "center": 1.0}
+
+
+def test_central_reg_unknown_axis_key_rejected_always():
+    """central_reg_weights validation runs unconditionally (matches single-
+    band): unknown keys raise even when the feature is off, so typos
+    surface before the user toggles use_central_regularization=True."""
+    with pytest.raises(ValidationError) as exc_info:
+        IsosterConfigMB(
+            bands=["g", "r"], reference_band="g",
+            central_reg_weights={"eps": 1.0, "spin": 1.0},
+        )
+    assert "spin" in str(exc_info.value)
+
+
+def test_central_reg_strength_zero_legal():
+    """strength=0 is allowed (ge=0 not gt=0): user might want to
+    toggle the feature on with weights set up for later tuning."""
+    cfg = IsosterConfigMB(
+        bands=["g", "r"], reference_band="g",
+        use_central_regularization=True,
+        central_reg_strength=0.0,
+    )
+    assert cfg.central_reg_strength == 0.0
+
+
+def test_central_reg_threshold_must_be_positive():
+    with pytest.raises(ValidationError):
+        IsosterConfigMB(
+            bands=["g", "r"], reference_band="g",
+            central_reg_sma_threshold=0.0,
+        )
+    with pytest.raises(ValidationError):
+        IsosterConfigMB(
+            bands=["g", "r"], reference_band="g",
+            central_reg_sma_threshold=-1.0,
+        )
+
+
+def test_central_reg_strength_must_be_non_negative():
+    with pytest.raises(ValidationError):
+        IsosterConfigMB(
+            bands=["g", "r"], reference_band="g",
+            central_reg_strength=-1.0,
+        )
+
+
+def test_central_reg_subset_weights_allowed():
+    """Weights dict can omit axes (defaults are 1.0 inside the helper)."""
+    cfg = IsosterConfigMB(
+        bands=["g", "r"], reference_band="g",
+        use_central_regularization=True,
+        central_reg_weights={"center": 0.5},
+    )
+    assert cfg.central_reg_weights == {"center": 0.5}
