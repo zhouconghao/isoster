@@ -5,64 +5,17 @@ import numpy as np
 from astropy.io import fits
 from astropy.table import Table
 
+# Shared helpers (re-imported here for backward compatibility — historical
+# call sites continue to use ``isoster.utils._NumpyEncoder``,
+# ``._config_to_dict``, ``._build_config_hdu``). Single source of truth
+# lives in ``isoster._shared``.
+from ._shared import (  # noqa: F401
+    _NumpyEncoder,
+    _build_config_hdu,
+    _config_to_dict,
+)
+
 logger = logging.getLogger(__name__)
-
-
-class _NumpyEncoder(json.JSONEncoder):
-    """JSON encoder that handles numpy scalar types."""
-
-    def default(self, obj):
-        if isinstance(obj, np.integer):
-            return int(obj)
-        if isinstance(obj, np.floating):
-            return float(obj)
-        if isinstance(obj, np.bool_):
-            return bool(obj)
-        if isinstance(obj, np.ndarray):
-            return obj.tolist()
-        return super().default(obj)
-
-
-def _config_to_dict(config):
-    """
-    Convert a config object (Pydantic model, dict, or generic object) to a plain dict.
-
-    Returns an empty dict if config is None.
-    """
-    if config is None:
-        return {}
-    if hasattr(config, "model_dump"):
-        return config.model_dump()
-    if hasattr(config, "dict"):
-        return config.dict()
-    if isinstance(config, dict):
-        return config
-    return getattr(config, "__dict__", {})
-
-
-def _build_config_hdu(results):
-    """
-    Build a BinTableHDU containing config parameters as PARAM/VALUE columns.
-
-    Each value is JSON-serialized so that lists, dicts, bools, and None
-    round-trip faithfully without FITS header length or HIERARCH issues.
-    """
-    config = results.get("config", None) if isinstance(results, dict) else None
-    config_dict = _config_to_dict(config)
-
-    params = []
-    values = []
-    for key, value in config_dict.items():
-        params.append(key)
-        values.append(json.dumps(value, cls=_NumpyEncoder))
-
-    config_tbl = Table()
-    config_tbl["PARAM"] = params if params else np.array([], dtype="U1")
-    config_tbl["VALUE"] = values if values else np.array([], dtype="U1")
-
-    config_hdu = fits.table_to_hdu(config_tbl)
-    config_hdu.name = "CONFIG"
-    return config_hdu
 
 
 def _parse_config_hdu(hdu):

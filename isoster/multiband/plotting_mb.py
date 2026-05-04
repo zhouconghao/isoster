@@ -41,8 +41,9 @@ from matplotlib.patches import Ellipse
 from matplotlib.ticker import MaxNLocator
 from numpy.typing import NDArray
 
+from .._shared import _normalize_harmonic_for_plot
 from ..model import build_isoster_model
-from ..plotting import _normalize_harmonic_for_plot, configure_qa_plot_style
+from ..plotting import configure_qa_plot_style
 
 logger = logging.getLogger(__name__)
 
