@@ -21,9 +21,8 @@ from typing import Dict, List, Optional, Sequence, Tuple, Union
 import numpy as np
 from numpy.typing import NDArray
 
+from .._shared import _tikhonov_alpha
 from ..fitting import (
-    _prepare_mask_float,
-    _tikhonov_alpha,
     compute_aperture_photometry,
     compute_deviations,
     sigma_clip,

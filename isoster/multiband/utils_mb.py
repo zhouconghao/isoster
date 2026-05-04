@@ -26,12 +26,7 @@ from astropy.io import fits
 from astropy.table import Table
 from numpy.typing import NDArray
 
-from ..utils import (  # type: ignore[attr-defined]
-    _NumpyEncoder,
-    _build_config_hdu,
-    _config_to_dict,
-    _parse_config_hdu,
-)
+from .._shared import _build_config_hdu, _config_to_dict
 from .config_mb import IsosterConfigMB
 
 logger = logging.getLogger(__name__)
