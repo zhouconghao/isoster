@@ -295,6 +295,28 @@ class IsosterConfigMB(BaseModel):
     compute_errors: bool = Field(True, description="Calculate parameter errors.")
     compute_deviations: bool = Field(True, description="Calculate higher-order harmonic deviations (a3, b3, a4, b4).")
     full_photometry: bool = Field(False, description="Calculate flux integration metrics (tflux_e, etc.).")
+    compute_cog: bool = Field(
+        default=False,
+        description="Calculate per-band curve-of-growth photometry. When "
+        "True, the driver runs a multi-band CoG over the assembled "
+        "isophote list after the inward + outward sweeps complete and "
+        "stamps the following columns onto each row dict (and thereby "
+        "into the Schema-1 ISOPHOTES table):\n"
+        "\n"
+        "  - **per-band**: ``cog_<b>`` (cumulative flux through this "
+        "isophote in band ``b``), ``cog_annulus_<b>`` (annular flux for "
+        "this isophote in band ``b``).\n"
+        "  - **shared**: ``area_annulus`` (annular area in pixel², "
+        "geometry-only), ``flag_cross`` (bool, isophote crossing flag), "
+        "``flag_negative_area`` (bool, negative-annular-area flag).\n"
+        "\n"
+        "Per-band columns appear when ``compute_cog=True``; Schema 1 "
+        "stays additive otherwise. The shared columns mirror single-"
+        "band semantics; per-band columns are unique to multi-band and "
+        "match the Stage-3 Stage-D decision (plan section 7 S7) to put "
+        "CoG output in the main per-isophote table rather than a "
+        "separate HDU.",
+    )
     debug: bool = Field(False, description="Include debug info in results (per-band grad columns, ndata, nflag).")
 
     # --- Integrator (restricted: no 'adaptive' since LSB auto-lock is out) ---

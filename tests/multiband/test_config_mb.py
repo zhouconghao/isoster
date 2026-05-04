@@ -760,3 +760,20 @@ def test_lsb_auto_lock_integrator_only_mean_or_median():
             bands=["g", "r"], reference_band="g",
             lsb_auto_lock_integrator="adaptive",  # type: ignore[arg-type]
         )
+
+
+# ---------------------------------------------------------------------------
+# Stage-3 Stage-D: compute_cog
+# ---------------------------------------------------------------------------
+
+
+def test_compute_cog_default_off():
+    cfg = IsosterConfigMB(bands=["g", "r"], reference_band="g")
+    assert cfg.compute_cog is False
+
+
+def test_compute_cog_accepts_bool():
+    cfg_off = IsosterConfigMB(bands=["g", "r"], reference_band="g", compute_cog=False)
+    cfg_on = IsosterConfigMB(bands=["g", "r"], reference_band="g", compute_cog=True)
+    assert cfg_off.compute_cog is False
+    assert cfg_on.compute_cog is True

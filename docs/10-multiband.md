@@ -629,6 +629,44 @@ exactly the LSB stabilization the feature is designed for.
 > ``outputs/benchmark_multiband/lsb_auto_lock_{asteris,pgc}/`` to
 > read the trajectory, not just the scatter.
 
+### Per-band curve-of-growth (Stage-3 Stage-D)
+
+Set ``compute_cog=True`` to enable per-band cumulative-flux
+photometry. The driver runs once over the assembled isophote list
+(ascending sma) after the inward + outward sweeps complete and
+stamps the following columns onto each row dict — and thereby into
+the Schema-1 ``ISOPHOTES`` table, since
+``Table(rows=isophotes)`` auto-infers columns from the row dicts:
+
+| Column | Per-band? | Description |
+|---|:---:|---|
+| ``cog_<b>`` | yes | Cumulative flux through this isophote in band ``b`` (sum of annular fluxes from the central pixel out). |
+| ``cog_annulus_<b>`` | yes | Annular flux at this isophote in band ``b`` (``intens_avg_<b> × area_annulus``). |
+| ``area_annulus`` | no | Annular area (px²); shared because geometry is shared. Negative-annulus entries (isophote crossing) are zero-clamped. |
+| ``flag_cross`` | no | Boolean; True where the geometry indicates a potential ellipse crossing. |
+| ``flag_negative_area`` | no | Boolean; True where the raw annular area went negative before clamping. |
+
+The shared columns mirror single-band semantics. Per-band columns
+are unique to multi-band and use each band's ``intens_<b>``
+trapezoidal-averaged across the inner / outer ring of the annulus
+(the first annulus uses the innermost isophote's ``intens_<b>``
+alone). NaN ``intens_<b>`` (e.g. a band dropped under
+``loose_validity=True`` at a given isophote) propagates into
+``cog_annulus_<b>`` / ``cog_<b>`` for that row — by design, so
+downstream consumers can detect band-drops.
+
+The B=1 multi-band CoG is bit-identical to the single-band CoG when
+``intens_<b>`` matches the single-band ``intens`` (verified in
+``tests/multiband/test_fitting_mb.py:test_compute_cog_mb_b1_matches_single_band_per_band_column``).
+
+Schema-1 stays additive: when ``compute_cog=False`` (the default)
+the new columns do not appear at all, and existing FITS files
+round-trip unchanged. The plan-section 7 S7 decision (per-band
+columns in the main per-isophote table, NOT a separate HDU) means
+``compute_cog=True`` adds ``B × 2 + 3`` extra columns (e.g. 13
+columns for B=5 HSC). The Schema-2 motivation if this becomes too
+heavy is recorded in the plan doc.
+
 ## Testing
 
 Multi-band tests live under `tests/multiband/` (152 total, all green):
