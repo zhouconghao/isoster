@@ -304,19 +304,25 @@ class IsosterConfigMB(BaseModel):
         "single ring of pixels. ``'adaptive'`` is intentionally not "
         "supported in Stage 1 because LSB auto-lock is out of scope.\n"
         "\n"
-        "**Limited scope at Stage-2 (multi-band).** Currently this field "
-        "ONLY affects: (a) the per-band gradient computation "
-        "(``compute_joint_gradient``), and (b) the forced-photometry "
-        "fallback used by the driver for the central pixel and as a "
-        "fail-safe when the iterative fit cannot converge. It does NOT "
-        "affect ``intens_<b>`` reporting at converged isophotes — that "
-        "value comes from the joint solver's per-band intercept "
-        "(``fit_per_band_intens_jointly=True``, default) or from a "
-        "per-band inverse-variance-weighted ring mean "
-        "(``fit_per_band_intens_jointly=False``). Both modes effectively "
-        "use a (weighted) mean for ``intens_<b>``; median-integrator "
-        "support for the joint-fit path will land when the single-band "
-        "integrator features are backported (Stage-3).",
+        "**Affects three distinct quantities** (Stage-3, plan Section 7 S1–S2):\n"
+        "  (a) per-band gradient computation (``compute_joint_gradient``);\n"
+        "  (b) forced-photometry fallback used by the driver for the "
+        "central pixel and as a fail-safe when the iterative fit cannot "
+        "converge;\n"
+        "  (c) per-band ``intens_<b>`` at converged isophotes — but ONLY "
+        "in the decoupled intercept mode (``fit_per_band_intens_jointly="
+        "False``). The matrix-mode joint LS solve cannot host a median "
+        "(non-linear), so ``integrator='median'`` is gated to the "
+        "decoupled path: the validator hard-errors on "
+        "``integrator='median' ∧ fit_per_band_intens_jointly=True``. In "
+        "the decoupled path with ``integrator='median'``, "
+        "``intens_<b>`` is the per-band median of the ring samples "
+        "(plain ``np.median``; sample sigma-clipping has already been "
+        "applied upstream by the sclip/nclip pipeline). With "
+        "``integrator='mean'``, both intercept modes give a "
+        "(weighted) ring mean — full rings are numerically identical "
+        "since ``sin(nφ)``/``cos(nφ)`` are orthogonal to the constant "
+        "column over ``[0, 2π]``.",
     )
 
     # --- Eccentric anomaly sampling (copied) ---
@@ -467,6 +473,23 @@ class IsosterConfigMB(BaseModel):
                 "drop has nothing to act on. Either set "
                 "fit_per_band_intens_jointly=True or pick "
                 "harmonic_combination='joint'."
+            )
+
+        # --- Stage-3 S1: integrator='median' requires the decoupled
+        # intercept mode. The matrix-mode joint LS cannot host a median
+        # (non-linear); see plan section 7.2 S1 for the rejected Path-B
+        # alternative (post-hoc median replacement) and why Path A was
+        # chosen instead.
+        if self.integrator == "median" and self.fit_per_band_intens_jointly:
+            raise ValueError(
+                "integrator='median' requires fit_per_band_intens_jointly="
+                "False. The matrix-mode joint LS solve carries per-band "
+                "intercept columns whose values come from a linear "
+                "least-squares solve, which cannot represent a median. "
+                "Use fit_per_band_intens_jointly=False to switch to the "
+                "decoupled intercept mode where intens_<b> is computed "
+                "as a per-band median of the ring samples, or stay on "
+                "integrator='mean' to keep the matrix-mode solve."
             )
 
         # --- D9 backport: per-band-count normalization only makes sense

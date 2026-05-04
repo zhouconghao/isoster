@@ -6,9 +6,12 @@ import pytest
 from isoster.fitting import fit_first_and_second_harmonics
 from isoster.multiband.config_mb import IsosterConfigMB
 from isoster.multiband.fitting_mb import (
+    _per_band_mean_or_median,
+    _per_band_mean_or_median_jagged,
     evaluate_joint_model,
     extract_forced_photometry_mb,
     fit_first_and_second_harmonics_joint,
+    fit_first_and_second_harmonics_joint_loose,
     fit_isophote_mb,
 )
 
@@ -657,3 +660,162 @@ def test_fit_isophote_mb_rejects_mixed_variance_maps():
             config=cfg,
             variance_maps=[var, None],  # type: ignore[list-item]
         )
+
+
+# ---------------------------------------------------------------------------
+# Stage-3 S2: per-band median integrator in decoupled mode
+# ---------------------------------------------------------------------------
+
+
+def test_per_band_mean_or_median_dispatches_correctly():
+    """Direct unit test on the helper: mean vs median agree only on
+    symmetric distributions."""
+    rng = np.random.default_rng(2026)
+    intens = rng.normal(loc=10.0, scale=0.5, size=(3, 200))  # symmetric
+    var = np.full_like(intens, 0.25)
+
+    means_ols = _per_band_mean_or_median(intens, None, "mean")
+    means_wls = _per_band_mean_or_median(intens, var, "mean")
+    medians = _per_band_mean_or_median(intens, var, "median")
+
+    # On a symmetric Gaussian distribution mean ≈ median to better
+    # than 0.05 (1/sqrt(N) ~ 0.07, so this is ~ within tolerance).
+    assert np.allclose(means_ols, means_wls, atol=1e-12)  # uniform var ⇒ same
+    assert np.allclose(means_ols, medians, atol=0.05)
+
+    # Inject a one-sided outlier per band: median ignores it, mean shifts.
+    intens_skewed = intens.copy()
+    intens_skewed[:, 0] += 100.0  # huge upward outlier in sample 0 of every band
+    means_skewed = _per_band_mean_or_median(intens_skewed, None, "mean")
+    medians_skewed = _per_band_mean_or_median(intens_skewed, None, "median")
+    # Mean shifted by ~ 100/200 = 0.5 per band. Median shifted by < 0.05.
+    assert np.all(means_skewed - means_ols > 0.4)
+    assert np.all(np.abs(medians_skewed - medians) < 0.05)
+
+
+def test_per_band_mean_or_median_jagged_handles_empty_bands():
+    """Empty band ⇒ NaN under both integrators; non-empty bands resolve."""
+    intens = [np.array([1.0, 2.0, 3.0, 4.0, 5.0]), np.array([], dtype=np.float64)]
+    var = [np.full(5, 0.1), np.array([], dtype=np.float64)]
+    out_mean = _per_band_mean_or_median_jagged(intens, var, "mean")
+    out_med = _per_band_mean_or_median_jagged(intens, var, "median")
+    assert out_mean[0] == pytest.approx(3.0)
+    assert out_med[0] == pytest.approx(3.0)
+    assert np.isnan(out_mean[1])
+    assert np.isnan(out_med[1])
+
+
+def test_joint_solver_decoupled_mean_vs_median_full_ring_agree():
+    """On a clean full ring with symmetric noise, the per-band intercept
+    should agree between integrator='mean' and 'median' to ~1/sqrt(N).
+    """
+    rng = np.random.default_rng(7)
+    n_samples = 360
+    angles = np.linspace(0.0, 2.0 * np.pi, n_samples, endpoint=False)
+    truth = np.array([10.0, 20.0])
+    # Pure intercept signal + a known A1, B1 harmonic + Gaussian noise.
+    intens = (
+        truth[:, None]
+        + 0.3 * np.sin(angles)
+        - 0.2 * np.cos(angles)
+        + rng.normal(scale=0.05, size=(2, n_samples))
+    )
+    weights = np.array([1.0, 1.0])
+
+    coeffs_mean, _, _ = fit_first_and_second_harmonics_joint(
+        angles, intens, weights, None,
+        fit_per_band_intens_jointly=False, integrator="mean",
+    )
+    coeffs_med, _, _ = fit_first_and_second_harmonics_joint(
+        angles, intens, weights, None,
+        fit_per_band_intens_jointly=False, integrator="median",
+    )
+
+    # Per-band intercepts agree to within a few × σ/√N ~ 0.05/√360 ~ 0.003
+    # (median has a 1.25× efficiency penalty vs mean for Gaussian noise).
+    assert np.allclose(coeffs_mean[:2], coeffs_med[:2], atol=0.02)
+    # Geometric block trivially identical to ~noise floor: with symmetric
+    # noise the residuals after subtracting the per-band intercept are
+    # statistically equivalent under either reducer.
+    assert np.allclose(coeffs_mean[2:], coeffs_med[2:], atol=0.01)
+
+
+def test_joint_solver_decoupled_median_resists_one_sided_outlier():
+    """Asymmetric contamination: the median path should suppress an
+    outlier sector that pulls the mean by orders of magnitude.
+    """
+    rng = np.random.default_rng(11)
+    n_samples = 360
+    angles = np.linspace(0.0, 2.0 * np.pi, n_samples, endpoint=False)
+    truth = 10.0
+    intens_clean = truth + rng.normal(scale=0.05, size=n_samples)
+    # Inject 5% of samples (one band) with a huge positive contaminant.
+    contam_idx = np.arange(n_samples)[:18]
+    intens_contam = intens_clean.copy()
+    intens_contam[contam_idx] += 100.0
+    intens = np.stack([intens_clean, intens_contam], axis=0)
+    weights = np.array([1.0, 1.0])
+
+    coeffs_mean, _, _ = fit_first_and_second_harmonics_joint(
+        angles, intens, weights, None,
+        fit_per_band_intens_jointly=False, integrator="mean",
+    )
+    coeffs_med, _, _ = fit_first_and_second_harmonics_joint(
+        angles, intens, weights, None,
+        fit_per_band_intens_jointly=False, integrator="median",
+    )
+
+    # Mean of contaminated band shifts by ~ 100 * 18/360 = 5.0
+    assert coeffs_mean[1] - truth > 4.0
+    # Median is barely affected — < 5% of samples are outliers.
+    assert abs(coeffs_med[1] - truth) < 0.1
+    # Clean band: both reducers agree on the truth.
+    assert abs(coeffs_mean[0] - truth) < 0.05
+    assert abs(coeffs_med[0] - truth) < 0.05
+
+
+def test_joint_solver_loose_decoupled_median_works_with_jagged_input():
+    """Loose-validity solver path (jagged) supports integrator='median'."""
+    rng = np.random.default_rng(13)
+    n_b1, n_b2 = 200, 120
+    phi_per_band = [
+        np.linspace(0.0, 2.0 * np.pi, n_b1, endpoint=False),
+        np.linspace(0.0, 2.0 * np.pi, n_b2, endpoint=False),
+    ]
+    truth = np.array([5.0, 8.0])
+    intens_per_band = [
+        truth[0] + rng.normal(scale=0.02, size=n_b1),
+        truth[1] + rng.normal(scale=0.03, size=n_b2),
+    ]
+    weights = np.array([1.0, 1.0])
+
+    coeffs, _, _ = fit_first_and_second_harmonics_joint_loose(
+        phi_per_band, intens_per_band, weights, None,
+        fit_per_band_intens_jointly=False, integrator="median",
+    )
+    # Per-band medians sit on truth to noise/√N tolerance.
+    assert abs(coeffs[0] - truth[0]) < 0.01
+    assert abs(coeffs[1] - truth[1]) < 0.02
+
+
+def test_fit_isophote_mb_median_intercept_end_to_end():
+    """End-to-end with integrator='median' + decoupled intercept mode:
+    the fit must converge and produce finite intens_<b>."""
+    img1 = _planted_galaxy(amplitude=100.0, noise_sigma=0.05, seed=21)
+    img2 = _planted_galaxy(amplitude=50.0, noise_sigma=0.05, seed=22)
+    cfg = IsosterConfigMB(
+        bands=["g", "r"], reference_band="g",
+        integrator="median",
+        fit_per_band_intens_jointly=False,
+    )
+    out = fit_isophote_mb(
+        images=[img1, img2], masks=None, sma=20.0,
+        start_geometry={"x0": 128.0, "y0": 128.0, "eps": 0.2, "pa": 0.0},
+        config=cfg,
+    )
+    assert out["valid"] is True
+    assert out["stop_code"] == 0
+    for b in ("g", "r"):
+        assert np.isfinite(out[f"intens_{b}"])
+        assert out[f"intens_{b}"] > 0
+        assert np.isfinite(out[f"intens_err_{b}"])
