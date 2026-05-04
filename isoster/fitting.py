@@ -9,23 +9,11 @@ from .config import IsosterConfig
 from .numba_kernels import build_harmonic_matrix, harmonic_model
 from .sampling import extract_isophote_data
 
-
-def _prepare_mask_float(mask):
-    """Convert a boolean/integer mask to float64 once for map_coordinates.
-
-    ``scipy.ndimage.map_coordinates`` requires a floating-point array.
-    Converting a large boolean mask on every call is the dominant cost
-    when a mask is supplied.  Pre-converting here avoids repeated
-    allocation inside the per-iteration sampling loop.
-
-    Returns None when the input is None so callers can pass it through
-    unchanged.
-    """
-    if mask is None:
-        return None
-    if mask.dtype.kind == "f":
-        return mask
-    return mask.astype(np.float64)
+# Shared helpers (re-imported here for backward compatibility — historical
+# call sites and external code continue to access them at the original
+# ``isoster.fitting._prepare_mask_float`` / ``._tikhonov_alpha`` paths).
+# Single source of truth lives in ``isoster._shared``.
+from ._shared import _prepare_mask_float, _tikhonov_alpha  # noqa: F401
 
 
 def compute_central_regularization_penalty(current_geom, previous_geom, sma, config):
@@ -146,46 +134,6 @@ def compute_outer_center_regularization_penalty(current_geom, reference_geom, sm
         penalty += w_pa * delta_pa**2
 
     return lambda_sma * penalty
-
-
-def _tikhonov_alpha(coeff, lambda_sma, weight):
-    """Return the Tikhonov blend fraction in [0, 1].
-
-    Solves the closed-form mix between the harmonic-driven update and a
-    pull toward the reference under the per-iteration objective
-
-        L = 0.5 * (harmonic residual)^2 + 0.5 * lambda * w * (param - param_ref)^2
-
-    At the minimum, each axis' step is
-
-        delta_param = (1 - alpha) * delta_harmonic  -  alpha * (param - param_ref)
-
-    with alpha = lambda * w * coeff^2 / (1 + lambda * w * coeff^2), where
-    `coeff` is the harmonic-to-parameter Jacobian already computed by the
-    solver (so delta_harmonic = coeff * harmonic_amp, or its sign-wrapped
-    equivalent). alpha = 0 recovers the unregularized step exactly; alpha
-    -> 1 in the limit of vanishing gradient (|coeff| -> infinity) or very
-    strong regularization, fully pulling the parameter to its reference.
-
-    Args:
-        coeff (float): Parameter's harmonic Jacobian coefficient. Larger
-            absolute value means the fit has less local information about
-            this parameter, and alpha -> 1 even at modest `lambda*w`.
-        lambda_sma (float): Ramp value at this sma (logistic in sma).
-        weight (float): Per-axis weight from config.outer_reg_weights.
-
-    Returns:
-        float: The blend fraction, clamped to [0, 1).
-    """
-    if weight <= 0.0 or lambda_sma <= 0.0:
-        return 0.0
-    coeff_sq = coeff * coeff
-    if coeff_sq == 0.0 or not np.isfinite(coeff_sq):
-        return 0.0
-    denom = 1.0 + lambda_sma * weight * coeff_sq
-    if denom <= 0.0 or not np.isfinite(denom):
-        return 0.0
-    return lambda_sma * weight * coeff_sq / denom
 
 
 def extract_forced_photometry(

@@ -20,6 +20,11 @@ from matplotlib.lines import Line2D
 from matplotlib.patches import Ellipse as MPLEllipse
 from matplotlib.patches import Polygon as MPLPolygon
 
+# Shared helpers (re-imported here for backward compatibility — historical
+# call sites continue to use ``isoster.plotting._normalize_harmonic_for_plot``).
+# Single source of truth lives in ``isoster._shared``.
+from ._shared import _normalize_harmonic_for_plot  # noqa: F401
+
 # ---------------------------------------------------------------------------
 # Stop-code styling constants
 # ---------------------------------------------------------------------------
@@ -47,51 +52,6 @@ MONOCHROME_STOP_COLORS = {
     3: "#7f1d1d",
     -1: "#4b2e83",
 }
-
-
-def _normalize_harmonic_for_plot(harm, sma, grad, intens):
-    """Bender-convention normalization for plotting: ``-A_n / (a * dI/da)``.
-
-    This is the plotting counterpart to ``benchmarks.exhausted.analysis.
-    scenario_summary.normalize_harmonic``. The two agree on the formula but
-    the plot version is deliberately permissive about masking: it only
-    drops non-finite values and zero denominators, so the viewer can see
-    the noise distribution. The audit version uses a relative floor to
-    suppress points near profile turnovers.
-
-    Gradient fallback: when ``grad`` is non-finite on a point, use the
-    local finite-difference of ``intens`` vs ``sma`` (required for the
-    autoprof tool, which ships ``grad == NaN``).
-
-    Returns a float array the same shape as ``harm``, with NaN where
-    the normalization is undefined.
-    """
-    harm = np.asarray(harm, dtype=float)
-    sma = np.asarray(sma, dtype=float)
-    grad = np.asarray(grad, dtype=float)
-    intens = np.asarray(intens, dtype=float)
-    # Local finite-difference fallback for rows missing grad.
-    if np.isfinite(sma).sum() >= 2 and np.isfinite(intens).sum() >= 2:
-        # Sort by sma, unique-ify, compute np.gradient, map back.
-        order = np.argsort(sma)
-        s_sorted = sma[order]
-        v_sorted = intens[order]
-        good = np.isfinite(s_sorted) & np.isfinite(v_sorted)
-        if good.sum() >= 2:
-            uniq = np.concatenate(([True], np.diff(s_sorted[good]) > 0))
-            s_u = s_sorted[good][uniq]
-            v_u = v_sorted[good][uniq]
-            if s_u.size >= 2:
-                g_u = np.gradient(v_u, s_u)
-                fallback = np.full_like(sma, np.nan)
-                idx_back = np.where(good)[0][uniq]
-                fallback[order[idx_back]] = g_u
-                grad = np.where(np.isfinite(grad), grad, fallback)
-    denom = sma * grad
-    out = np.full_like(harm, np.nan, dtype=float)
-    valid = np.isfinite(harm) & np.isfinite(denom) & (denom != 0.0)
-    out[valid] = -harm[valid] / denom[valid]
-    return out
 
 
 def _validate_sb_inputs(sb_zeropoint, pixel_scale_arcsec):

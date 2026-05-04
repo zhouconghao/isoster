@@ -14,6 +14,32 @@ ISOSTER is a Python library for elliptical isophote fitting on 2D images, with a
 - `isoster.build_isoster_model(...)`
 - CLI entry point: `isoster` (`isoster/cli.py`)
 
+### Experimental Multi-Band Public Interface (Stage-1)
+
+Lives under a parallel module tree at `isoster/multiband/`. The single-
+band interfaces above are **not** modified.
+
+- `isoster.multiband.fit_image_multiband(images, masks=None, config=None,
+  variance_maps=None)` — joint free fit on aligned same-pixel-grid images.
+  One shared geometry per SMA, per-band intensities and per-band harmonic
+  deviations. Replaces forced photometry as the multi-band workflow.
+- `isoster.multiband.IsosterConfigMB` — multi-band-specific config
+  (sibling of `IsosterConfig`, no inheritance, deliberately reduced field
+  set).
+- `isoster.multiband.validate_alignment(wcss_or_hdus, tol_arcsec=0.1)` —
+  opt-in WCS sanity check (driver core does shape-only validation).
+- `isoster.multiband.load_bands_from_hdus(hdus)` — helper to extract
+  `(images, masks, variance_maps, bands)` tuples from FITS HDUs.
+
+`fit_image_multiband` with `len(bands) == 1` delegates to `fit_image` and
+returns the legacy single-band schema unmodified.
+
+Status: experimental. CLI integration, ASDF I/O, COG attachment, ISOFIT,
+LSB auto-lock, and outer-center regularization are out of Stage-1 scope.
+See `docs/10-multiband.md` for the user-facing reference and
+`docs/agent/plan-2026-04-29-multiband-feasibility.md` for the locked
+24-decision design record.
+
 ## Core Modules
 
 - `isoster/driver.py`: image-level orchestration and mode routing.
@@ -28,6 +54,52 @@ ISOSTER is a Python library for elliptical isophote fitting on 2D images, with a
 - `isoster/numba_kernels.py`: optional Numba-accelerated kernels with NumPy fallback.
 - `isoster/output_paths.py`: output directory and file path construction helpers.
 - `isoster/optimize.py`: compatibility facade re-exporting driver/fitting APIs.
+- `isoster/multiband/` (Stage-1 experimental): parallel module tree for
+  joint multi-band free fit. Sibling of the core modules, never edits
+  them. Contains `sampling_mb.py`, `fitting_mb.py`, `driver_mb.py`,
+  `config_mb.py`, `utils_mb.py`, `plotting_mb.py`, and a multi-band
+  numba kernel. Imports shared low-level helpers from the core modules
+  (`compute_ellipse_coords`, `_prepare_mask_float`, etc.) but provides
+  its own joint-design-matrix solver, joint gradient combiner, and
+  iteration loop. Stage-2 backports landed as new fields on
+  `IsosterConfigMB` (no inheritance per design D23):
+  `fit_per_band_intens_jointly` (D11, default `True`; renamed from the
+  pre-cleanup `fix_per_band_background_to_zero` in Section 6) and the
+  loose-validity family
+  `loose_validity` / `loose_validity_min_per_band_count` /
+  `loose_validity_min_per_band_frac` /
+  `loose_validity_band_normalization` (D9 backport, locked
+  2026-05-01).
+  - `MultiIsophoteData` (sampler return type) carries two coexisting
+    layouts: a rectangular `(B, N_intersect)` view (`intens` /
+    `variances`) shared with the legacy shared-validity callers, and
+    optional jagged per-band lists (`intens_per_band` /
+    `phi_per_band` / `variances_per_band`) populated only under
+    `loose_validity=True`. `n_valid_per_band` is always populated.
+    The shared-validity path is byte-identical to Stage 1; the
+    loose-validity path uses the numba-JIT
+    `build_joint_design_matrix_jagged` builder (with a NumPy fallback).
+  - **Section 6 (locked 2026-05-02):** ``multiband_higher_harmonics``
+    enum (``'independent'`` | ``'shared'`` | ``'simultaneous_in_loop'`` |
+    ``'simultaneous_original'``, default ``'independent'``) and
+    ``harmonic_orders: List[int] = [3, 4]`` land on
+    ``IsosterConfigMB``. ``'shared'`` replaces the per-band post-hoc
+    ``_attach_per_band_harmonics`` step with one joint solve over a
+    ``(B·N, 2·L)`` design matrix where ``L = len(harmonic_orders)``.
+    ``'simultaneous_*'`` extends the per-iteration joint design matrix
+    from ``(B·N, B + 4)`` to ``(B·N, B + 4 + 2·L)`` with shared
+    higher-order columns; ``simultaneous_in_loop`` solves this every
+    iteration, ``simultaneous_original`` runs the wider solve only
+    once post-hoc (Ciambur 2015 original variant). Two new numba
+    kernels (``build_joint_design_matrix_higher`` /
+    ``build_joint_design_matrix_jagged_higher``) carry the wider
+    matrix through both shared- and loose-validity paths. Per-band
+    Schema 1 columns ``a<n>_<b>`` / ``b<n>_<b>`` (and ``_err``)
+    continue to be written but carry the identical shared value
+    across bands under non-``'independent'`` modes; D16 per-band
+    Bender normalization at plotting time still produces band-distinct
+    curves because per-band gradients differ. Section 6 of
+    ``docs/agent/plan-2026-04-29-multiband-feasibility.md``.
 
 ## Key Constants
 

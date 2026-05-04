@@ -39,6 +39,7 @@ docs = [
 
 [project.scripts]
 isoster = "isoster.cli:main"
+isoster-mb = "isoster.multiband.cli_mb:main"
 
 [tool.setuptools.packages.find]
 include = ["isoster*"]
