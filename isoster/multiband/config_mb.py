@@ -71,13 +71,13 @@ class IsosterConfigMB(BaseModel):
     )
     band_weights: Optional[Union[Dict[str, float], List[float]]] = Field(
         default=None,
-        description="Per-band scalar weights ``w_b``, applied multiplicatively "
-        "to each band's row block in the joint design matrix as ``sqrt(w_b)``. "
-        "Either a dict keyed by band name (every band must have a key) or a "
-        "list aligned with ``bands`` (length ``B``). Each weight must be "
+        description="Per-band scalar weights ``w_b`` for the joint normal "
+        "equations. Each band's row block contributes ``A_b^T W_b A_b`` with "
+        "``W_b = w_b · I`` in OLS, or ``W_b = diag(w_b / variance_b(pixel))`` "
+        "in WLS. Either a dict keyed by band name (every band must have a key) "
+        "or a list aligned with ``bands`` (length ``B``). Each weight must be "
         "positive and finite. ``None`` (default) means uniform weights "
-        "``w_b = 1.0``. Composes with per-pixel inverse-variance weights in "
-        "WLS mode as ``w_b / variance_b(pixel)``.",
+        "``w_b = 1.0``.",
     )
     harmonic_combination: Literal["joint", "ref"] = Field(
         default="joint",

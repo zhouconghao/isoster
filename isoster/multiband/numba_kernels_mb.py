@@ -2,19 +2,20 @@
 Numba-accelerated kernels for multi-band joint design matrix construction.
 
 This module provides JIT-compiled builders for the
-``(N × (5 + B))``-shaped joint design matrix used by the multi-band
-fitter. The matrix has the structure
+``(B·N × (B + 4))``-shaped joint design matrix used by the multi-band
+fitter, where ``B`` is the number of bands and ``N`` is the per-band
+sample count. Rows are stacked band-by-band; the row corresponding to
+band ``b`` and angle ``φᵢ`` has the structure
 
-    row[i, b]  =  [δ_{0b}, δ_{1b}, …, δ_{(B-1)b},
-                   sin(φᵢ), cos(φᵢ), sin(2φᵢ), cos(2φᵢ)]
+    row[b·N + i]  =  [δ_{0b}, δ_{1b}, …, δ_{(B-1)b},
+                      sin(φᵢ), cos(φᵢ), sin(2φᵢ), cos(2φᵢ)]
 
-where the per-band indicator block (`I_b`) parameterizes per-band
-nuisance background terms `I0_b`, and the shared trailing block
-parameterizes the geometric harmonic coefficients
-`(A1, B1, A2, B2)`.
+where the per-band indicator block (``B`` columns) parameterizes
+per-band nuisance background terms ``I0_b``, and the shared trailing
+4-column block parameterizes the geometric harmonic coefficients
+``(A1, B1, A2, B2)``.
 
-Each column block is repeated `B` times (once per band) along the row
-axis. The numba kernel writes the indicator block efficiently as a
+The numba kernel writes the indicator block efficiently as a
 band-diagonal pattern; the harmonic block is identical to the
 single-band design matrix per row, repeated across bands.
 
@@ -50,7 +51,7 @@ if not NUMBA_AVAILABLE:
 @njit(cache=True)
 def _build_joint_design_matrix_numba(phi, n_bands):
     """
-    Build the (B*N × (5 + B)) joint design matrix (numba-accelerated).
+    Build the (B·N × (B + 4)) joint design matrix (numba-accelerated).
 
     For each kept sample index `i` and band index `b`:
         row = b * N + i
@@ -74,15 +75,11 @@ def _build_joint_design_matrix_numba(phi, n_bands):
     Returns
     -------
     ndarray
-        Shape (B * N, 5 + B). The constant-1 column from the single-band
-        design matrix is replaced by `B` per-band indicator columns.
-        The shared geometric block ``[sin φ, cos φ, sin 2φ, cos 2φ]``
-        sits in the trailing four columns (`5 + B - 4 = B + 1`-…-`B + 4`).
-
-        Note: the column order is `[I_0, I_1, ..., I_{B-1}, A1, B1, A2, B2]`,
-        i.e. `B` indicator columns followed by 4 geometric columns,
-        for a total of `5 + B` columns. (The 5 here counts as
-        `B + 4` from the per-band-`I0` plus 4 geometric coefficients.)
+        Shape (B·N, B + 4). The constant-1 column from the single-band
+        design matrix is replaced by `B` per-band indicator columns
+        ``[I_0, I_1, …, I_{B-1}]``; the shared geometric block
+        ``[sin φ, cos φ, sin 2φ, cos 2φ]`` sits in the trailing four
+        columns ``[A1, B1, A2, B2]``.
     """
     n_samples = phi.shape[0]
     n_rows = n_bands * n_samples

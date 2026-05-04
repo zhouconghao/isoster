@@ -32,8 +32,10 @@ The joint design matrix per ellipse, B bands, N kept samples:
 
 Free parameters: `(5 + B)` per ellipse (per-band background `I0_b` plus
 shared geometric harmonic coefficients). Solved once per iteration in
-WLS or OLS mode. Per-band weights `w_b` enter as `√w_b` row scaling on
-each band's block.
+WLS or OLS mode. Per-band weights `w_b` enter the joint normal
+equations as a diagonal weight matrix: each band's row block
+contributes `Aᵀ W A` with `W = diag(w_b)` in OLS, or
+`W = diag(w_b / variance_<b>(pixel))` in WLS.
 
 ### Per-band intercept mode
 
@@ -310,11 +312,12 @@ fits a single ``(B + 4)``-parameter least-squares system per iteration:
                                             [B2   ]
 ```
 
-Per-band weights `w_b` enter as `√w_b` row scaling on each band's
-block; in WLS mode they compose with per-pixel inverse variance as
-`w_b / variance_<b>(pixel)`. With B=1 and `w_b = 1` the joint solver
-reduces to the existing single-band 5-parameter system bit-for-bit
-(verified by `test_joint_solver_b1_matches_single_band_solver`).
+Per-band weights `w_b` enter the joint normal equations as a diagonal
+weight matrix `W` (each band's row block contributes `Aᵀ W A` with
+`W = diag(w_b)` in OLS, or `W = diag(w_b / variance_<b>(pixel))` in
+WLS). With B=1 and `w_b = 1` the joint solver reduces to the existing
+single-band 5-parameter system bit-for-bit (verified by
+`test_joint_solver_b1_matches_single_band_solver`).
 
 ### Combined gradient (decision D10)
 
