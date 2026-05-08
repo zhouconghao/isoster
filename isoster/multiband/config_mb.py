@@ -29,7 +29,6 @@ from typing import Dict, List, Literal, Optional, Union
 
 from pydantic import BaseModel, Field, model_validator
 
-
 # Band-name regex: must start with a letter, then letters/digits/underscores
 # only. Hyphens and other punctuation are rejected so that band strings
 # can be used verbatim as FITS column suffixes (e.g. ``intens_g``,
@@ -357,8 +356,7 @@ class IsosterConfigMB(BaseModel):
     # --- Permissive geometry mode (copied) ---
     permissive_geometry: bool = Field(
         default=False,
-        description="Enable permissive geometry updates (photutils-style). "
-        "Same semantics as single-band.",
+        description="Enable permissive geometry updates (photutils-style). Same semantics as single-band.",
     )
 
     # --- First-isophote robustness (copied) ---
@@ -366,8 +364,7 @@ class IsosterConfigMB(BaseModel):
         default=3,
         ge=0,
         le=20,
-        description="Maximum retry attempts for the first isophote. Same "
-        "semantics as single-band.",
+        description="Maximum retry attempts for the first isophote. Same semantics as single-band.",
     )
     first_isophote_fail_count: int = Field(
         default=3,
@@ -639,17 +636,11 @@ class IsosterConfigMB(BaseModel):
         if len(set(self.bands)) != len(self.bands):
             seen = set()
             duplicates = [b for b in self.bands if b in seen or seen.add(b)]
-            raise ValueError(
-                f"bands contains duplicates: {duplicates}. Each band name "
-                f"must be unique."
-            )
+            raise ValueError(f"bands contains duplicates: {duplicates}. Each band name must be unique.")
 
         # --- reference_band must be in bands (D3) ---
         if self.reference_band not in self.bands:
-            raise ValueError(
-                f"reference_band {self.reference_band!r} must be one of bands "
-                f"{self.bands!r}."
-            )
+            raise ValueError(f"reference_band {self.reference_band!r} must be one of bands {self.bands!r}.")
 
         # --- band_weights validation (D12) ---
         if self.band_weights is not None:
@@ -664,8 +655,7 @@ class IsosterConfigMB(BaseModel):
                     )
                 if extra:
                     raise ValueError(
-                        f"band_weights contains keys {sorted(extra)} that are "
-                        f"not in `bands` {self.bands!r}."
+                        f"band_weights contains keys {sorted(extra)} that are not in `bands` {self.bands!r}."
                     )
                 weight_values = [self.band_weights[b] for b in self.bands]
             else:
@@ -724,10 +714,7 @@ class IsosterConfigMB(BaseModel):
 
         # --- D9 backport: per-band-count normalization only makes sense
         # under loose validity (all N_b are identical under shared validity).
-        if (
-            self.loose_validity_band_normalization == "per_band_count"
-            and not self.loose_validity
-        ):
+        if self.loose_validity_band_normalization == "per_band_count" and not self.loose_validity:
             raise ValueError(
                 "loose_validity_band_normalization='per_band_count' requires "
                 "loose_validity=True. Under shared validity all bands have "
@@ -740,10 +727,7 @@ class IsosterConfigMB(BaseModel):
         # duplicates; unique-sort in place so downstream code can rely on
         # ascending order.
         if not isinstance(self.harmonic_orders, list) or len(self.harmonic_orders) == 0:
-            raise ValueError(
-                f"harmonic_orders must be a non-empty list of ints >= 3, got "
-                f"{self.harmonic_orders!r}."
-            )
+            raise ValueError(f"harmonic_orders must be a non-empty list of ints >= 3, got {self.harmonic_orders!r}.")
         for n in self.harmonic_orders:
             if not isinstance(n, int) or isinstance(n, bool) or n < 3:
                 raise ValueError(
@@ -754,20 +738,14 @@ class IsosterConfigMB(BaseModel):
         if len(set(self.harmonic_orders)) != len(self.harmonic_orders):
             seen: set = set()
             duplicates = [n for n in self.harmonic_orders if n in seen or seen.add(n)]
-            raise ValueError(
-                f"harmonic_orders contains duplicates {duplicates}; each "
-                f"order must appear at most once."
-            )
+            raise ValueError(f"harmonic_orders contains duplicates {duplicates}; each order must appear at most once.")
         # Unique-sort in place (mutating the validated list is fine — pydantic
         # has already accepted the field).
         self.harmonic_orders = sorted(self.harmonic_orders)
 
         # Hard-error: shared/simultaneous_* modes are incompatible with
         # ref-mode harmonic combination, which bypasses the joint solver.
-        if (
-            self.multiband_higher_harmonics != "independent"
-            and self.harmonic_combination == "ref"
-        ):
+        if self.multiband_higher_harmonics != "independent" and self.harmonic_combination == "ref":
             raise ValueError(
                 f"multiband_higher_harmonics={self.multiband_higher_harmonics!r} "
                 f"is incompatible with harmonic_combination='ref': ref-mode "
@@ -869,10 +847,7 @@ class IsosterConfigMB(BaseModel):
                 )
             for axis in ("center", "eps", "pa"):
                 fixed = {"center": "fix_center", "eps": "fix_eps", "pa": "fix_pa"}[axis]
-                if (
-                    getattr(self, fixed)
-                    and float(self.outer_reg_weights.get(axis, 0.0)) > 0.0
-                ):
+                if getattr(self, fixed) and float(self.outer_reg_weights.get(axis, 0.0)) > 0.0:
                     warnings.warn(
                         f"outer_reg_weights[{axis!r}]>0 with {fixed}=True: "
                         f"the {axis} parameter is frozen so the {axis} "
@@ -881,10 +856,7 @@ class IsosterConfigMB(BaseModel):
                         UserWarning,
                         stacklevel=2,
                     )
-            if all(
-                float(self.outer_reg_weights.get(k, 0.0)) <= 0.0
-                for k in ("center", "eps", "pa")
-            ):
+            if all(float(self.outer_reg_weights.get(k, 0.0)) <= 0.0 for k in ("center", "eps", "pa")):
                 warnings.warn(
                     "use_outer_center_regularization=True but all "
                     "outer_reg_weights are zero: the damping is identically "
@@ -915,10 +887,7 @@ class IsosterConfigMB(BaseModel):
         # The lock is meaningful only when starting from free geometry —
         # mirror single-band's hard-error on fix_*. Section 7.5 item 2.
         if self.lsb_auto_lock:
-            conflicting = [
-                name for name in ("fix_center", "fix_pa", "fix_eps")
-                if getattr(self, name)
-            ]
+            conflicting = [name for name in ("fix_center", "fix_pa", "fix_eps") if getattr(self, name)]
             if conflicting:
                 raise ValueError(
                     f"lsb_auto_lock=True conflicts with "
@@ -932,10 +901,7 @@ class IsosterConfigMB(BaseModel):
             # which Stage-A's S1 rejects. Catch the illegal combination
             # at config construction so the lock-fire path cannot trip
             # the validator at clone time.
-            if (
-                self.lsb_auto_lock_integrator == "median"
-                and self.fit_per_band_intens_jointly
-            ):
+            if self.lsb_auto_lock_integrator == "median" and self.fit_per_band_intens_jointly:
                 raise ValueError(
                     "lsb_auto_lock_integrator='median' with "
                     "fit_per_band_intens_jointly=True is not supported: "

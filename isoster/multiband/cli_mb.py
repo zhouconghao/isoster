@@ -113,10 +113,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--bands",
         nargs="+",
-        help=(
-            "Band names aligned with the positional images. Required if "
-            "the YAML config does not provide ``bands``."
-        ),
+        help=("Band names aligned with the positional images. Required if the YAML config does not provide ``bands``."),
     )
     parser.add_argument(
         "--reference-band",
@@ -128,27 +125,18 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--mask",
-        help=(
-            "Single mask FITS broadcast to every band. Mutually exclusive "
-            "with --masks."
-        ),
+        help=("Single mask FITS broadcast to every band. Mutually exclusive with --masks."),
     )
     parser.add_argument(
         "--masks",
         nargs="+",
-        help=(
-            "Per-band mask FITS files (must match --bands length). "
-            "Mutually exclusive with --mask."
-        ),
+        help=("Per-band mask FITS files (must match --bands length). Mutually exclusive with --mask."),
     )
     parser.add_argument(
         "--variance-maps",
         dest="variance_maps",
         nargs="+",
-        help=(
-            "Per-band variance maps for WLS (all-or-nothing: must match "
-            "--bands length)."
-        ),
+        help=("Per-band variance maps for WLS (all-or-nothing: must match --bands length)."),
     )
     parser.add_argument("--config", help="YAML configuration file for IsosterConfigMB.")
     parser.add_argument(
@@ -174,46 +162,54 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--y0", type=float, help="Initial center y.")
     parser.add_argument("--sma0", type=float, help="Initial semi-major axis.")
     parser.add_argument(
-        "--fix-center", "--fix_center",
-        dest="fix_center", action="store_true",
+        "--fix-center",
+        "--fix_center",
+        dest="fix_center",
+        action="store_true",
         help="Fix the center coordinates during fitting.",
     )
     parser.add_argument(
-        "--fix-eps", "--fix_eps",
-        dest="fix_eps", action="store_true",
+        "--fix-eps",
+        "--fix_eps",
+        dest="fix_eps",
+        action="store_true",
         help="Fix the ellipticity during fitting.",
     )
     parser.add_argument(
-        "--fix-pa", "--fix_pa",
-        dest="fix_pa", action="store_true",
+        "--fix-pa",
+        "--fix_pa",
+        dest="fix_pa",
+        action="store_true",
         help="Fix the position angle during fitting.",
     )
     parser.add_argument(
-        "--quiet", action="store_true",
+        "--quiet",
+        action="store_true",
         help="Suppress the experimental banner.",
     )
     return parser
 
 
 def _resolve_bands(
-    cfg_dict: dict, args_bands: Optional[Sequence[str]], n_images: int,
+    cfg_dict: dict,
+    args_bands: Optional[Sequence[str]],
+    n_images: int,
 ) -> List[str]:
     """Resolve the band list from CLI overrides, falling back to YAML config."""
     bands = list(args_bands) if args_bands else list(cfg_dict.get("bands", []) or [])
     if not bands:
-        raise SystemExit(
-            "isoster-mb: --bands is required (or set ``bands`` in --config YAML)"
-        )
+        raise SystemExit("isoster-mb: --bands is required (or set ``bands`` in --config YAML)")
     if len(bands) != n_images:
         raise SystemExit(
-            f"isoster-mb: expected {len(bands)} positional images "
-            f"(one per band in --bands={bands}); got {n_images}"
+            f"isoster-mb: expected {len(bands)} positional images (one per band in --bands={bands}); got {n_images}"
         )
     return bands
 
 
 def _resolve_reference_band(
-    cfg_dict: dict, args_ref: Optional[str], bands: Sequence[str],
+    cfg_dict: dict,
+    args_ref: Optional[str],
+    bands: Sequence[str],
 ) -> str:
     """Resolve the reference band, defaulting to the first band when unset."""
     ref = args_ref or cfg_dict.get("reference_band")
@@ -222,9 +218,7 @@ def _resolve_reference_band(
         # not specify, matching the docs guidance for "diagnostic only".
         ref = bands[0]
     if ref not in bands:
-        raise SystemExit(
-            f"isoster-mb: --reference-band={ref!r} is not in --bands={list(bands)}"
-        )
+        raise SystemExit(f"isoster-mb: --reference-band={ref!r} is not in --bands={list(bands)}")
     return ref
 
 
@@ -236,9 +230,7 @@ def _resolve_masks(args, n_bands: int):
         return _load_mask(args.mask)
     if args.masks:
         if len(args.masks) != n_bands:
-            raise SystemExit(
-                f"isoster-mb: --masks expected {n_bands} files; got {len(args.masks)}"
-            )
+            raise SystemExit(f"isoster-mb: --masks expected {n_bands} files; got {len(args.masks)}")
         return [_load_mask(p) for p in args.masks]
     return None
 
@@ -248,10 +240,7 @@ def _resolve_variance_maps(args, n_bands: int):
     if not args.variance_maps:
         return None
     if len(args.variance_maps) != n_bands:
-        raise SystemExit(
-            f"isoster-mb: --variance-maps expected {n_bands} files; got "
-            f"{len(args.variance_maps)}"
-        )
+        raise SystemExit(f"isoster-mb: --variance-maps expected {n_bands} files; got {len(args.variance_maps)}")
     return [_load_variance(p) for p in args.variance_maps]
 
 
@@ -298,7 +287,9 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
     bands = _resolve_bands(cfg_dict, args.bands, n_images=len(args.images))
     cfg_dict["bands"] = bands
     cfg_dict["reference_band"] = _resolve_reference_band(
-        cfg_dict, args.reference_band, bands,
+        cfg_dict,
+        args.reference_band,
+        bands,
     )
 
     images = [_load_image(p) for p in args.images]
@@ -308,12 +299,13 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
     config = IsosterConfigMB(**cfg_dict)
 
     print(
-        f"isoster-mb: fitting {len(bands)} bands={bands} "
-        f"reference={config.reference_band} → {args.output}",
+        f"isoster-mb: fitting {len(bands)} bands={bands} reference={config.reference_band} → {args.output}",
         file=sys.stderr,
     )
     result = fit_image_multiband(
-        images=images, masks=masks, config=config,
+        images=images,
+        masks=masks,
+        config=config,
         variance_maps=variance_maps,
         template_isophotes=args.template,
     )

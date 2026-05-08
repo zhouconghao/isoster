@@ -187,8 +187,10 @@ class TestMaxgerrThreshold:
         result_loose = fit_isophote(image, mask, 90.0, start_geom, cfg_loose)
 
         # Tight maxgerr should fail or behave differently from loose
-        assert result_tight["stop_code"] != 0 or result_loose["stop_code"] != 0 or (
-            result_tight["stop_code"] >= result_loose["stop_code"]
+        assert (
+            result_tight["stop_code"] != 0
+            or result_loose["stop_code"] != 0
+            or (result_tight["stop_code"] >= result_loose["stop_code"])
         )
 
 
@@ -205,9 +207,7 @@ class TestMaxitExhaustion:
         cfg = IsosterConfig(conver=0.001, maxit=3, minit=1, convergence_scaling="none")
         result = fit_isophote(image, mask, 30.0, start_geom, cfg)
 
-        assert result["stop_code"] == 2, (
-            f"Expected stop_code=2 (maxit exhaustion), got {result['stop_code']}"
-        )
+        assert result["stop_code"] == 2, f"Expected stop_code=2 (maxit exhaustion), got {result['stop_code']}"
         # Should still have valid photometry
         assert np.isfinite(result["intens"])
         assert result["intens"] > 0

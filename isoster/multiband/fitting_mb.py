@@ -42,15 +42,20 @@ from .sampling_mb import (
     prepare_inputs,
 )
 
-
 # Per-band column-key naming. Centralized so ``_empty_isophote_dict``,
 # ``extract_forced_photometry_mb``, and the driver's central-pixel
 # helper all agree on which columns exist; Schema-1 readers rely on
 # the exact suffix layout.
 _PER_BAND_INTENSITY_KEYS: Tuple[str, ...] = ("intens", "intens_err", "rms")
 _PER_BAND_HARMONIC_KEYS: Tuple[str, ...] = (
-    "a3", "b3", "a3_err", "b3_err",
-    "a4", "b4", "a4_err", "b4_err",
+    "a3",
+    "b3",
+    "a3_err",
+    "b3_err",
+    "a4",
+    "b4",
+    "a4_err",
+    "b4_err",
 )
 _PER_BAND_DEBUG_KEYS: Tuple[str, ...] = ("grad", "grad_error", "grad_r_error")
 
@@ -120,9 +125,7 @@ def _compute_central_regularization_penalty_mb(
         return 0.0
     if previous_geom is None:
         return 0.0
-    lambda_sma = config.central_reg_strength * float(
-        np.exp(-((sma / config.central_reg_sma_threshold) ** 2))
-    )
+    lambda_sma = config.central_reg_strength * float(np.exp(-((sma / config.central_reg_sma_threshold) ** 2)))
     if lambda_sma < 1e-6:
         return 0.0
     weights = config.central_reg_weights
@@ -330,11 +333,7 @@ def _per_band_mean_or_median_jagged(
         else:
             w = 1.0 / variances_per_band[b]
             denom = float(np.sum(w))
-            out[b] = (
-                float(np.sum(intens_per_band[b] * w) / denom)
-                if denom > 0
-                else float("nan")
-            )
+            out[b] = float(np.sum(intens_per_band[b] * w) / denom) if denom > 0 else float("nan")
     return out
 
 
@@ -390,17 +389,15 @@ def fit_first_and_second_harmonics_joint_loose(
     # equals w_b regardless of N_b. Composes multiplicatively with the
     # per-row WLS / band weight.
     if normalize:
-        norm_per_row = np.concatenate([
-            np.full(n_per_band[b], 1.0 / max(n_per_band[b], 1), dtype=np.float64)
-            for b in range(n_bands)
-        ])
+        norm_per_row = np.concatenate(
+            [np.full(n_per_band[b], 1.0 / max(n_per_band[b], 1), dtype=np.float64) for b in range(n_bands)]
+        )
         w_eff = w_eff * norm_per_row
 
     if not fit_per_band_intens_jointly:
         means = _per_band_mean_or_median_jagged(intens_per_band, variances_per_band, integrator)
         residuals_per_band = [
-            intens_per_band[b] - means[b] if intens_per_band[b].size else intens_per_band[b]
-            for b in range(n_bands)
+            intens_per_band[b] - means[b] if intens_per_band[b].size else intens_per_band[b] for b in range(n_bands)
         ]
         y_geom = np.concatenate(residuals_per_band) if residuals_per_band else np.empty(0)
         # Geometric block only — no intercept columns. Build from each
@@ -580,23 +577,22 @@ def fit_simultaneous_joint_loose(
         w_eff = band_weight_per_row
 
     if normalize:
-        norm_per_row = np.concatenate([
-            np.full(n_per_band[b], 1.0 / max(n_per_band[b], 1), dtype=np.float64)
-            for b in range(n_bands)
-        ])
+        norm_per_row = np.concatenate(
+            [np.full(n_per_band[b], 1.0 / max(n_per_band[b], 1), dtype=np.float64) for b in range(n_bands)]
+        )
         w_eff = w_eff * norm_per_row
 
     if not fit_per_band_intens_jointly:
         means = _per_band_mean_or_median_jagged(intens_per_band, variances_per_band, integrator)
         residuals_per_band = [
-            intens_per_band[b] - means[b] if intens_per_band[b].size else intens_per_band[b]
-            for b in range(n_bands)
+            intens_per_band[b] - means[b] if intens_per_band[b].size else intens_per_band[b] for b in range(n_bands)
         ]
-        y_geom = (
-            np.concatenate(residuals_per_band) if residuals_per_band else np.empty(0)
-        )
+        y_geom = np.concatenate(residuals_per_band) if residuals_per_band else np.empty(0)
         A_full = build_joint_design_matrix_jagged_higher(
-            phi_per_band, n_bands, orders_arr, normalize=False,
+            phi_per_band,
+            n_bands,
+            orders_arr,
+            normalize=False,
         )
         A_geom = A_full[:, n_bands:]
         AW_geom = A_geom * w_eff[:, None]
@@ -627,7 +623,10 @@ def fit_simultaneous_joint_loose(
         return coeffs, cov, wls_mode
 
     A = build_joint_design_matrix_jagged_higher(
-        phi_per_band, n_bands, orders_arr, normalize=False,
+        phi_per_band,
+        n_bands,
+        orders_arr,
+        normalize=False,
     )
     y = np.concatenate(intens_per_band) if n_total else np.empty(0)
     AW = A * w_eff[:, None]
@@ -705,12 +704,7 @@ def evaluate_joint_model(
     ``I0_b + A1·sin(φ) + B1·cos(φ) + A2·sin(2φ) + B2·cos(2φ)``.
     """
     A1, B1, A2, B2 = coeffs[n_bands], coeffs[n_bands + 1], coeffs[n_bands + 2], coeffs[n_bands + 3]
-    geom = (
-        A1 * np.sin(angles)
-        + B1 * np.cos(angles)
-        + A2 * np.sin(2.0 * angles)
-        + B2 * np.cos(2.0 * angles)
-    )
+    geom = A1 * np.sin(angles) + B1 * np.cos(angles) + A2 * np.sin(2.0 * angles) + B2 * np.cos(2.0 * angles)
     if harmonic_orders:
         for j, n_order in enumerate(harmonic_orders):
             an = float(coeffs[n_bands + 4 + 2 * j])
@@ -809,9 +803,7 @@ def _per_band_sigma_clip_loose(
     n_bands = len(intens_per_band)
     out_phi: List[NDArray[np.float64]] = []
     out_intens: List[NDArray[np.float64]] = []
-    out_variances: Optional[List[NDArray[np.float64]]] = (
-        [] if variances_per_band is not None else None
-    )
+    out_variances: Optional[List[NDArray[np.float64]]] = [] if variances_per_band is not None else None
     n_clipped_total = 0
 
     for b in range(n_bands):
@@ -883,7 +875,14 @@ def compute_joint_gradient(
         data_c = current_data
     else:
         data_c = extract_isophote_data_multi_prepared(
-            image_stack, masks_resolved, var_stack, x0, y0, sma, eps, pa,
+            image_stack,
+            masks_resolved,
+            var_stack,
+            x0,
+            y0,
+            sma,
+            eps,
+            pa,
             use_eccentric_anomaly=config.use_eccentric_anomaly,
         )
 
@@ -899,7 +898,14 @@ def compute_joint_gradient(
         gradient_sma = sma * (1.0 + config.astep)
 
     data_g = extract_isophote_data_multi_prepared(
-        image_stack, masks_resolved, var_stack, x0, y0, gradient_sma, eps, pa,
+        image_stack,
+        masks_resolved,
+        var_stack,
+        x0,
+        y0,
+        gradient_sma,
+        eps,
+        pa,
         use_eccentric_anomaly=config.use_eccentric_anomaly,
     )
 
@@ -1047,9 +1053,7 @@ def _compute_parameter_errors_from_joint(
             denom = (1.0 - eps) ** 2 - 1.0
             if abs(denom) < 1e-10:
                 denom = -1e-10
-            var_pa = (2.0 * (1.0 - eps) / (sma * gradient * denom)) ** 2 * (
-                sig_a2_sq + (a2**2 / g_sq) * g_err_sq
-            )
+            var_pa = (2.0 * (1.0 - eps) / (sma * gradient * denom)) ** 2 * (sig_a2_sq + (a2**2 / g_sq) * g_err_sq)
             pa_err = float(np.sqrt(var_pa))
         else:
             pa_err = 0.0
@@ -1091,8 +1095,14 @@ def _empty_isophote_dict(
     """
     row: Dict[str, object] = {
         "sma": sma,
-        "x0": x0, "y0": y0, "eps": eps, "pa": pa,
-        "x0_err": 0.0, "y0_err": 0.0, "eps_err": 0.0, "pa_err": 0.0,
+        "x0": x0,
+        "y0": y0,
+        "eps": eps,
+        "pa": pa,
+        "x0_err": 0.0,
+        "y0_err": 0.0,
+        "eps_err": 0.0,
+        "pa_err": 0.0,
         "rms": float("nan"),
         "stop_code": stop_code,
         "niter": niter,
@@ -1155,7 +1165,9 @@ def fit_isophote_mb(
     # tests) hit the resolver here instead.
     if image_stack is None or masks_resolved is None:
         image_stack, masks_resolved, var_stack = prepare_inputs(
-            images, masks, variance_maps,
+            images,
+            masks,
+            variance_maps,
         )
     elif var_stack is None and variance_maps is not None:
         # Caller passed image_stack and masks but not var_stack: resolve.
@@ -1194,7 +1206,6 @@ def fit_isophote_mb(
 
     last_data: Optional[MultiIsophoteData] = None
     last_per_band_grad: List[float] = []
-    last_per_band_grad_err: List[Optional[float]] = []
     # Captures the most recent iteration's joint-solve coefficient vector
     # ``[I0_0, ..., I0_{B-1}, A1, B1, A2, B2]`` so the shared-mode post-hoc
     # higher-order refit can subtract the frozen geometric model. ``None``
@@ -1222,11 +1233,8 @@ def fit_isophote_mb(
     # to (B*N, B + 4 + 2*L) where L = len(harmonic_orders). The geometry
     # update math reads coeffs[n_bands..n_bands+3] which is unchanged.
     simul_in_loop = config.multiband_higher_harmonics == "simultaneous_in_loop"
-    simul_original = config.multiband_higher_harmonics == "simultaneous_original"
     tail_width = 4 + 2 * len(config.harmonic_orders) if simul_in_loop else 4
-    eval_orders_in_loop = (
-        list(config.harmonic_orders) if simul_in_loop else None
-    )
+    eval_orders_in_loop = list(config.harmonic_orders) if simul_in_loop else None
 
     # Track the per-band surviving counts for the most recent iteration
     # so we can stamp ``n_valid_<b>`` on the result row.  Under shared
@@ -1266,21 +1274,21 @@ def fit_isophote_mb(
         outer_damp_w_eps = float(_ow.get("eps", 0.0))
         outer_damp_w_pa = float(_ow.get("pa", 0.0))
         _onset = config.outer_reg_sma_onset
-        _width = (
-            config.outer_reg_sma_width
-            if config.outer_reg_sma_width is not None
-            else 0.4 * _onset
-        )
-        outer_damp_lambda = config.outer_reg_strength / (
-            1.0 + float(np.exp(-(sma - _onset) / _width))
-        )
+        _width = config.outer_reg_sma_width if config.outer_reg_sma_width is not None else 0.4 * _onset
+        outer_damp_lambda = config.outer_reg_strength / (1.0 + float(np.exp(-(sma - _onset) / _width)))
         outer_damp_on = outer_damp_lambda >= 1e-6
 
     for i in range(config.maxit):
         niter = i + 1
         data = extract_isophote_data_multi_prepared(
-            image_stack, masks_resolved, var_stack,
-            x0, y0, sma, eps, pa,
+            image_stack,
+            masks_resolved,
+            var_stack,
+            x0,
+            y0,
+            sma,
+            eps,
+            pa,
             use_eccentric_anomaly=config.use_eccentric_anomaly,
             loose_validity=loose_validity,
         )
@@ -1293,25 +1301,23 @@ def fit_isophote_mb(
                 data.phi_per_band,  # type: ignore[arg-type]
                 data.intens_per_band,  # type: ignore[arg-type]
                 data.variances_per_band,
-                config.sclip, config.nclip, config.sclip_low, config.sclip_high,
+                config.sclip,
+                config.nclip,
+                config.sclip_low,
+                config.sclip_high,
             )
-            n_valid_after_clip = np.array(
-                [int(p.size) for p in phi_pb], dtype=np.int64
-            )
+            n_valid_after_clip = np.array([int(p.size) for p in phi_pb], dtype=np.int64)
             # Per-band drop logic: a band falling below either the
             # absolute count or the fraction threshold is dropped from
             # the joint solve at this isophote.
             min_count = int(config.loose_validity_min_per_band_count)
             min_frac = float(config.loose_validity_min_per_band_frac)
             n_attempted = max(int(data.n_samples), 1)
-            surviving_mask = np.array([
-                (n_b >= min_count) and (n_b / n_attempted >= min_frac)
-                for n_b in n_valid_after_clip
-            ], dtype=bool)
+            surviving_mask = np.array(
+                [(n_b >= min_count) and (n_b / n_attempted >= min_frac) for n_b in n_valid_after_clip], dtype=bool
+            )
             surviving_idx = np.where(surviving_mask)[0]
-            dropped_idx_list: List[int] = [
-                int(i_b) for i_b in range(n_bands) if not surviving_mask[i_b]
-            ]
+            dropped_idx_list: List[int] = [int(i_b) for i_b in range(n_bands) if not surviving_mask[i_b]]
             actual_points = int(n_valid_after_clip.sum())
             last_n_valid_per_band = n_valid_after_clip
             last_dropped_band_indices = dropped_idx_list
@@ -1332,10 +1338,7 @@ def fit_isophote_mb(
             # Subset jagged arrays to surviving bands.
             phi_solve = [phi_pb[i_b] for i_b in surviving_idx]
             intens_solve = [intens_pb[i_b] for i_b in surviving_idx]
-            vars_solve = (
-                [vars_pb[i_b] for i_b in surviving_idx]
-                if vars_pb is not None else None
-            )
+            vars_solve = [vars_pb[i_b] for i_b in surviving_idx] if vars_pb is not None else None
 
             # The downstream code reads `intens_per_band` (rectangular)
             # to drive evaluate_joint_model + RMS + harmonic stamping.
@@ -1348,8 +1351,14 @@ def fit_isophote_mb(
         else:
             # Per-band sigma clip + AND across bands (shared validity).
             angles, phi, intens_per_band, variances_per_band, _n_clipped = _per_band_sigma_clip(
-                data.angles, data.phi, data.intens, data.variances,
-                config.sclip, config.nclip, config.sclip_low, config.sclip_high,
+                data.angles,
+                data.phi,
+                data.intens,
+                data.variances,
+                config.sclip,
+                config.nclip,
+                config.sclip_low,
+                config.sclip_high,
             )
             actual_points = len(angles)
             last_n_valid_per_band = np.full(n_bands, actual_points, dtype=np.int64)
@@ -1387,20 +1396,14 @@ def fit_isophote_mb(
             ref_idx = bands.index(config.reference_band)
             intens_ref = intens_per_band[ref_idx]
             variances_ref = variances_per_band[ref_idx] if variances_per_band is not None else None
-            coeffs_ref, cov_ref, wls_mode = fit_first_and_second_harmonics_ref(
-                angles, intens_ref, variances_ref
-            )
+            coeffs_ref, cov_ref, wls_mode = fit_first_and_second_harmonics_ref(angles, intens_ref, variances_ref)
             # Widen ref coeffs to a full (B + 4,) layout so downstream
             # bookkeeping is uniform with joint mode. Per-band I0_b for
             # non-reference bands is taken as the (weighted) mean of that
             # band's intensities.
             coeffs = np.zeros(n_bands + 4, dtype=np.float64)
             for b_idx in range(n_bands):
-                coeffs[b_idx] = (
-                    float(np.mean(intens_per_band[b_idx]))
-                    if b_idx != ref_idx
-                    else float(coeffs_ref[0])
-                )
+                coeffs[b_idx] = float(np.mean(intens_per_band[b_idx])) if b_idx != ref_idx else float(coeffs_ref[0])
             coeffs[n_bands:] = coeffs_ref[1:5]
             # cov: only the harmonic block is meaningful in ref mode.
             if cov_ref is not None:
@@ -1415,13 +1418,9 @@ def fit_isophote_mb(
                         cov_full[b_idx, b_idx] = float(cov_ref[0, 0])
                     else:
                         if variances_per_band is not None:
-                            cov_full[b_idx, b_idx] = float(np.mean(variances_per_band[b_idx])) / max(
-                                actual_points, 1
-                            )
+                            cov_full[b_idx, b_idx] = float(np.mean(variances_per_band[b_idx])) / max(actual_points, 1)
                         else:
-                            cov_full[b_idx, b_idx] = float(np.var(intens_per_band[b_idx])) / max(
-                                actual_points, 1
-                            )
+                            cov_full[b_idx, b_idx] = float(np.var(intens_per_band[b_idx])) / max(actual_points, 1)
                 cov_full[n_bands:, n_bands:] = cov_ref[1:5, 1:5]
             else:
                 cov_full = None
@@ -1430,15 +1429,21 @@ def fit_isophote_mb(
             surviving_weights = band_weights_arr[surviving_idx]
             if simul_in_loop:
                 coeffs_sub, cov_sub, wls_mode = fit_simultaneous_joint_loose(
-                    phi_solve, intens_solve, surviving_weights,
-                    config.harmonic_orders, vars_solve,
+                    phi_solve,
+                    intens_solve,
+                    surviving_weights,
+                    config.harmonic_orders,
+                    vars_solve,
                     normalize=loose_normalize,
                     fit_per_band_intens_jointly=config.fit_per_band_intens_jointly,
                     integrator=config.integrator,
                 )
             else:
                 coeffs_sub, cov_sub, wls_mode = fit_first_and_second_harmonics_joint_loose(
-                    phi_solve, intens_solve, surviving_weights, vars_solve,
+                    phi_solve,
+                    intens_solve,
+                    surviving_weights,
+                    vars_solve,
                     normalize=loose_normalize,
                     fit_per_band_intens_jointly=config.fit_per_band_intens_jointly,
                     integrator=config.integrator,
@@ -1479,14 +1484,20 @@ def fit_isophote_mb(
         else:
             if simul_in_loop:
                 coeffs, cov_full, wls_mode = fit_simultaneous_joint(
-                    angles, intens_per_band, band_weights_arr,
-                    config.harmonic_orders, variances_per_band,
+                    angles,
+                    intens_per_band,
+                    band_weights_arr,
+                    config.harmonic_orders,
+                    variances_per_band,
                     fit_per_band_intens_jointly=config.fit_per_band_intens_jointly,
                     integrator=config.integrator,
                 )
             else:
                 coeffs, cov_full, wls_mode = fit_first_and_second_harmonics_joint(
-                    angles, intens_per_band, band_weights_arr, variances_per_band,
+                    angles,
+                    intens_per_band,
+                    band_weights_arr,
+                    variances_per_band,
                     fit_per_band_intens_jointly=config.fit_per_band_intens_jointly,
                     integrator=config.integrator,
                 )
@@ -1509,7 +1520,12 @@ def fit_isophote_mb(
         ):
             geom = {"x0": x0, "y0": y0, "sma": sma, "eps": eps, "pa": pa}
             grad_joint, grad_err_joint, per_band_grad, per_band_err = compute_joint_gradient(
-                image_stack, masks_resolved, var_stack, geom, config, band_weights_arr,
+                image_stack,
+                masks_resolved,
+                var_stack,
+                geom,
+                config,
+                band_weights_arr,
                 previous_gradient=previous_gradient,
                 current_data=data,
             )
@@ -1526,7 +1542,6 @@ def fit_isophote_mb(
             per_band_err = cached_per_band_grad_err
 
         last_per_band_grad = per_band_grad
-        last_per_band_grad_err = per_band_err
 
         if grad_err_joint is not None:
             previous_gradient = grad_joint
@@ -1544,11 +1559,7 @@ def fit_isophote_mb(
         if not going_inwards:
             if config.permissive_geometry and gradient_relative_error is None:
                 pass
-            elif (
-                gradient_relative_error is None
-                or gradient_relative_error > config.maxgerr
-                or grad_joint >= 0.0
-            ):
+            elif gradient_relative_error is None or gradient_relative_error > config.maxgerr or grad_joint >= 0.0:
                 if lexceed:
                     stop_code = -1
                     break
@@ -1566,32 +1577,34 @@ def fit_isophote_mb(
             model_per_band_loose: List[NDArray[np.float64]] = []
             residual_chunks: List[NDArray[np.float64]] = []
             A1c, B1c, A2c, B2c = (
-                float(coeffs[n_bands]), float(coeffs[n_bands + 1]),
-                float(coeffs[n_bands + 2]), float(coeffs[n_bands + 3]),
+                float(coeffs[n_bands]),
+                float(coeffs[n_bands + 1]),
+                float(coeffs[n_bands + 2]),
+                float(coeffs[n_bands + 3]),
             )
             higher_in_loop_terms: List[Tuple[int, float, float]] = []
             if eval_orders_in_loop:
                 for j, n_order in enumerate(eval_orders_in_loop):
-                    higher_in_loop_terms.append((
-                        int(n_order),
-                        float(coeffs[n_bands + 4 + 2 * j]),
-                        float(coeffs[n_bands + 4 + 2 * j + 1]),
-                    ))
+                    higher_in_loop_terms.append(
+                        (
+                            int(n_order),
+                            float(coeffs[n_bands + 4 + 2 * j]),
+                            float(coeffs[n_bands + 4 + 2 * j + 1]),
+                        )
+                    )
             phi_post_clip = last_phi_per_band_loose or []
             intens_post_clip = last_intens_per_band_loose or []
             for b_idx in range(n_bands):
-                if (
-                    b_idx >= len(phi_post_clip)
-                    or phi_post_clip[b_idx].size == 0
-                    or np.isnan(coeffs[b_idx])
-                ):
+                if b_idx >= len(phi_post_clip) or phi_post_clip[b_idx].size == 0 or np.isnan(coeffs[b_idx]):
                     model_per_band_loose.append(np.empty(0, dtype=np.float64))
                     continue
                 p_b = phi_post_clip[b_idx]
                 m_b = (
                     float(coeffs[b_idx])
-                    + A1c * np.sin(p_b) + B1c * np.cos(p_b)
-                    + A2c * np.sin(2.0 * p_b) + B2c * np.cos(2.0 * p_b)
+                    + A1c * np.sin(p_b)
+                    + B1c * np.cos(p_b)
+                    + A2c * np.sin(2.0 * p_b)
+                    + B2c * np.cos(2.0 * p_b)
                 )
                 for n_order, an, bn in higher_in_loop_terms:
                     m_b = m_b + an * np.sin(n_order * p_b) + bn * np.cos(n_order * p_b)
@@ -1602,14 +1615,14 @@ def fit_isophote_mb(
                 # is a defensive guard.
                 if i_b.size == m_b.size:
                     residual_chunks.append(i_b - m_b)
-            rms = (
-                float(np.std(np.concatenate(residual_chunks)))
-                if residual_chunks else float("nan")
-            )
+            rms = float(np.std(np.concatenate(residual_chunks))) if residual_chunks else float("nan")
             model_per_band = model_per_band_loose  # type: ignore[assignment]
         else:
             model_per_band = evaluate_joint_model(
-                angles, coeffs, n_bands, harmonic_orders=eval_orders_in_loop,
+                angles,
+                coeffs,
+                n_bands,
+                harmonic_orders=eval_orders_in_loop,
             )
             residuals_flat = (intens_per_band - model_per_band).reshape(-1)
             rms = float(np.std(residuals_flat))
@@ -1647,7 +1660,9 @@ def fit_isophote_mb(
                     coeffs=coeffs,
                     cov_full=cov_full,
                     n_bands=n_bands,
-                    sma=sma, eps=eps, pa=pa,
+                    sma=sma,
+                    eps=eps,
+                    pa=pa,
                     gradient=grad_joint,
                     gradient_error=grad_err_joint if config.use_corrected_errors else None,
                     angles=angles,
@@ -1663,8 +1678,14 @@ def fit_isophote_mb(
             # band along this isophote, parallel to single-band's `intens`).
             best_geometry = {
                 "sma": sma,
-                "x0": x0, "y0": y0, "eps": eps, "pa": pa,
-                "x0_err": x0_err, "y0_err": y0_err, "eps_err": eps_err, "pa_err": pa_err,
+                "x0": x0,
+                "y0": y0,
+                "eps": eps,
+                "pa": pa,
+                "x0_err": x0_err,
+                "y0_err": y0_err,
+                "eps_err": eps_err,
+                "pa_err": pa_err,
                 "rms": rms,
                 "valid": True,
                 "use_eccentric_anomaly": config.use_eccentric_anomaly,
@@ -1673,9 +1694,7 @@ def fit_isophote_mb(
                 "npix_e": 0,
                 "npix_c": 0,
             }
-            ref_idx_for_err = (
-                bands.index(config.reference_band) if use_ref_only else -1
-            )
+            ref_idx_for_err = bands.index(config.reference_band) if use_ref_only else -1
             # When the per-band intercept is computed post-fit (ref mode for
             # non-ref bands, or fit_per_band_intens_jointly=False for every
             # band), `intens_err_b` is the band's own SEM and does NOT flow
@@ -1727,34 +1746,24 @@ def fit_isophote_mb(
                             else np.empty(0, dtype=np.float64)
                         )
                         band_var_kept = (
-                            last_variances_per_band_loose[b_idx]
-                            if last_variances_per_band_loose is not None
-                            else None
+                            last_variances_per_band_loose[b_idx] if last_variances_per_band_loose is not None else None
                         )
                         n_b = int(band_intens_kept.size)
                         if n_b <= 0:
                             intens_err_b = float("nan")
                         elif band_var_kept is not None:
-                            intens_err_b = float(
-                                np.sqrt(np.mean(band_var_kept) / max(n_b, 1))
-                            )
+                            intens_err_b = float(np.sqrt(np.mean(band_var_kept) / max(n_b, 1)))
                         else:
-                            sample_var = float(
-                                np.var(band_intens_kept, ddof=1) if n_b > 1 else 0.0
-                            )
+                            sample_var = float(np.var(band_intens_kept, ddof=1) if n_b > 1 else 0.0)
                             intens_err_b = float(np.sqrt(sample_var / max(n_b, 1)))
                     else:
                         n_b = int(intens_per_band[b_idx].size)
                         if n_b <= 0:
                             intens_err_b = float("nan")
                         elif variances_per_band is not None:
-                            intens_err_b = float(
-                                np.sqrt(np.mean(variances_per_band[b_idx]) / max(n_b, 1))
-                            )
+                            intens_err_b = float(np.sqrt(np.mean(variances_per_band[b_idx]) / max(n_b, 1)))
                         else:
-                            sample_var = float(
-                                np.var(intens_per_band[b_idx], ddof=1) if n_b > 1 else 0.0
-                            )
+                            sample_var = float(np.var(intens_per_band[b_idx], ddof=1) if n_b > 1 else 0.0)
                             intens_err_b = float(np.sqrt(sample_var / max(n_b, 1)))
                 elif cov_full is not None:
                     if wls_mode:
@@ -1766,9 +1775,7 @@ def fit_isophote_mb(
                         # sample variance estimate as a pragmatic choice).
                         ddof_eff = 1 + 4  # one I0_b + 4 shared geometric
                         if len(intens_per_band[b_idx]) > ddof_eff:
-                            var_res_b = float(
-                                np.var(intens_per_band[b_idx] - model_per_band[b_idx], ddof=ddof_eff)
-                            )
+                            var_res_b = float(np.var(intens_per_band[b_idx] - model_per_band[b_idx], ddof=ddof_eff))
                         else:
                             var_res_b = 0.0
                         intens_err_b = float(np.sqrt(max(cov_full[b_idx, b_idx], 0.0) * var_res_b))
@@ -1804,12 +1811,8 @@ def fit_isophote_mb(
                 # multi-band lsb_auto_lock trigger reads these (per S3:
                 # joint combined gradient). Single-band downstream tooling
                 # that consumes ``iso['grad']`` works on multi-band too.
-                best_geometry["grad"] = (
-                    float(grad_joint) if grad_joint is not None else float("nan")
-                )
-                best_geometry["grad_error"] = (
-                    float(grad_err_joint) if grad_err_joint is not None else float("nan")
-                )
+                best_geometry["grad"] = float(grad_joint) if grad_joint is not None else float("nan")
+                best_geometry["grad_error"] = float(grad_err_joint) if grad_err_joint is not None else float("nan")
         else:
             no_improvement_count += 1
 
@@ -1826,11 +1829,16 @@ def fit_isophote_mb(
             if config.compute_deviations and best_geometry is not None:
                 if loose_validity and last_intens_per_band_loose is not None:
                     _attach_higher_harmonics_dispatch(
-                        best_geometry, bands, config, last_joint_coeffs,
+                        best_geometry,
+                        bands,
+                        config,
+                        last_joint_coeffs,
                         last_phi_per_band_loose or [],
                         last_intens_per_band_loose,
                         last_variances_per_band_loose,
-                        sma, per_band_grad, band_weights_arr,
+                        sma,
+                        per_band_grad,
+                        band_weights_arr,
                         jagged=True,
                         last_cov=last_joint_cov,
                         last_wls_mode=last_joint_wls_mode,
@@ -1838,9 +1846,16 @@ def fit_isophote_mb(
                     )
                 else:
                     _attach_higher_harmonics_dispatch(
-                        best_geometry, bands, config, last_joint_coeffs,
-                        angles, intens_per_band, variances_per_band,
-                        sma, per_band_grad, band_weights_arr,
+                        best_geometry,
+                        bands,
+                        config,
+                        last_joint_coeffs,
+                        angles,
+                        intens_per_band,
+                        variances_per_band,
+                        sma,
+                        per_band_grad,
+                        band_weights_arr,
                         jagged=False,
                         last_cov=last_joint_cov,
                         last_wls_mode=last_joint_wls_mode,
@@ -1862,12 +1877,8 @@ def fit_isophote_mb(
                 aux_minor = -A1 * coeff_c_minor * damping
                 aux_major = -B1 * coeff_c_major * damping
                 if outer_damp_on and outer_damp_w_center > 0.0:
-                    alpha_minor = _tikhonov_alpha(
-                        coeff_c_minor, outer_damp_lambda, outer_damp_w_center
-                    )
-                    alpha_major = _tikhonov_alpha(
-                        coeff_c_major, outer_damp_lambda, outer_damp_w_center
-                    )
+                    alpha_minor = _tikhonov_alpha(coeff_c_minor, outer_damp_lambda, outer_damp_w_center)
+                    alpha_major = _tikhonov_alpha(coeff_c_major, outer_damp_lambda, outer_damp_w_center)
                     aux_minor = (1.0 - alpha_minor) * aux_minor
                     aux_major = (1.0 - alpha_major) * aux_major
                 if config.clip_max_shift is not None:
@@ -1886,9 +1897,7 @@ def fit_isophote_mb(
                 coeff_pa = 2.0 * (1.0 - eps) / sma / grad_joint / denom
                 pa_corr = A2 * coeff_pa * damping
                 if outer_damp_on and outer_damp_w_pa > 0.0:
-                    alpha_pa = _tikhonov_alpha(
-                        coeff_pa, outer_damp_lambda, outer_damp_w_pa
-                    )
+                    alpha_pa = _tikhonov_alpha(coeff_pa, outer_damp_lambda, outer_damp_w_pa)
                     pa_corr = (1.0 - alpha_pa) * pa_corr
                 if config.clip_max_pa is not None:
                     pa_corr = float(np.clip(pa_corr, -config.clip_max_pa, config.clip_max_pa))
@@ -1897,9 +1906,7 @@ def fit_isophote_mb(
                 coeff_eps = 2.0 * (1.0 - eps) / sma / grad_joint
                 eps_corr = B2 * coeff_eps * damping
                 if outer_damp_on and outer_damp_w_eps > 0.0:
-                    alpha_eps = _tikhonov_alpha(
-                        coeff_eps, outer_damp_lambda, outer_damp_w_eps
-                    )
+                    alpha_eps = _tikhonov_alpha(coeff_eps, outer_damp_lambda, outer_damp_w_eps)
                     eps_corr = (1.0 - alpha_eps) * eps_corr
                 if config.clip_max_eps is not None:
                     eps_corr = float(np.clip(eps_corr, -config.clip_max_eps, config.clip_max_eps))
@@ -1977,11 +1984,16 @@ def fit_isophote_mb(
                 if config.compute_deviations and best_geometry is not None:
                     if loose_validity and last_intens_per_band_loose is not None:
                         _attach_higher_harmonics_dispatch(
-                            best_geometry, bands, config, last_joint_coeffs,
+                            best_geometry,
+                            bands,
+                            config,
+                            last_joint_coeffs,
                             last_phi_per_band_loose or [],
                             last_intens_per_band_loose,
                             last_variances_per_band_loose,
-                            sma, per_band_grad, band_weights_arr,
+                            sma,
+                            per_band_grad,
+                            band_weights_arr,
                             jagged=True,
                             last_cov=last_joint_cov,
                             last_wls_mode=last_joint_wls_mode,
@@ -1989,9 +2001,16 @@ def fit_isophote_mb(
                         )
                     else:
                         _attach_higher_harmonics_dispatch(
-                            best_geometry, bands, config, last_joint_coeffs,
-                            angles, intens_per_band, variances_per_band,
-                            sma, per_band_grad, band_weights_arr,
+                            best_geometry,
+                            bands,
+                            config,
+                            last_joint_coeffs,
+                            angles,
+                            intens_per_band,
+                            variances_per_band,
+                            sma,
+                            per_band_grad,
+                            band_weights_arr,
                             jagged=False,
                             last_cov=last_joint_cov,
                             last_wls_mode=last_joint_wls_mode,
@@ -2003,22 +2022,29 @@ def fit_isophote_mb(
     # Wrap up.
     if best_geometry is None:
         best_geometry = _empty_isophote_dict(
-            sma, x0, y0, eps, pa, bands, config.use_eccentric_anomaly,
-            stop_code if stop_code != 0 else 2, niter, debug,
+            sma,
+            x0,
+            y0,
+            eps,
+            pa,
+            bands,
+            config.use_eccentric_anomaly,
+            stop_code if stop_code != 0 else 2,
+            niter,
+            debug,
             harmonic_orders=config.harmonic_orders,
         )
 
     if niter >= config.maxit and stop_code == 0 and not converged:
         stop_code = 2
         # Best-effort post-hoc harmonics from the final iteration's data.
-        if (
-            config.compute_deviations
-            and last_data is not None
-            and last_data.valid_count > 6
-        ):
+        if config.compute_deviations and last_data is not None and last_data.valid_count > 6:
             if loose_validity and last_intens_per_band_loose is not None:
                 _attach_higher_harmonics_dispatch(
-                    best_geometry, bands, config, last_joint_coeffs,
+                    best_geometry,
+                    bands,
+                    config,
+                    last_joint_coeffs,
                     last_phi_per_band_loose or [],
                     last_intens_per_band_loose,
                     last_variances_per_band_loose,
@@ -2033,7 +2059,9 @@ def fit_isophote_mb(
             else:
                 _attach_higher_harmonics_dispatch(
                     best_geometry,
-                    bands, config, last_joint_coeffs,
+                    bands,
+                    config,
+                    last_joint_coeffs,
                     last_data.angles,
                     last_data.intens,
                     last_data.variances,
@@ -2056,10 +2084,13 @@ def fit_isophote_mb(
             elif masks is not None:
                 mask_b = masks[b_idx]
             tflux_e_b, tflux_c_b, npix_e_b, npix_c_b = compute_aperture_photometry(
-                np.asarray(images[b_idx]), mask_b,
-                float(best_geometry["x0"]), float(best_geometry["y0"]),
+                np.asarray(images[b_idx]),
+                mask_b,
+                float(best_geometry["x0"]),
+                float(best_geometry["y0"]),
                 float(best_geometry["sma"]),
-                float(best_geometry["eps"]), float(best_geometry["pa"]),
+                float(best_geometry["eps"]),
+                float(best_geometry["pa"]),
             )
             best_geometry[f"tflux_e_{b}"] = float(tflux_e_b)
             best_geometry[f"tflux_c_{b}"] = float(tflux_c_b)
@@ -2120,7 +2151,12 @@ def _attach_per_band_harmonics(
             continue
         for n_order in orders_list:
             a, c, a_err, b_err = compute_deviations(
-                ang_b, intens_b, sma, grad_b, n_order, variances=var_b,
+                ang_b,
+                intens_b,
+                sma,
+                grad_b,
+                n_order,
+                variances=var_b,
             )
             geom[f"a{n_order}_{b}"] = float(a)
             geom[f"b{n_order}_{b}"] = float(c)
@@ -2214,7 +2250,13 @@ def _attach_shared_higher_harmonics(
     # numbers rather than silently zeroing everything.
     if last_coeffs is None or last_coeffs.size < n_bands + 4:
         _attach_per_band_harmonics(
-            geom, bands, angles, intens_per_band, variances_per_band, sma, per_band_grad,
+            geom,
+            bands,
+            angles,
+            intens_per_band,
+            variances_per_band,
+            sma,
+            per_band_grad,
             harmonic_orders=orders_list,
         )
         return
@@ -2257,11 +2299,7 @@ def _attach_shared_higher_harmonics(
             continue
 
         i0_b = float(last_coeffs[b_idx])
-        geom_pred = (
-            i0_b
-            + A1 * np.sin(ang_b) + B1 * np.cos(ang_b)
-            + A2 * np.sin(2.0 * ang_b) + B2 * np.cos(2.0 * ang_b)
-        )
+        geom_pred = i0_b + A1 * np.sin(ang_b) + B1 * np.cos(ang_b) + A2 * np.sin(2.0 * ang_b) + B2 * np.cos(2.0 * ang_b)
         residual_b = int_b - geom_pred
 
         a_b = np.empty((ang_b.size, 2 * L), dtype=np.float64)
@@ -2359,9 +2397,7 @@ def _compute_joint_residual_variance(
                 A2 = float(coeffs[n_bands + 2])
                 B2 = float(coeffs[n_bands + 3])
                 model = (
-                    I0_b
-                    + A1 * np.sin(ang_b) + B1 * np.cos(ang_b)
-                    + A2 * np.sin(2.0 * ang_b) + B2 * np.cos(2.0 * ang_b)
+                    I0_b + A1 * np.sin(ang_b) + B1 * np.cos(ang_b) + A2 * np.sin(2.0 * ang_b) + B2 * np.cos(2.0 * ang_b)
                 )
                 # Trailing simultaneous higher-order block, if present.
                 tail = coeffs.size - (n_bands + 4)
@@ -2449,15 +2485,14 @@ def _attach_simultaneous_higher_harmonics_from_coeffs(
         cov_for_errs = last_cov
         # OLS rescale by residual variance, mirroring the joint solver's
         # contract (caller scales by σ²). WLS already returns exact cov.
-        if (
-            not wls_mode
-            and angles is not None
-            and intens_per_band is not None
-            and band_weights_arr is not None
-        ):
+        if not wls_mode and angles is not None and intens_per_band is not None and band_weights_arr is not None:
             var_residual = _compute_joint_residual_variance(
-                last_coeffs, angles, intens_per_band, band_weights_arr,
-                n_bands=n_bands, n_geom_params=n_bands + 4 + 2 * L,
+                last_coeffs,
+                angles,
+                intens_per_band,
+                band_weights_arr,
+                n_bands=n_bands,
+                n_geom_params=n_bands + 4 + 2 * L,
                 jagged=jagged,
             )
             if var_residual is not None and np.isfinite(var_residual):
@@ -2532,7 +2567,11 @@ def _attach_simultaneous_original_post_hoc(
         )
         sub_weights = band_weights_arr[np.array(surviving_idx, dtype=np.int64)]
         coeffs_sub, _cov_sub, _wls = fit_simultaneous_joint_loose(
-            phi_sub, int_sub, sub_weights, orders, var_sub,
+            phi_sub,
+            int_sub,
+            sub_weights,
+            orders,
+            var_sub,
             normalize=(config.loose_validity_band_normalization == "per_band_count"),
             fit_per_band_intens_jointly=config.fit_per_band_intens_jointly,
             integrator=config.integrator,
@@ -2540,7 +2579,7 @@ def _attach_simultaneous_original_post_hoc(
         # Errors come from the surviving-bands cov; we just need the shared
         # higher-order block diagonal for the per-band column writes.
         n_surv = len(surviving_idx)
-        a_n_block = coeffs_sub[n_surv + 4:]  # 2L entries
+        a_n_block = coeffs_sub[n_surv + 4 :]  # 2L entries
         # Error stamping: use the cov diagonal of the surviving-bands solve.
         cov_sub_full = _cov_sub
         if cov_sub_full is not None and cov_sub_full.shape[0] >= n_surv + 4 + 2 * L:
@@ -2549,36 +2588,48 @@ def _attach_simultaneous_original_post_hoc(
             # by surviving-bands residual variance before sqrt.
             if not _wls:
                 var_res = _compute_joint_residual_variance(
-                    coeffs_sub, phi_sub, int_sub, sub_weights,
-                    n_bands=n_surv, n_geom_params=n_surv + 4 + 2 * L,
+                    coeffs_sub,
+                    phi_sub,
+                    int_sub,
+                    sub_weights,
+                    n_bands=n_surv,
+                    n_geom_params=n_surv + 4 + 2 * L,
                     jagged=True,
                 )
                 if var_res is not None and np.isfinite(var_res):
                     cov_for_errs = cov_sub_full * var_res
-            diag = np.maximum(np.diagonal(cov_for_errs)[n_surv + 4:], 0.0)
+            diag = np.maximum(np.diagonal(cov_for_errs)[n_surv + 4 :], 0.0)
             errs_block = np.sqrt(diag)
         else:
             errs_block = np.zeros(2 * L, dtype=np.float64)
     else:
         coeffs_full, cov_full, _wls = fit_simultaneous_joint(
-            angles, intens_per_band, band_weights_arr, orders, variances_per_band,
+            angles,
+            intens_per_band,
+            band_weights_arr,
+            orders,
+            variances_per_band,
             fit_per_band_intens_jointly=config.fit_per_band_intens_jointly,
             integrator=config.integrator,
         )
-        a_n_block = coeffs_full[n_bands + 4:]
+        a_n_block = coeffs_full[n_bands + 4 :]
         if cov_full is not None and cov_full.shape[0] >= n_bands + 4 + 2 * L:
             cov_for_errs = cov_full
             # OLS rescale (review fix B1): solver returns (A^T A)^-1; scale
             # by residual variance before sqrt for true SE.
             if not _wls:
                 var_res = _compute_joint_residual_variance(
-                    coeffs_full, angles, intens_per_band, band_weights_arr,
-                    n_bands=n_bands, n_geom_params=n_bands + 4 + 2 * L,
+                    coeffs_full,
+                    angles,
+                    intens_per_band,
+                    band_weights_arr,
+                    n_bands=n_bands,
+                    n_geom_params=n_bands + 4 + 2 * L,
                     jagged=False,
                 )
                 if var_res is not None and np.isfinite(var_res):
                     cov_for_errs = cov_full * var_res
-            diag = np.maximum(np.diagonal(cov_for_errs)[n_bands + 4:], 0.0)
+            diag = np.maximum(np.diagonal(cov_for_errs)[n_bands + 4 :], 0.0)
             errs_block = np.sqrt(diag)
         else:
             errs_block = np.zeros(2 * L, dtype=np.float64)
@@ -2631,8 +2682,14 @@ def _attach_higher_harmonics_dispatch(
     mode = getattr(config, "multiband_higher_harmonics", "independent")
     if mode == "shared":
         _attach_shared_higher_harmonics(
-            geom, bands, last_coeffs, angles, intens_per_band, variances_per_band,
-            sma, per_band_grad,
+            geom,
+            bands,
+            last_coeffs,
+            angles,
+            intens_per_band,
+            variances_per_band,
+            sma,
+            per_band_grad,
             harmonic_orders=config.harmonic_orders,
             band_weights_arr=band_weights_arr,
             jagged=jagged,
@@ -2640,7 +2697,10 @@ def _attach_higher_harmonics_dispatch(
         )
     elif mode == "simultaneous_in_loop":
         _attach_simultaneous_higher_harmonics_from_coeffs(
-            geom, bands, last_coeffs, last_cov,
+            geom,
+            bands,
+            last_coeffs,
+            last_cov,
             harmonic_orders=config.harmonic_orders,
             dropped_band_indices=dropped_band_indices,
             wls_mode=last_wls_mode,
@@ -2651,8 +2711,12 @@ def _attach_higher_harmonics_dispatch(
         )
     elif mode == "simultaneous_original":
         _attach_simultaneous_original_post_hoc(
-            geom, bands, config,
-            angles, intens_per_band, variances_per_band,
+            geom,
+            bands,
+            config,
+            angles,
+            intens_per_band,
+            variances_per_band,
             band_weights_arr,
             jagged=jagged,
             dropped_band_indices=dropped_band_indices,
@@ -2660,7 +2724,13 @@ def _attach_higher_harmonics_dispatch(
     else:
         # 'independent' (default).
         _attach_per_band_harmonics(
-            geom, bands, angles, intens_per_band, variances_per_band, sma, per_band_grad,
+            geom,
+            bands,
+            angles,
+            intens_per_band,
+            variances_per_band,
+            sma,
+            per_band_grad,
             harmonic_orders=config.harmonic_orders,
         )
 
@@ -2705,14 +2775,28 @@ def extract_forced_photometry_mb(
     debug = bool(config.debug)
     band_list = list(bands)
     data = extract_isophote_data_multi(
-        images, masks, x0, y0, sma, eps, pa,
+        images,
+        masks,
+        x0,
+        y0,
+        sma,
+        eps,
+        pa,
         use_eccentric_anomaly=config.use_eccentric_anomaly,
         variance_maps=variance_maps,
     )
     if data.valid_count == 0:
         empty = _empty_isophote_dict(
-            sma, x0, y0, eps, pa, band_list, config.use_eccentric_anomaly,
-            stop_code=3, niter=0, debug=debug,
+            sma,
+            x0,
+            y0,
+            eps,
+            pa,
+            band_list,
+            config.use_eccentric_anomaly,
+            stop_code=3,
+            niter=0,
+            debug=debug,
             harmonic_orders=config.harmonic_orders,
         )
         if return_ring_data:
@@ -2721,8 +2805,14 @@ def extract_forced_photometry_mb(
 
     geom: Dict[str, object] = {
         "sma": sma,
-        "x0": x0, "y0": y0, "eps": eps, "pa": pa,
-        "x0_err": 0.0, "y0_err": 0.0, "eps_err": 0.0, "pa_err": 0.0,
+        "x0": x0,
+        "y0": y0,
+        "eps": eps,
+        "pa": pa,
+        "x0_err": 0.0,
+        "y0_err": 0.0,
+        "eps_err": 0.0,
+        "pa_err": 0.0,
         "rms": float("nan"),
         "stop_code": 0,
         "niter": 0,
@@ -2764,11 +2854,7 @@ def extract_forced_photometry_mb(
                 base_sem = float("nan")
             if config.integrator == "median":
                 intens_val = float(np.median(intens_b))
-                intens_err = (
-                    base_sem * _MEDIAN_SEM_FACTOR
-                    if np.isfinite(base_sem)
-                    else float("nan")
-                )
+                intens_err = base_sem * _MEDIAN_SEM_FACTOR if np.isfinite(base_sem) else float("nan")
             else:
                 intens_val = float(np.mean(intens_b))
                 intens_err = base_sem

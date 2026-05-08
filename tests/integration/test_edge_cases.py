@@ -354,7 +354,11 @@ class TestOutOfBoundsCenter:
 
         # x0=500 is far outside the 100x100 image
         config = IsosterConfig(
-            x0=500.0, y0=500.0, sma0=10.0, minsma=5.0, maxsma=30.0,
+            x0=500.0,
+            y0=500.0,
+            sma0=10.0,
+            minsma=5.0,
+            maxsma=30.0,
         )
 
         result = fit_image(image, None, config)

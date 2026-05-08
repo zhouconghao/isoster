@@ -10,9 +10,9 @@ from astropy.table import Table
 # ``._config_to_dict``, ``._build_config_hdu``). Single source of truth
 # lives in ``isoster._shared``.
 from ._shared import (  # noqa: F401
-    _NumpyEncoder,
     _build_config_hdu,
     _config_to_dict,
+    _NumpyEncoder,
 )
 
 logger = logging.getLogger(__name__)

@@ -99,9 +99,18 @@ class TestSampling(unittest.TestCase):
         image = 1000.0 * np.exp(-r / 15.0)
 
         config = IsosterConfig(
-            x0=50.0, y0=50.0, sma0=10.0, minsma=5.0, maxsma=30.0,
-            astep=2.0, linear_growth=True, eps=0.0, pa=0.0,
-            fix_center=True, fix_eps=True, fix_pa=True,
+            x0=50.0,
+            y0=50.0,
+            sma0=10.0,
+            minsma=5.0,
+            maxsma=30.0,
+            astep=2.0,
+            linear_growth=True,
+            eps=0.0,
+            pa=0.0,
+            fix_center=True,
+            fix_eps=True,
+            fix_pa=True,
         )
         result = fit_image(image, config=config)
         sma_values = sorted([iso["sma"] for iso in result["isophotes"] if iso["sma"] > 0])
@@ -122,14 +131,21 @@ class TestSampling(unittest.TestCase):
         image = 1000.0 * np.exp(-r / 15.0)
 
         config = IsosterConfig(
-            x0=50.0, y0=50.0, sma0=10.0, minsma=5.0, maxsma=30.0,
-            astep=0.2, linear_growth=False, eps=0.0, pa=0.0,
-            fix_center=True, fix_eps=True, fix_pa=True,
+            x0=50.0,
+            y0=50.0,
+            sma0=10.0,
+            minsma=5.0,
+            maxsma=30.0,
+            astep=0.2,
+            linear_growth=False,
+            eps=0.0,
+            pa=0.0,
+            fix_center=True,
+            fix_eps=True,
+            fix_pa=True,
         )
         result = fit_image(image, config=config)
-        sma_values = sorted(
-            [iso["sma"] for iso in result["isophotes"] if iso["sma"] >= 10.0]
-        )
+        sma_values = sorted([iso["sma"] for iso in result["isophotes"] if iso["sma"] >= 10.0])
 
         if len(sma_values) >= 3:
             # Geometric growth: consecutive ratios should be constant (=1+astep)

@@ -67,9 +67,7 @@ def _validate_sb_inputs(sb_zeropoint, pixel_scale_arcsec):
             "Never pre-combine them into a single zeropoint."
         )
     if pixel_scale_arcsec is not None and pixel_scale_arcsec <= 0:
-        raise ValueError(
-            f"pixel_scale_arcsec must be positive, got {pixel_scale_arcsec!r}"
-        )
+        raise ValueError(f"pixel_scale_arcsec must be positive, got {pixel_scale_arcsec!r}")
 
 
 # ---------------------------------------------------------------------------
@@ -234,8 +232,7 @@ def build_method_profile(
         }
         if "stop_code" in data[0]:
             profile["stop_codes"] = np.array([iso.get("stop_code", 0) for iso in data])
-        for key in ("x0", "y0", "intens_err", "rms", "eps_err", "pa_err",
-                    "x0_err", "y0_err", "grad"):
+        for key in ("x0", "y0", "intens_err", "rms", "eps_err", "pa_err", "x0_err", "y0_err", "grad"):
             if key in data[0]:
                 profile[key] = np.array([iso.get(key, np.nan) for iso in data])
         # Preserve harmonic coefficients (a3, b3, a4, b4, ...)
@@ -976,9 +973,7 @@ def plot_qa_summary(
         # Surface brightness in mag/arcsec^2:
         #   μ = -2.5 * log10(I_per_pix / pixarea) + zp
         pixarea = pixel_scale_arcsec**2
-        y_sb[sb_valid] = (
-            -2.5 * np.log10(i_intens[sb_valid] / pixarea) + sb_zeropoint
-        )
+        y_sb[sb_valid] = -2.5 * np.log10(i_intens[sb_valid] / pixarea) + sb_zeropoint
         y_sb_err[sb_valid] = 2.5 * i_intens_err[sb_valid] / (i_intens[sb_valid] * np.log(10))
         sb_ylabel = r"$\mu$ [mag/arcsec$^2$]"
     else:
@@ -1481,9 +1476,7 @@ def plot_qa_summary_extended(
     y_sb_err = np.full_like(i_intens_err, np.nan)
     if sb_zeropoint is not None:
         pixarea = pixel_scale_arcsec**2
-        y_sb[sb_valid] = (
-            -2.5 * np.log10(i_intens[sb_valid] / pixarea) + sb_zeropoint
-        )
+        y_sb[sb_valid] = -2.5 * np.log10(i_intens[sb_valid] / pixarea) + sb_zeropoint
         y_sb_err[sb_valid] = 2.5 * i_intens_err[sb_valid] / (i_intens[sb_valid] * np.log(10))
         sb_ylabel = r"$\mu$ [mag/arcsec$^2$]"
     else:
@@ -1507,7 +1500,10 @@ def plot_qa_summary_extended(
     sb_for_limits = y_sb[sb_valid & np.isfinite(y_sb)]
     if sb_for_limits.size > 0:
         set_axis_limits_from_finite_values(
-            ax_sb, sb_for_limits, margin_fraction=0.06, min_margin=0.2,
+            ax_sb,
+            sb_for_limits,
+            margin_fraction=0.06,
+            min_margin=0.2,
             invert=sb_zeropoint is not None,
         )
     handles, labels = ax_sb.get_legend_handles_labels()

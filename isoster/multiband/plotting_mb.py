@@ -82,11 +82,7 @@ def _intens_to_mu_asinh(
     intens = np.asarray(intens, dtype=np.float64)
     i_pp = intens / pixarea
     big_b = scale / pixarea
-    return (
-        -2.5 / np.log(10.0) * np.arcsinh(i_pp / (2.0 * big_b))
-        + zeropoint
-        - 2.5 * np.log10(big_b)
-    )
+    return -2.5 / np.log(10.0) * np.arcsinh(i_pp / (2.0 * big_b)) + zeropoint - 2.5 * np.log10(big_b)
 
 
 def _mu_asinh_error(
@@ -112,7 +108,8 @@ def _asinh_mu_at_zero(zeropoint: float, pixel_scale_arcsec: float, scale: float)
 
 
 def subtract_outermost_sky_offset(
-    result: dict, n_outer: int = 5,
+    result: dict,
+    n_outer: int = 5,
 ) -> Tuple[dict, Dict[str, float]]:
     """
     Subtract the per-band outer-ring sky plateau from the joint fit's I0_b.
@@ -139,10 +136,7 @@ def subtract_outermost_sky_offset(
     """
     bands = list(result.get("bands", []))
     isophotes = list(result["isophotes"])
-    valid = [
-        iso for iso in isophotes
-        if bool(iso.get("valid", True)) and float(iso.get("sma", 0.0)) > 0.0
-    ]
+    valid = [iso for iso in isophotes if bool(iso.get("valid", True)) and float(iso.get("sma", 0.0)) > 0.0]
     valid_sorted = sorted(valid, key=lambda iso: float(iso["sma"]))
     outer = valid_sorted[-n_outer:] if len(valid_sorted) >= n_outer else valid_sorted
 
@@ -185,7 +179,9 @@ def _xaxis_arcsec_pow(sma_pix: NDArray[np.floating], pixel_scale_arcsec: float) 
 
 
 def _set_ylim_from_data(
-    ax: Axes, *value_arrays: NDArray[np.floating], pad_frac: float = 0.08,
+    ax: Axes,
+    *value_arrays: NDArray[np.floating],
+    pad_frac: float = 0.08,
 ) -> None:
     """Set y-limits from the union of data points only (no errorbars)."""
     finite_values: List[float] = []
@@ -203,7 +199,8 @@ def _set_ylim_from_data(
 
 
 def _isophotes_to_per_band_singleband_lists(
-    isophotes: Sequence[dict], bands: Sequence[str],
+    isophotes: Sequence[dict],
+    bands: Sequence[str],
 ) -> Dict[str, List[dict]]:
     out: Dict[str, List[dict]] = {b: [] for b in bands}
     for iso in isophotes:
@@ -228,7 +225,8 @@ def _isophotes_to_per_band_singleband_lists(
 
 
 def _resolve_softening(
-    bands: Sequence[str], isophotes: Sequence[dict],
+    bands: Sequence[str],
+    isophotes: Sequence[dict],
     softening_per_band: Optional[Dict[str, float]],
 ) -> Dict[str, float]:
     out: Dict[str, float] = {}
@@ -283,13 +281,16 @@ def _annotate_sky_offsets(
     y0 = 0.985
     for i, (text, color) in enumerate(zip(lines, colors)):
         ax.text(
-            0.985, y0 - i * line_h, text,
+            0.985,
+            y0 - i * line_h,
+            text,
             transform=ax.transAxes,
-            ha="right", va="top",
-            fontsize=8.5, color=color,
+            ha="right",
+            va="top",
+            fontsize=8.5,
+            color=color,
             family="monospace",
-            bbox=dict(boxstyle="round,pad=0.18", fc="white", ec="0.7", alpha=0.85)
-            if i == 0 else None,
+            bbox=dict(boxstyle="round,pad=0.18", fc="white", ec="0.7", alpha=0.85) if i == 0 else None,
         )
     # Small bounding rectangle around the whole block via a single bbox on
     # the header text only (children appear inside it visually because of
@@ -316,28 +317,41 @@ def _plot_sb_profile(
 
     for b_idx, b in enumerate(bands):
         intens = np.array([float(iso.get(f"intens_{b}", np.nan)) for iso in isophotes])
-        intens_err = np.array(
-            [float(iso.get(f"intens_err_{b}", np.nan)) for iso in isophotes]
-        )
+        intens_err = np.array([float(iso.get(f"intens_err_{b}", np.nan)) for iso in isophotes])
         m = valid & np.isfinite(intens) & np.isfinite(x)
         if m.sum() == 0:
             continue
         scale_b = softening_per_band.get(b, 1.0)
         if has_sb:
             mu = _intens_to_mu_asinh(
-                intens[m], sb_zeropoint, pixel_scale_arcsec, scale_b,  # type: ignore[arg-type]
+                intens[m],
+                sb_zeropoint,
+                pixel_scale_arcsec,
+                scale_b,  # type: ignore[arg-type]
             )
             mu_err = _mu_asinh_error(intens[m], intens_err[m], scale_b)
             ax.errorbar(
-                x[m], mu, yerr=mu_err,
-                color=_band_color(b_idx), label=b,
-                marker="o", ms=6.0, mfc=_band_color(b_idx), mec="white",
-                mew=0.6, lw=0, elinewidth=1.4, capsize=2.5, capthick=1.2,
+                x[m],
+                mu,
+                yerr=mu_err,
+                color=_band_color(b_idx),
+                label=b,
+                marker="o",
+                ms=6.0,
+                mfc=_band_color(b_idx),
+                mec="white",
+                mew=0.6,
+                lw=0,
+                elinewidth=1.4,
+                capsize=2.5,
+                capthick=1.2,
                 alpha=0.95,
             )
             # Per-band I=0 reference line (dashed, same color).
             mu_zero = _asinh_mu_at_zero(
-                sb_zeropoint, pixel_scale_arcsec, scale_b,  # type: ignore[arg-type]
+                sb_zeropoint,
+                pixel_scale_arcsec,
+                scale_b,  # type: ignore[arg-type]
             )
             ax.axhline(mu_zero, color=_band_color(b_idx), ls="--", lw=0.7, alpha=0.5)
             all_y_for_ylim.append(np.asarray(mu, dtype=np.float64))
@@ -345,9 +359,14 @@ def _plot_sb_profile(
             with np.errstate(invalid="ignore", divide="ignore"):
                 mu = np.where(intens[m] > 0, np.log10(np.maximum(intens[m], 1e-30)), np.nan)
             ax.errorbar(
-                x[m], mu, yerr=None,
-                color=_band_color(b_idx), label=b,
-                marker="o", ms=6.0, lw=0,
+                x[m],
+                mu,
+                yerr=None,
+                color=_band_color(b_idx),
+                label=b,
+                marker="o",
+                ms=6.0,
+                lw=0,
             )
             all_y_for_ylim.append(np.asarray(mu, dtype=np.float64))
 
@@ -393,8 +412,13 @@ def _plot_harmonic(
         if m.sum() == 0:
             continue
         ax.plot(
-            x[m], normalized[m], color=_band_color(b_idx),
-            marker="o", ms=5.0, lw=0, alpha=0.9,
+            x[m],
+            normalized[m],
+            color=_band_color(b_idx),
+            marker="o",
+            ms=5.0,
+            lw=0,
+            alpha=0.9,
         )
         all_y_for_ylim.append(np.asarray(normalized[m], dtype=np.float64))
     ax.axhline(0.0, color="#666", lw=0.5, alpha=0.5)
@@ -408,18 +432,22 @@ def _plot_eps(ax: Axes, isophotes: Sequence[dict], pixel_scale_arcsec: float) ->
     sma = np.array([float(iso["sma"]) for iso in isophotes])
     valid = np.array([bool(iso.get("valid", True)) for iso in isophotes])
     eps = np.array([float(iso["eps"]) for iso in isophotes])
-    eps_err = np.array(
-        [float(iso.get("eps_err", 0.0)) for iso in isophotes], dtype=np.float64
-    )
+    eps_err = np.array([float(iso.get("eps_err", 0.0)) for iso in isophotes], dtype=np.float64)
     x = _xaxis_arcsec_pow(sma, pixel_scale_arcsec)
     m = valid & np.isfinite(x) & np.isfinite(eps)
     if m.any():
         yerr = np.where(eps_err > 0, eps_err, np.nan)[m]
         if not np.all(np.isnan(yerr)):
             ax.errorbar(
-                x[m], eps[m], yerr=yerr,
-                color="#222", marker="o", ms=5.0, lw=0,
-                elinewidth=0.7, capsize=0,
+                x[m],
+                eps[m],
+                yerr=yerr,
+                color="#222",
+                marker="o",
+                ms=5.0,
+                lw=0,
+                elinewidth=0.7,
+                capsize=0,
             )
         else:
             ax.plot(x[m], eps[m], color="#222", marker="o", ms=5.0, lw=0)
@@ -432,9 +460,7 @@ def _plot_pa(ax: Axes, isophotes: Sequence[dict], pixel_scale_arcsec: float) -> 
     sma = np.array([float(iso["sma"]) for iso in isophotes])
     valid = np.array([bool(iso.get("valid", True)) for iso in isophotes])
     pa = np.array([float(iso["pa"]) for iso in isophotes])
-    pa_err = np.array(
-        [float(iso.get("pa_err", 0.0)) for iso in isophotes], dtype=np.float64
-    )
+    pa_err = np.array([float(iso.get("pa_err", 0.0)) for iso in isophotes], dtype=np.float64)
     pa_deg = np.rad2deg(pa) % 180.0
     x = _xaxis_arcsec_pow(sma, pixel_scale_arcsec)
     m = valid & np.isfinite(x) & np.isfinite(pa_deg)
@@ -442,9 +468,15 @@ def _plot_pa(ax: Axes, isophotes: Sequence[dict], pixel_scale_arcsec: float) -> 
         yerr = np.where(pa_err > 0, np.rad2deg(pa_err), np.nan)[m]
         if not np.all(np.isnan(yerr)):
             ax.errorbar(
-                x[m], pa_deg[m], yerr=yerr,
-                color="#222", marker="o", ms=5.0, lw=0,
-                elinewidth=0.7, capsize=0,
+                x[m],
+                pa_deg[m],
+                yerr=yerr,
+                color="#222",
+                marker="o",
+                ms=5.0,
+                lw=0,
+                elinewidth=0.7,
+                capsize=0,
             )
         else:
             ax.plot(x[m], pa_deg[m], color="#222", marker="o", ms=5.0, lw=0)
@@ -470,10 +502,7 @@ def _plot_n_valid_per_band(
     sma = np.array([float(iso["sma"]) for iso in isophotes])
     valid = np.array([bool(iso.get("valid", True)) for iso in isophotes])
     n_attempted = np.array(
-        [
-            max(int(iso.get("ndata", 0)) + int(iso.get("nflag", 0)), 1)
-            for iso in isophotes
-        ],
+        [max(int(iso.get("ndata", 0)) + int(iso.get("nflag", 0)), 1) for iso in isophotes],
         dtype=np.float64,
     )
     x = _xaxis_arcsec_pow(sma, pixel_scale_arcsec)
@@ -510,10 +539,8 @@ def _plot_center(ax: Axes, isophotes: Sequence[dict], pixel_scale_arcsec: float)
         y0_med = float(np.median(y0[m]))
         dx0 = x0[m] - x0_med
         dy0 = y0[m] - y0_med
-        ax.plot(x[m], dx0, color="#1f77b4", marker="o", ms=5.0, lw=0,
-                label=r"$\Delta x_0$")
-        ax.plot(x[m], dy0, color="#d62728", marker="s", ms=5.0, lw=0,
-                label=r"$\Delta y_0$")
+        ax.plot(x[m], dx0, color="#1f77b4", marker="o", ms=5.0, lw=0, label=r"$\Delta x_0$")
+        ax.plot(x[m], dy0, color="#d62728", marker="s", ms=5.0, lw=0, label=r"$\Delta y_0$")
         ax.axhline(0.0, color="#666", lw=0.5, alpha=0.5)
         ax.legend(loc="best", fontsize=10, framealpha=0.85)
         _set_ylim_from_data(ax, dx0, dy0, pad_frac=0.10)
@@ -546,9 +573,7 @@ def _plot_image_with_isophotes(
         smas = np.array([iso["sma"] for iso in valid_iso])
         if smas.size > n_rings:
             log_targets = np.linspace(np.log(smas.min()), np.log(smas.max()), n_rings)
-            chosen_idx = sorted(
-                set(int(np.argmin(np.abs(np.log(smas) - lt))) for lt in log_targets)
-            )
+            chosen_idx = sorted(set(int(np.argmin(np.abs(np.log(smas) - lt))) for lt in log_targets))
         else:
             chosen_idx = list(range(len(valid_iso)))
         cmap = plt.get_cmap("plasma")
@@ -561,12 +586,17 @@ def _plot_image_with_isophotes(
                     width=2.0 * float(iso["sma"]),
                     height=2.0 * float(iso["sma"]) * (1.0 - float(iso["eps"])),
                     angle=float(np.rad2deg(float(iso["pa"]))),
-                    facecolor="none", edgecolor=color, linewidth=1.0, alpha=0.9,
+                    facecolor="none",
+                    edgecolor=color,
+                    linewidth=1.0,
+                    alpha=0.9,
                 )
             )
     ax.set_title(f"{band_label} + isophotes", fontsize=10)
-    ax.set_xlim(0, w); ax.set_ylim(0, h)
-    ax.set_xticks([]); ax.set_yticks([])
+    ax.set_xlim(0, w)
+    ax.set_ylim(0, h)
+    ax.set_xticks([])
+    ax.set_yticks([])
 
 
 def _plot_residual_panel(
@@ -595,10 +625,10 @@ def _plot_residual_panel(
     ax.imshow(stretched, origin="lower", cmap="RdBu_r", vmin=-vmax, vmax=vmax)
     if mask is not None:
         overlay_cmap = ListedColormap([(0, 0, 0, 0), (0.2, 0.2, 0.2, 0.45)])
-        ax.imshow(np.asarray(mask, dtype=bool), origin="lower",
-                  cmap=overlay_cmap, vmin=0, vmax=1)
+        ax.imshow(np.asarray(mask, dtype=bool), origin="lower", cmap=overlay_cmap, vmin=0, vmax=1)
     ax.set_title(f"residual ({band_label})", fontsize=10)
-    ax.set_xticks([]); ax.set_yticks([])
+    ax.set_xticks([])
+    ax.set_yticks([])
 
 
 # ---------------------------------------------------------------------------
@@ -650,9 +680,7 @@ def plot_qa_summary_mb(
     if not bands:
         raise ValueError("bands is required (either via result['bands'] or explicit kwarg)")
     if len(images) != len(bands):
-        raise ValueError(
-            f"len(images) ({len(images)}) does not match len(bands) ({len(bands)})"
-        )
+        raise ValueError(f"len(images) ({len(images)}) does not match len(bands) ({len(bands)})")
 
     pix = pixel_scale_arcsec if pixel_scale_arcsec is not None else 1.0
     softening = _resolve_softening(bands, isophotes, softening_per_band)
@@ -671,9 +699,14 @@ def plot_qa_summary_mb(
     # Outer 2x2 grid with equal-width columns. Tight outer margins so
     # the four blocks share the figure cleanly.
     outer = fig.add_gridspec(
-        2, 2,
-        hspace=0.18, wspace=0.10,
-        left=0.06, right=0.985, top=0.94, bottom=0.06,
+        2,
+        2,
+        hspace=0.18,
+        wspace=0.10,
+        left=0.06,
+        right=0.985,
+        top=0.94,
+        bottom=0.06,
     )
 
     # Pre-compute the shared x-range so the SB / harmonic / geometry
@@ -703,7 +736,12 @@ def plot_qa_summary_mb(
         if not isinstance(sky_offsets_for_panel, dict):
             sky_offsets_for_panel = None
     _plot_sb_profile(
-        ax_sb, isophotes, bands, sb_zeropoint, pixel_scale_arcsec, softening,
+        ax_sb,
+        isophotes,
+        bands,
+        sb_zeropoint,
+        pixel_scale_arcsec,
+        softening,
         sky_offsets=sky_offsets_for_panel,
     )
     if pixel_scale_arcsec is not None:
@@ -719,15 +757,15 @@ def plot_qa_summary_mb(
     # Cell (0, 0): reference-band cutout with isophote ellipses.
     ax_img = fig.add_subplot(gs_mosaic[0, 0])
     _plot_image_with_isophotes(
-        ax_img, images[reference_band_idx], isophotes,
+        ax_img,
+        images[reference_band_idx],
+        isophotes,
         band_label=bands[reference_band_idx],
     )
     # Remaining cells: per-band residuals in band order. With B=5 the
     # 2x3 mosaic has exactly one image cell + 5 residual cells; for
     # B != 5 the empty cells are simply skipped.
-    cell_iter = iter(
-        [(0, 1), (0, 2), (1, 0), (1, 1), (1, 2)]
-    )
+    cell_iter = iter([(0, 1), (0, 2), (1, 0), (1, 1), (1, 2)])
     per_band_lists = _isophotes_to_per_band_singleband_lists(isophotes, bands)
     h, w = np.asarray(images[0]).shape
     for b_idx, b in enumerate(bands):
@@ -740,12 +778,15 @@ def plot_qa_summary_mb(
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore")
                 model = build_isoster_model(
-                    (h, w), per_band_lists[b], use_harmonics=True,
+                    (h, w),
+                    per_band_lists[b],
+                    use_harmonics=True,
                 )
         except Exception as e:  # noqa: BLE001
             logger.warning("model build failed for band %s: %s", b, e)
             ax_r.text(0.5, 0.5, "model error", transform=ax_r.transAxes, ha="center")
-            ax_r.set_xticks([]); ax_r.set_yticks([])
+            ax_r.set_xticks([])
+            ax_r.set_yticks([])
             continue
         _plot_residual_panel(ax_r, images[b_idx], model, b, mask=object_mask)
 
@@ -801,9 +842,7 @@ def plot_qa_summary_mb(
         plt.setp(ax.get_xticklabels(), visible=False)
     ax_eps.yaxis.set_major_locator(MaxNLocator(prune="lower", nbins=4))
     ax_pa.yaxis.set_major_locator(MaxNLocator(prune="both", nbins=4))
-    ax_ctr.yaxis.set_major_locator(
-        MaxNLocator(prune="upper" if not show_n_valid else "both", nbins=4)
-    )
+    ax_ctr.yaxis.set_major_locator(MaxNLocator(prune="upper" if not show_n_valid else "both", nbins=4))
     if show_n_valid:
         ax_nv.yaxis.set_major_locator(MaxNLocator(prune="upper", nbins=3))
     bottom_ax = geom_axes[-1]

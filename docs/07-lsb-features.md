@@ -217,7 +217,7 @@ The fix is the `outer_reg_weights` config dict, which mirrors the
 existing `central_reg_weights` pattern:
 
 ```python
-outer_reg_weights = {"center": 1.0, "eps": 0.0, "pa": 0.0}   # default
+outer_reg_weights = {"center": 1.0, "eps": 1.0, "pa": 1.0}   # default
 ```
 
 With all three weights positive the penalty becomes
@@ -228,11 +228,11 @@ With all three weights positive the penalty becomes
          + w_p · (pa_wrap − pa_ref)² ]
 ```
 
-where `pa_wrap` folds the PA residual onto `(−π/2, π/2]`. The default
-weights `{center: 1, eps: 0, pa: 0}` reproduce the original center-only
-behavior exactly (backwards compatible); setting `eps > 0` and `pa > 0`
-closes the selector asymmetry. See §5 for empirical validation on the
-`37498869835124888` HSC BCG.
+where `pa_wrap` folds the PA residual onto `(−π/2, π/2]`. The current
+default weights `{center: 1, eps: 1, pa: 1}` close the selector
+asymmetry by damping all geometry axes together. Set `eps` or `pa` to
+`0.0` only when the fit should intentionally leave those axes undamped.
+See §5 for empirical validation on the `37498869835124888` HSC BCG.
 
 ### 2.3 Inward-first loop ordering
 
@@ -532,11 +532,10 @@ define the config fields. Key pieces:
     branch)
   - `outer_reg_ref_sma_factor: float` — filters inward candidates when
     building the flux-weighted reference.
-  - `outer_reg_weights: dict = {"center": 1.0, "eps": 0.0, "pa": 0.0}` —
-    per-axis weights for the penalty. Default is center-only; set
-    `eps > 0` and/or `pa > 0` to also damp ellipticity / PA jumps.
-    With `outer_reg_mode="damping"` (the default), full weights
-    `{1, 1, 1}` are the recommended choice for real LSB fits.
+  - `outer_reg_weights: dict = {"center": 1.0, "eps": 1.0, "pa": 1.0}` —
+    per-axis weights for the penalty. The default damps center,
+    ellipticity, and PA together. Set an axis to `0.0` only when it
+    should intentionally remain undamped.
   - `outer_reg_mode: str = "damping"` — solver-level variant. Accepts
     `"damping"` (default, step shrink only) or `"solver"` (full
     Tikhonov with ref pull). The historical `"selector"` value was

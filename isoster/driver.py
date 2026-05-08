@@ -34,11 +34,11 @@ def _first_isophote_perturbations(sma0, eps, pa, max_retries):
     """
     # Fixed schedule for first 5 attempts
     schedule = [
-        (0.8, eps, pa),              # Slightly smaller radius
-        (1.3, eps, pa),              # Slightly larger radius
-        (0.6, 0.05, pa),            # Smaller + near-circular
+        (0.8, eps, pa),  # Slightly smaller radius
+        (1.3, eps, pa),  # Slightly larger radius
+        (0.6, 0.05, pa),  # Smaller + near-circular
         (1.5, eps, pa + np.pi / 4),  # Larger + rotated PA
-        (0.5, 0.05, pa + np.pi / 2), # Small + circular + orthogonal
+        (0.5, 0.05, pa + np.pi / 2),  # Small + circular + orthogonal
     ]
 
     # Extended schedule: cycle through factors with alternating geometry
@@ -202,12 +202,7 @@ def _build_outer_reference(inwards_results, anchor_iso, cfg):
     else:
         pa_ref = float(anchor_iso["pa"]) % np.pi
 
-    if not (
-        np.isfinite(x0_ref)
-        and np.isfinite(y0_ref)
-        and np.isfinite(eps_ref)
-        and np.isfinite(pa_ref)
-    ):
+    if not (np.isfinite(x0_ref) and np.isfinite(y0_ref) and np.isfinite(eps_ref) and np.isfinite(pa_ref)):
         return anchor_ref
 
     return {"x0": x0_ref, "y0": y0_ref, "eps": eps_ref, "pa": pa_ref}
@@ -541,16 +536,16 @@ def fit_image(image, mask=None, config=None, template=None, template_isophotes=N
         perturbations = _first_isophote_perturbations(sma0, cfg.eps, cfg.pa, cfg.max_retry_first_isophote)
         for attempt_idx, (sma0_try, eps_try, pa_try) in enumerate(perturbations, start=1):
             retry_geometry = {"x0": x0, "y0": y0, "eps": eps_try, "pa": pa_try}
-            candidate = fit_isophote(
-                image, mask, sma0_try, retry_geometry, cfg, variance_map=variance_map
+            candidate = fit_isophote(image, mask, sma0_try, retry_geometry, cfg, variance_map=variance_map)
+            retry_log.append(
+                {
+                    "attempt": attempt_idx,
+                    "sma0": sma0_try,
+                    "eps": eps_try,
+                    "pa": pa_try,
+                    "stop_code": candidate["stop_code"],
+                }
             )
-            retry_log.append({
-                "attempt": attempt_idx,
-                "sma0": sma0_try,
-                "eps": eps_try,
-                "pa": pa_try,
-                "stop_code": candidate["stop_code"],
-            })
             if _is_acceptable_stop_code(candidate["stop_code"]):
                 first_iso = candidate
                 sma0 = sma0_try
@@ -576,9 +571,7 @@ def fit_image(image, mask=None, config=None, template=None, template_isophotes=N
                 probe_sma = probe_sma * (1.0 + astep)
             if probe_sma > maxsma:
                 break
-            probe_iso = fit_isophote(
-                image, mask, probe_sma, start_geometry, cfg, variance_map=variance_map
-            )
+            probe_iso = fit_isophote(image, mask, probe_sma, start_geometry, cfg, variance_map=variance_map)
             failed_initial.append(probe_iso)
             if _is_acceptable_stop_code(probe_iso["stop_code"]):
                 anchor_iso = probe_iso
@@ -645,9 +638,7 @@ def fit_image(image, mask=None, config=None, template=None, template_isophotes=N
     # penalty is chosen at penalty time via cfg.outer_reg_weights.
     outer_ref_geom = None
     if cfg.use_outer_center_regularization and anchor_iso is not None:
-        outer_ref_geom = _build_outer_reference(
-            inwards_results, anchor_iso, cfg
-        )
+        outer_ref_geom = _build_outer_reference(inwards_results, anchor_iso, cfg)
 
     # 4. Grow Outwards
     outwards_results = []
@@ -712,14 +703,10 @@ def fit_image(image, mask=None, config=None, template=None, template_isophotes=N
                         # the trigger isophote itself. The trigger isophotes
                         # are already partially in LSB and their geometries
                         # may have begun drifting.
-                        anchor_local_idx = (
-                            len(outwards_results) - 1 - cfg.lsb_auto_lock_debounce
-                        )
+                        anchor_local_idx = len(outwards_results) - 1 - cfg.lsb_auto_lock_debounce
                         anchor_local_idx = max(0, anchor_local_idx)
                         lock_anchor = outwards_results[anchor_local_idx]
-                        active_cfg = _build_locked_cfg(
-                            cfg, lock_anchor, cfg.lsb_auto_lock_integrator
-                        )
+                        active_cfg = _build_locked_cfg(cfg, lock_anchor, cfg.lsb_auto_lock_integrator)
                         lsb_state["locked"] = True
                         lsb_state["transition_sma"] = float(next_iso["sma"])
                         lsb_state["anchor_index"] = anchor_local_idx
@@ -760,9 +747,7 @@ def fit_image(image, mask=None, config=None, template=None, template_isophotes=N
     if cfg.lsb_auto_lock:
         result["lsb_auto_lock"] = True
         result["lsb_auto_lock_sma"] = lsb_state["transition_sma"]
-        result["lsb_auto_lock_count"] = sum(
-            1 for iso in final_list if iso.get("lsb_locked", False)
-        )
+        result["lsb_auto_lock_count"] = sum(1 for iso in final_list if iso.get("lsb_locked", False))
     if cfg.use_outer_center_regularization and outer_ref_geom is not None:
         result["use_outer_center_regularization"] = True
         result["outer_reg_x0_ref"] = outer_ref_geom["x0"]

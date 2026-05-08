@@ -190,8 +190,16 @@ def test_fit_image_returns_expected_keys() -> None:
 
     image = create_gaussian_test_image()
     config = IsosterConfig(
-        x0=60.0, y0=60.0, sma0=10.0, minsma=5.0, maxsma=30.0,
-        eps=0.25, pa=0.2, fix_center=True, fix_eps=True, fix_pa=True,
+        x0=60.0,
+        y0=60.0,
+        sma0=10.0,
+        minsma=5.0,
+        maxsma=30.0,
+        eps=0.25,
+        pa=0.2,
+        fix_center=True,
+        fix_eps=True,
+        fix_pa=True,
     )
     result = driver_fit_image(image, config=config)
 
@@ -203,8 +211,16 @@ def test_fit_image_returns_expected_keys() -> None:
 
     # Per-isophote key set
     required_iso_keys = {
-        "sma", "intens", "intens_err", "eps", "pa",
-        "x0", "y0", "rms", "stop_code", "niter",
+        "sma",
+        "intens",
+        "intens_err",
+        "eps",
+        "pa",
+        "x0",
+        "y0",
+        "rms",
+        "stop_code",
+        "niter",
     }
     for iso in result["isophotes"]:
         missing = required_iso_keys - set(iso.keys())

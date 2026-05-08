@@ -13,9 +13,8 @@ contributions (new tools, new datasets, new arms).
 
 ```bash
 # (one-time) set up the AutoProf venv if you want that tool active.
-python -m venv /tmp/autoprof_venv
-/tmp/autoprof_venv/bin/pip install --upgrade pip
-/tmp/autoprof_venv/bin/pip install 'autoprof==1.3.4'
+uv venv /tmp/autoprof_venv
+uv pip install --python /tmp/autoprof_venv/bin/python 'autoprof==1.3.4'
 
 # Dry-run the planned fit matrix.
 uv run python -m benchmarks.exhausted.orchestrator.cli dry-run \
@@ -373,9 +372,8 @@ cannot coexist in `isoster`'s `uv` environment (numpy 2.x). The
 campaign runs it via subprocess against a dedicated venv.
 
 ```bash
-python -m venv /tmp/autoprof_venv
-/tmp/autoprof_venv/bin/pip install --upgrade pip
-/tmp/autoprof_venv/bin/pip install 'autoprof==1.3.4'
+uv venv /tmp/autoprof_venv
+uv pip install --python /tmp/autoprof_venv/bin/python 'autoprof==1.3.4'
 /tmp/autoprof_venv/bin/python -c "from autoprof.Pipeline import Isophote_Pipeline; print('ok')"
 ```
 
