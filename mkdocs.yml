@@ -2,6 +2,8 @@ site_name: Isoster Documentation
 site_description: Fast isophote fitting for galaxy images.
 site_author: Shuang
 repo_url: https://github.com/shuang-stat/isoster
+exclude_docs: |
+  agent/
 theme:
   name: material
   features:
@@ -11,6 +13,7 @@ theme:
 
 nav:
   - Home: 00-index.md
+  - Specification: SPEC.md
   - User Guide: 01-user-guide.md
   - Configuration: 02-configuration-reference.md
   - Algorithm: 03-algorithm.md
@@ -20,6 +23,7 @@ nav:
   - LSB Features: 07-lsb-features.md
   - Outer Regularization: 08-outer-regularization.md
   - Exhausted Benchmark: 09-exhausted-benchmark.md
+  - Multi-Band: 10-multiband.md
 
 markdown_extensions:
   - admonition

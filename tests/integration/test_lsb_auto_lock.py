@@ -133,17 +133,12 @@ class TestTriggerOnTruncatedProfile:
 
     def test_lsb_auto_lock_anchor_marker_present(self):
         result = self._run()
-        marked = [
-            iso for iso in result["isophotes"]
-            if iso.get("lsb_auto_lock_anchor") is True
-        ]
+        marked = [iso for iso in result["isophotes"] if iso.get("lsb_auto_lock_anchor") is True]
         assert len(marked) == 1
 
     def test_all_locked_isos_flagged(self):
         result = self._run()
-        locked_count = sum(
-            1 for iso in result["isophotes"] if iso.get("lsb_locked", False)
-        )
+        locked_count = sum(1 for iso in result["isophotes"] if iso.get("lsb_locked", False))
         assert locked_count == result["lsb_auto_lock_count"]
         assert locked_count >= 1
 
@@ -196,10 +191,7 @@ class TestInwardGrowthUnaffected:
         # anchor isophote at sma0 is marked lsb_locked=False; further-in
         # isophotes should not carry the key at all, because the inward
         # loop does not participate in hybrid mode.
-        inward_isos = [
-            iso for iso in result["isophotes"]
-            if 0.0 < iso["sma"] < 15.0
-        ]
+        inward_isos = [iso for iso in result["isophotes"] if 0.0 < iso["sma"] < 15.0]
         assert len(inward_isos) >= 1
         for iso in inward_isos:
             assert "lsb_locked" not in iso
@@ -233,10 +225,7 @@ class TestDebugAutoEnable:
                 lsb_auto_lock=True,
                 debug=False,
             )
-        assert any(
-            "lsb_auto_lock" in str(w.message) and "debug" in str(w.message)
-            for w in caught
-        )
+        assert any("lsb_auto_lock" in str(w.message) and "debug" in str(w.message) for w in caught)
 
         image = _make_exponential_galaxy(scale=20.0, peak=10000.0)
         result = fit_image(image, None, cfg)
@@ -255,9 +244,7 @@ class TestForcedPhotometryGuard:
     def test_forced_photometry_warns_and_runs(self):
         image = _make_exponential_galaxy(scale=20.0, peak=10000.0)
 
-        template_cfg = IsosterConfig(
-            x0=100.0, y0=100.0, sma0=10.0, maxsma=40.0, astep=0.25
-        )
+        template_cfg = IsosterConfig(x0=100.0, y0=100.0, sma0=10.0, maxsma=40.0, astep=0.25)
         template_result = fit_image(image, None, template_cfg)
         template = template_result["isophotes"]
 
@@ -277,9 +264,8 @@ class TestForcedPhotometryGuard:
 
         # The feature should be silently inactive in the forced path, but a
         # UserWarning must have been emitted.
-        assert any(
-            "lsb_auto_lock" in str(w.message) and "forced photometry" in str(w.message)
-            for w in caught
-        ), "expected a forced-photometry guard warning for lsb_auto_lock"
+        assert any("lsb_auto_lock" in str(w.message) and "forced photometry" in str(w.message) for w in caught), (
+            "expected a forced-photometry guard warning for lsb_auto_lock"
+        )
         assert "lsb_auto_lock" not in result
         assert "lsb_auto_lock_sma" not in result

@@ -32,7 +32,7 @@ uv sync --extra asdf             # ASDF file format support
 uv sync --extra dev --extra docs # development + documentation tools
 ```
 
-If you prefer pip, `pip install .` also works, but `uv` is the supported workflow for development.
+Use `uv` for development and dependency management in this repository.
 
 ## Quick Start
 

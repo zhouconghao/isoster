@@ -15,16 +15,22 @@ from isoster.multiband.fitting_mb import (
     fit_isophote_mb,
 )
 
-
 # ---------------------------------------------------------------------------
 # Synthetic data helpers
 # ---------------------------------------------------------------------------
 
 
 def _planted_galaxy(
-    h: int = 256, w: int = 256, x0: float = 128.0, y0: float = 128.0,
-    eps: float = 0.3, pa: float = 0.5, n_sersic: float = 1.5, re: float = 30.0,
-    amplitude: float = 1.0, noise_sigma: float = 0.01,
+    h: int = 256,
+    w: int = 256,
+    x0: float = 128.0,
+    y0: float = 128.0,
+    eps: float = 0.3,
+    pa: float = 0.5,
+    n_sersic: float = 1.5,
+    re: float = 30.0,
+    amplitude: float = 1.0,
+    noise_sigma: float = 0.01,
     seed: int = 42,
 ) -> np.ndarray:
     """A perfect-ellipse Sersic-like profile with Gaussian noise.
@@ -63,9 +69,7 @@ def test_joint_solver_recovers_planted_coefficients():
     intens = np.empty((n_bands, n), dtype=np.float64)
     for b in range(n_bands):
         intens[b] = (
-            I0[b]
-            + A1 * np.sin(angles) + B1 * np.cos(angles)
-            + A2 * np.sin(2 * angles) + B2 * np.cos(2 * angles)
+            I0[b] + A1 * np.sin(angles) + B1 * np.cos(angles) + A2 * np.sin(2 * angles) + B2 * np.cos(2 * angles)
         )
     intens += rng.normal(0.0, 1e-3, size=intens.shape)
     weights = np.ones(n_bands)
@@ -86,8 +90,10 @@ def test_joint_solver_b1_matches_single_band_solver():
     coeffs_truth = np.array([100.0, 0.5, -0.3, 0.2, 0.1])
     intens = (
         coeffs_truth[0]
-        + coeffs_truth[1] * np.sin(angles) + coeffs_truth[2] * np.cos(angles)
-        + coeffs_truth[3] * np.sin(2 * angles) + coeffs_truth[4] * np.cos(2 * angles)
+        + coeffs_truth[1] * np.sin(angles)
+        + coeffs_truth[2] * np.cos(angles)
+        + coeffs_truth[3] * np.sin(2 * angles)
+        + coeffs_truth[4] * np.cos(2 * angles)
     )
     intens += rng.normal(0.0, 1e-3, size=n)
 
@@ -111,8 +117,7 @@ def test_joint_solver_wls_exact_covariance():
     intens = np.empty((n_bands, n))
     for b in range(n_bands):
         intens[b] = (
-            I0[b] + 0.3 * np.sin(angles) + 0.1 * np.cos(angles)
-            + 0.05 * np.sin(2 * angles) + 0.02 * np.cos(2 * angles)
+            I0[b] + 0.3 * np.sin(angles) + 0.1 * np.cos(angles) + 0.05 * np.sin(2 * angles) + 0.02 * np.cos(2 * angles)
         )
     sigma_b = np.array([0.5, 0.1])
     for b in range(n_bands):
@@ -148,8 +153,17 @@ def test_joint_solver_band_weights_zero_band_drops_band():
 
 def test_evaluate_joint_model_shape_and_values():
     angles = np.linspace(0.0, 2 * np.pi, 8, endpoint=False)
-    coeffs = np.array([10.0, 20.0, 30.0,    # I0_g, I0_r, I0_i
-                       1.0, 0.0, 0.0, 0.0])  # A1=1, others=0
+    coeffs = np.array(
+        [
+            10.0,
+            20.0,
+            30.0,  # I0_g, I0_r, I0_i
+            1.0,
+            0.0,
+            0.0,
+            0.0,
+        ]
+    )  # A1=1, others=0
     model = evaluate_joint_model(angles, coeffs, 3)
     assert model.shape == (3, 8)
     expected_geom = np.sin(angles)
@@ -173,8 +187,16 @@ def test_per_band_sigma_clip_and_shared_validity():
     cfg = IsosterConfigMB(bands=["g", "r"], reference_band="g", sclip=3.0, nclip=3)
     # Build a fake MultiIsophoteData and reuse the iteration loop's clip.
     from isoster.multiband.fitting_mb import _per_band_sigma_clip
+
     a, p, ic, vc, n_clipped = _per_band_sigma_clip(
-        angles, angles, intens, None, cfg.sclip, cfg.nclip, cfg.sclip_low, cfg.sclip_high,
+        angles,
+        angles,
+        intens,
+        None,
+        cfg.sclip,
+        cfg.nclip,
+        cfg.sclip_low,
+        cfg.sclip_high,
     )
     assert n_clipped >= 1
     assert ic.shape[1] == n - n_clipped
@@ -203,14 +225,20 @@ def test_fit_isophote_mb_planted_recovers_geometry():
     cfg = IsosterConfigMB(
         bands=["g", "r"],
         reference_band="g",
-        sma0=20.0, eps=0.2, pa=0.4,
-        debug=True, compute_deviations=True,
+        sma0=20.0,
+        eps=0.2,
+        pa=0.4,
+        debug=True,
+        compute_deviations=True,
         nclip=0,  # no sigma clipping needed for clean synthetic
     )
     start = {"x0": 128.0, "y0": 128.0, "eps": 0.2, "pa": 0.4}
     out = fit_isophote_mb(
-        images=[img1, img2], masks=None, sma=30.0,
-        start_geometry=start, config=cfg,
+        images=[img1, img2],
+        masks=None,
+        sma=30.0,
+        start_geometry=start,
+        config=cfg,
     )
     assert out["stop_code"] in (0, 2)
     assert out["valid"] is True
@@ -242,8 +270,11 @@ def test_fit_isophote_mb_too_few_points_returns_stop3():
     # Center far outside the cutout → most of the ring is off-image.
     start = {"x0": 2000.0, "y0": 2000.0, "eps": 0.2, "pa": 0.0}
     out = fit_isophote_mb(
-        images=[img, img, img], masks=None, sma=10.0,
-        start_geometry=start, config=cfg,
+        images=[img, img, img],
+        masks=None,
+        sma=10.0,
+        start_geometry=start,
+        config=cfg,
     )
     # Either stop_code 3 (too few points) or -1 (gradient failure) is
     # acceptable here; both indicate the fit recognized a degenerate input.
@@ -257,8 +288,11 @@ def test_fit_isophote_mb_b1_runs():
     cfg = IsosterConfigMB(bands=["g"], reference_band="g", sma0=20.0, debug=True, nclip=0)
     start = {"x0": 128.0, "y0": 128.0, "eps": 0.2, "pa": 0.4}
     out = fit_isophote_mb(
-        images=[img], masks=None, sma=30.0,
-        start_geometry=start, config=cfg,
+        images=[img],
+        masks=None,
+        sma=30.0,
+        start_geometry=start,
+        config=cfg,
     )
     assert "intens_g" in out
     assert out["stop_code"] in (0, 2)
@@ -270,14 +304,21 @@ def test_fit_isophote_mb_ref_mode_runs():
     img1 = _planted_galaxy(amplitude=100.0, noise_sigma=0.01, seed=1)
     img2 = _planted_galaxy(amplitude=50.0, noise_sigma=0.01, seed=2)
     cfg = IsosterConfigMB(
-        bands=["g", "r"], reference_band="g",
+        bands=["g", "r"],
+        reference_band="g",
         harmonic_combination="ref",
-        sma0=20.0, debug=True, compute_deviations=True, nclip=0,
+        sma0=20.0,
+        debug=True,
+        compute_deviations=True,
+        nclip=0,
     )
     start = {"x0": 128.0, "y0": 128.0, "eps": 0.2, "pa": 0.4}
     out = fit_isophote_mb(
-        images=[img1, img2], masks=None, sma=30.0,
-        start_geometry=start, config=cfg,
+        images=[img1, img2],
+        masks=None,
+        sma=30.0,
+        start_geometry=start,
+        config=cfg,
     )
     assert out["stop_code"] in (0, 2)
     assert abs(out["x0"] - 128.0) < 1.0
@@ -297,15 +338,21 @@ def test_ring_mean_intercept_solver_reduces_columns():
     means = np.array([10.0, 20.0])
     A1, B1 = 0.3, -0.1
     geom = A1 * np.sin(angles) + B1 * np.cos(angles)
-    intens = np.array([means[0] + geom + rng.normal(0, 0.01, n),
-                       means[1] + geom + rng.normal(0, 0.01, n)])
+    intens = np.array([means[0] + geom + rng.normal(0, 0.01, n), means[1] + geom + rng.normal(0, 0.01, n)])
     weights = np.ones(2)
 
     coeffs_full, _, _ = fit_first_and_second_harmonics_joint(
-        angles, intens, weights, None,
+        angles,
+        intens,
+        weights,
+        None,
     )
     coeffs_zero, cov_zero, _ = fit_first_and_second_harmonics_joint(
-        angles, intens, weights, None, fit_per_band_intens_jointly=False,
+        angles,
+        intens,
+        weights,
+        None,
+        fit_per_band_intens_jointly=False,
     )
 
     # Per-band intercepts should be the empirical ring means.
@@ -328,18 +375,25 @@ def test_ring_mean_intercept_intens_err_scales_with_band_noise():
     img_r_low = 10.0 + rng.normal(0.0, 0.10, size=(h, w))
     img_r_high = 10.0 + rng.normal(0.0, 1.00, size=(h, w))
     cfg = IsosterConfigMB(
-        bands=["g", "r"], reference_band="g",
+        bands=["g", "r"],
+        reference_band="g",
         fit_per_band_intens_jointly=False,
         nclip=0,
     )
     start = {"x0": 32.0, "y0": 32.0, "eps": 0.0, "pa": 0.0}
     out_low = fit_isophote_mb(
-        images=[img_g, img_r_low], masks=None, sma=12.0,
-        start_geometry=start, config=cfg,
+        images=[img_g, img_r_low],
+        masks=None,
+        sma=12.0,
+        start_geometry=start,
+        config=cfg,
     )
     out_high = fit_isophote_mb(
-        images=[img_g, img_r_high], masks=None, sma=12.0,
-        start_geometry=start, config=cfg,
+        images=[img_g, img_r_high],
+        masks=None,
+        sma=12.0,
+        start_geometry=start,
+        config=cfg,
     )
     err_low = float(out_low["intens_err_r"])
     err_high = float(out_high["intens_err_r"])
@@ -352,7 +406,8 @@ def test_ring_mean_intercept_rejected_in_ref_mode():
     harmonic_combination='ref'."""
     with pytest.raises(ValueError, match="incompatible"):
         IsosterConfigMB(
-            bands=["g", "r"], reference_band="g",
+            bands=["g", "r"],
+            reference_band="g",
             harmonic_combination="ref",
             fit_per_band_intens_jointly=False,
         )
@@ -364,7 +419,8 @@ def test_legacy_field_name_rejected_with_clear_error():
     drop)."""
     with pytest.raises(ValueError, match="renamed.*fit_per_band_intens_jointly"):
         IsosterConfigMB(
-            bands=["g", "r"], reference_band="g",
+            bands=["g", "r"],
+            reference_band="g",
             fix_per_band_background_to_zero=True,  # type: ignore[call-arg]
         )
 
@@ -375,18 +431,38 @@ def test_legacy_field_name_rejected_with_clear_error():
 
 
 def _plant_per_band_arc_artifact_image(
-    h: int = 256, w: int = 256, x0: float = 128.0, y0: float = 128.0,
-    eps: float = 0.3, pa: float = 0.5, amplitude: float = 100.0,
-    noise_sigma: float = 0.05, seed: int = 1,
+    h: int = 256,
+    w: int = 256,
+    x0: float = 128.0,
+    y0: float = 128.0,
+    eps: float = 0.3,
+    pa: float = 0.5,
+    amplitude: float = 100.0,
+    noise_sigma: float = 0.05,
+    seed: int = 1,
 ):
     """Two-band planted galaxy plus a 30°-arc mask in band r at SMA 35-45."""
     img_g = _planted_galaxy(
-        h=h, w=w, x0=x0, y0=y0, eps=eps, pa=pa,
-        amplitude=amplitude, noise_sigma=noise_sigma, seed=seed,
+        h=h,
+        w=w,
+        x0=x0,
+        y0=y0,
+        eps=eps,
+        pa=pa,
+        amplitude=amplitude,
+        noise_sigma=noise_sigma,
+        seed=seed,
     )
     img_r = _planted_galaxy(
-        h=h, w=w, x0=x0, y0=y0, eps=eps, pa=pa,
-        amplitude=amplitude * 0.6, noise_sigma=noise_sigma, seed=seed + 1,
+        h=h,
+        w=w,
+        x0=x0,
+        y0=y0,
+        eps=eps,
+        pa=pa,
+        amplitude=amplitude * 0.6,
+        noise_sigma=noise_sigma,
+        seed=seed + 1,
     )
     yy, xx = np.mgrid[0:h, 0:w].astype(np.float64)
     dx = xx - x0
@@ -395,14 +471,9 @@ def _plant_per_band_arc_artifact_image(
     sin_pa = np.sin(pa)
     x_rot = dx * cos_pa + dy * sin_pa
     y_rot = -dx * sin_pa + dy * cos_pa
-    r_ell = np.sqrt(x_rot ** 2 + (y_rot / max(1.0 - eps, 1e-3)) ** 2)
+    r_ell = np.sqrt(x_rot**2 + (y_rot / max(1.0 - eps, 1e-3)) ** 2)
     phi_grid = np.arctan2(y_rot, x_rot)
-    mask_r = (
-        (r_ell > 35.0)
-        & (r_ell < 45.0)
-        & (phi_grid > -0.4)
-        & (phi_grid < 0.4)
-    )
+    mask_r = (r_ell > 35.0) & (r_ell < 45.0) & (phi_grid > -0.4) & (phi_grid < 0.4)
     return img_g, img_r, mask_r
 
 
@@ -417,14 +488,17 @@ def test_loose_validity_band_drop_at_isophote():
     # the default loose_validity_min_per_band_count = 6.
     bad_r[1:, :] = True
     cfg = IsosterConfigMB(
-        bands=["g", "r"], reference_band="g",
+        bands=["g", "r"],
+        reference_band="g",
         loose_validity=True,
         loose_validity_min_per_band_count=6,
         loose_validity_min_per_band_frac=0.0,
         nclip=0,
     )
     out = fit_isophote_mb(
-        images=[img, img], masks=[None, bad_r], sma=12.0,
+        images=[img, img],
+        masks=[None, bad_r],
+        sma=12.0,
         start_geometry={"x0": 32.0, "y0": 32.0, "eps": 0.0, "pa": 0.0},
         config=cfg,
     )
@@ -439,12 +513,19 @@ def test_loose_validity_n_valid_columns_present_under_loose_mode():
     is enabled, and equal the band's surviving count after sigma clip."""
     img_g, img_r, mask_r = _plant_per_band_arc_artifact_image()
     cfg = IsosterConfigMB(
-        bands=["g", "r"], reference_band="g",
-        sma0=20.0, maxsma=60.0, astep=0.15, debug=True, nclip=0,
+        bands=["g", "r"],
+        reference_band="g",
+        sma0=20.0,
+        maxsma=60.0,
+        astep=0.15,
+        debug=True,
+        nclip=0,
         loose_validity=True,
     )
     out = fit_isophote_mb(
-        images=[img_g, img_r], masks=[None, mask_r], sma=40.0,
+        images=[img_g, img_r],
+        masks=[None, mask_r],
+        sma=40.0,
         start_geometry={"x0": 128.0, "y0": 128.0, "eps": 0.3, "pa": 0.5},
         config=cfg,
     )
@@ -461,14 +542,22 @@ def test_loose_validity_default_off_no_behavior_change():
     img_g = _planted_galaxy(seed=1)
     img_r = _planted_galaxy(amplitude=50.0, seed=2)
     cfg = IsosterConfigMB(
-        bands=["g", "r"], reference_band="g",
-        sma0=20.0, maxsma=80.0, astep=0.2, debug=True, nclip=0,
+        bands=["g", "r"],
+        reference_band="g",
+        sma0=20.0,
+        maxsma=80.0,
+        astep=0.2,
+        debug=True,
+        nclip=0,
     )
     assert cfg.loose_validity is False
     start = {"x0": 128.0, "y0": 128.0, "eps": 0.2, "pa": 0.4}
     out = fit_isophote_mb(
-        images=[img_g, img_r], masks=None, sma=30.0,
-        start_geometry=start, config=cfg,
+        images=[img_g, img_r],
+        masks=None,
+        sma=30.0,
+        start_geometry=start,
+        config=cfg,
     )
     # Sanity: shared validity gives identical n_valid across bands.
     assert int(out["n_valid_g"]) == int(out["n_valid_r"])
@@ -486,8 +575,10 @@ def test_loose_validity_per_band_count_normalization_changes_intens_err():
     var_r = np.full_like(img_r, 1.00, dtype=np.float64)
 
     base_kwargs = dict(
-        bands=["g", "r"], reference_band="g",
-        nclip=0, loose_validity=True,
+        bands=["g", "r"],
+        reference_band="g",
+        nclip=0,
+        loose_validity=True,
     )
     cfg_none = IsosterConfigMB(
         **base_kwargs,
@@ -499,13 +590,19 @@ def test_loose_validity_per_band_count_normalization_changes_intens_err():
     )
     start = {"x0": 32.0, "y0": 32.0, "eps": 0.0, "pa": 0.0}
     out_none = fit_isophote_mb(
-        images=[img_g, img_r], masks=None, sma=10.0,
-        start_geometry=start, config=cfg_none,
+        images=[img_g, img_r],
+        masks=None,
+        sma=10.0,
+        start_geometry=start,
+        config=cfg_none,
         variance_maps=[var_g, var_r],
     )
     out_perband = fit_isophote_mb(
-        images=[img_g, img_r], masks=None, sma=10.0,
-        start_geometry=start, config=cfg_perband,
+        images=[img_g, img_r],
+        masks=None,
+        sma=10.0,
+        start_geometry=start,
+        config=cfg_perband,
         variance_maps=[var_g, var_r],
     )
     # Both paths produce finite intens_err for both bands.
@@ -516,9 +613,8 @@ def test_loose_validity_per_band_count_normalization_changes_intens_err():
     # changing the row weighting changes the joint solve. In practice
     # the per-band intens_err scales the same way (direct SEM in both
     # modes), but the rms / x0_err differ.
-    assert (
-        not np.isclose(float(out_none["x0_err"]), float(out_perband["x0_err"]), rtol=1e-6)
-        or not np.isclose(float(out_none["rms"]), float(out_perband["rms"]), rtol=1e-6)
+    assert not np.isclose(float(out_none["x0_err"]), float(out_perband["x0_err"]), rtol=1e-6) or not np.isclose(
+        float(out_none["rms"]), float(out_perband["rms"]), rtol=1e-6
     )
 
 
@@ -527,13 +623,20 @@ def test_loose_validity_with_ring_mean_intercept():
     intens_<b> equals the band's empirical surviving-sample mean."""
     img_g, img_r, mask_r = _plant_per_band_arc_artifact_image()
     cfg = IsosterConfigMB(
-        bands=["g", "r"], reference_band="g",
-        sma0=20.0, maxsma=60.0, astep=0.2, debug=True, nclip=0,
+        bands=["g", "r"],
+        reference_band="g",
+        sma0=20.0,
+        maxsma=60.0,
+        astep=0.2,
+        debug=True,
+        nclip=0,
         loose_validity=True,
         fit_per_band_intens_jointly=False,
     )
     out = fit_isophote_mb(
-        images=[img_g, img_r], masks=[None, mask_r], sma=40.0,
+        images=[img_g, img_r],
+        masks=[None, mask_r],
+        sma=40.0,
         start_geometry={"x0": 128.0, "y0": 128.0, "eps": 0.3, "pa": 0.5},
         config=cfg,
     )
@@ -550,13 +653,20 @@ def test_loose_validity_with_ref_mode():
     surviving samples."""
     img_g, img_r, mask_r = _plant_per_band_arc_artifact_image()
     cfg = IsosterConfigMB(
-        bands=["g", "r"], reference_band="g",
-        sma0=20.0, maxsma=60.0, astep=0.2, debug=True, nclip=0,
+        bands=["g", "r"],
+        reference_band="g",
+        sma0=20.0,
+        maxsma=60.0,
+        astep=0.2,
+        debug=True,
+        nclip=0,
         loose_validity=True,
         harmonic_combination="ref",
     )
     out = fit_isophote_mb(
-        images=[img_g, img_r], masks=[None, mask_r], sma=40.0,
+        images=[img_g, img_r],
+        masks=[None, mask_r],
+        sma=40.0,
         start_geometry={"x0": 128.0, "y0": 128.0, "eps": 0.3, "pa": 0.5},
         config=cfg,
     )
@@ -589,8 +699,10 @@ def test_fit_isophote_mb_ref_mode_intens_err_scaling_ols(monkeypatch):
     intens_r_high = synth(1.00, seed=22)  # 10× noisier in band r
 
     cfg = IsosterConfigMB(
-        bands=["g", "r"], reference_band="g",
-        harmonic_combination="ref", nclip=0,
+        bands=["g", "r"],
+        reference_band="g",
+        harmonic_combination="ref",
+        nclip=0,
     )
 
     # Drop into the per-band error branch directly via fit_isophote_mb on a
@@ -604,12 +716,18 @@ def test_fit_isophote_mb_ref_mode_intens_err_scaling_ols(monkeypatch):
     start = {"x0": 32.0, "y0": 32.0, "eps": 0.0, "pa": 0.0}
 
     out_low = fit_isophote_mb(
-        images=[img_g, img_r_low], masks=None, sma=12.0,
-        start_geometry=start, config=cfg,
+        images=[img_g, img_r_low],
+        masks=None,
+        sma=12.0,
+        start_geometry=start,
+        config=cfg,
     )
     out_high = fit_isophote_mb(
-        images=[img_g, img_r_high], masks=None, sma=12.0,
-        start_geometry=start, config=cfg,
+        images=[img_g, img_r_high],
+        masks=None,
+        sma=12.0,
+        start_geometry=start,
+        config=cfg,
     )
     err_low = float(out_low["intens_err_r"])
     err_high = float(out_high["intens_err_r"])
@@ -617,10 +735,7 @@ def test_fit_isophote_mb_ref_mode_intens_err_scaling_ols(monkeypatch):
     assert err_low > 0 and err_high > 0
     # SEM scales linearly with σ: 10× noise should give ~10× error, not 100×.
     ratio = err_high / err_low
-    assert 4.0 < ratio < 25.0, (
-        f"intens_err_r should scale ~linearly with band noise (10×), "
-        f"got ratio = {ratio:.2f}"
-    )
+    assert 4.0 < ratio < 25.0, f"intens_err_r should scale ~linearly with band noise (10×), got ratio = {ratio:.2f}"
 
 
 # ---------------------------------------------------------------------------
@@ -633,9 +748,15 @@ def test_extract_forced_photometry_mb_shape():
     img2 = _planted_galaxy(amplitude=50.0, noise_sigma=0.001, seed=2)
     cfg = IsosterConfigMB(bands=["g", "r"], reference_band="g")
     out = extract_forced_photometry_mb(
-        images=[img1, img2], masks=None,
-        x0=128.0, y0=128.0, sma=20.0, eps=0.3, pa=0.5,
-        bands=cfg.bands, config=cfg,
+        images=[img1, img2],
+        masks=None,
+        x0=128.0,
+        y0=128.0,
+        sma=20.0,
+        eps=0.3,
+        pa=0.5,
+        bands=cfg.bands,
+        config=cfg,
     )
     assert out["valid"] is True
     assert out["stop_code"] == 0
@@ -655,7 +776,9 @@ def test_fit_isophote_mb_rejects_mixed_variance_maps():
     var = np.ones_like(img) * 0.1
     with pytest.raises(ValueError, match="all-or-nothing"):
         fit_isophote_mb(
-            images=[img, img], masks=None, sma=20.0,
+            images=[img, img],
+            masks=None,
+            sma=20.0,
             start_geometry={"x0": 128.0, "y0": 128.0, "eps": 0.2, "pa": 0.0},
             config=cfg,
             variance_maps=[var, None],  # type: ignore[list-item]
@@ -714,21 +837,24 @@ def test_joint_solver_decoupled_mean_vs_median_full_ring_agree():
     angles = np.linspace(0.0, 2.0 * np.pi, n_samples, endpoint=False)
     truth = np.array([10.0, 20.0])
     # Pure intercept signal + a known A1, B1 harmonic + Gaussian noise.
-    intens = (
-        truth[:, None]
-        + 0.3 * np.sin(angles)
-        - 0.2 * np.cos(angles)
-        + rng.normal(scale=0.05, size=(2, n_samples))
-    )
+    intens = truth[:, None] + 0.3 * np.sin(angles) - 0.2 * np.cos(angles) + rng.normal(scale=0.05, size=(2, n_samples))
     weights = np.array([1.0, 1.0])
 
     coeffs_mean, _, _ = fit_first_and_second_harmonics_joint(
-        angles, intens, weights, None,
-        fit_per_band_intens_jointly=False, integrator="mean",
+        angles,
+        intens,
+        weights,
+        None,
+        fit_per_band_intens_jointly=False,
+        integrator="mean",
     )
     coeffs_med, _, _ = fit_first_and_second_harmonics_joint(
-        angles, intens, weights, None,
-        fit_per_band_intens_jointly=False, integrator="median",
+        angles,
+        intens,
+        weights,
+        None,
+        fit_per_band_intens_jointly=False,
+        integrator="median",
     )
 
     # Per-band intercepts agree to within a few × σ/√N ~ 0.05/√360 ~ 0.003
@@ -757,12 +883,20 @@ def test_joint_solver_decoupled_median_resists_one_sided_outlier():
     weights = np.array([1.0, 1.0])
 
     coeffs_mean, _, _ = fit_first_and_second_harmonics_joint(
-        angles, intens, weights, None,
-        fit_per_band_intens_jointly=False, integrator="mean",
+        angles,
+        intens,
+        weights,
+        None,
+        fit_per_band_intens_jointly=False,
+        integrator="mean",
     )
     coeffs_med, _, _ = fit_first_and_second_harmonics_joint(
-        angles, intens, weights, None,
-        fit_per_band_intens_jointly=False, integrator="median",
+        angles,
+        intens,
+        weights,
+        None,
+        fit_per_band_intens_jointly=False,
+        integrator="median",
     )
 
     # Mean of contaminated band shifts by ~ 100 * 18/360 = 5.0
@@ -790,8 +924,12 @@ def test_joint_solver_loose_decoupled_median_works_with_jagged_input():
     weights = np.array([1.0, 1.0])
 
     coeffs, _, _ = fit_first_and_second_harmonics_joint_loose(
-        phi_per_band, intens_per_band, weights, None,
-        fit_per_band_intens_jointly=False, integrator="median",
+        phi_per_band,
+        intens_per_band,
+        weights,
+        None,
+        fit_per_band_intens_jointly=False,
+        integrator="median",
     )
     # Per-band medians sit on truth to noise/√N tolerance.
     assert abs(coeffs[0] - truth[0]) < 0.01
@@ -804,12 +942,15 @@ def test_fit_isophote_mb_median_intercept_end_to_end():
     img1 = _planted_galaxy(amplitude=100.0, noise_sigma=0.05, seed=21)
     img2 = _planted_galaxy(amplitude=50.0, noise_sigma=0.05, seed=22)
     cfg = IsosterConfigMB(
-        bands=["g", "r"], reference_band="g",
+        bands=["g", "r"],
+        reference_band="g",
         integrator="median",
         fit_per_band_intens_jointly=False,
     )
     out = fit_isophote_mb(
-        images=[img1, img2], masks=None, sma=20.0,
+        images=[img1, img2],
+        masks=None,
+        sma=20.0,
         start_geometry={"x0": 128.0, "y0": 128.0, "eps": 0.2, "pa": 0.0},
         config=cfg,
     )
@@ -833,15 +974,18 @@ def test_fit_isophote_mb_outer_damping_inert_below_onset():
     isolates the outer-reg effect from the auto-enable side-effect.
     """
     import warnings as _warnings
+
     img = _planted_galaxy(amplitude=100.0, noise_sigma=0.001, seed=42)
     cfg_off = IsosterConfigMB(
-        bands=["g", "r"], reference_band="g",
+        bands=["g", "r"],
+        reference_band="g",
         geometry_convergence=True,
     )
     with _warnings.catch_warnings():
         _warnings.simplefilter("ignore", UserWarning)
         cfg_on = IsosterConfigMB(
-            bands=["g", "r"], reference_band="g",
+            bands=["g", "r"],
+            reference_band="g",
             geometry_convergence=True,
             use_outer_center_regularization=True,
             outer_reg_sma_onset=200.0,  # well above test sma
@@ -849,12 +993,16 @@ def test_fit_isophote_mb_outer_damping_inert_below_onset():
         )
     ref_geom = {"x0": 128.0, "y0": 128.0, "eps": 0.3, "pa": 0.5}
     out_off = fit_isophote_mb(
-        images=[img, img], masks=None, sma=20.0,
+        images=[img, img],
+        masks=None,
+        sma=20.0,
         start_geometry={"x0": 128.0, "y0": 128.0, "eps": 0.2, "pa": 0.0},
         config=cfg_off,
     )
     out_on = fit_isophote_mb(
-        images=[img, img], masks=None, sma=20.0,
+        images=[img, img],
+        masks=None,
+        sma=20.0,
         start_geometry={"x0": 128.0, "y0": 128.0, "eps": 0.2, "pa": 0.0},
         config=cfg_on,
         outer_reference_geom=ref_geom,
@@ -873,22 +1021,27 @@ def test_fit_isophote_mb_outer_damping_active_above_onset():
     fewer / smaller geometry updates from the same starting point in the
     same number of iterations."""
     import warnings as _warnings
+
     rng = np.random.default_rng(2026)
     img = _planted_galaxy(amplitude=100.0, noise_sigma=0.05, seed=99)
     # Inject a small mid-image bump that pulls geometry away from truth on
     # outer rings; gives the damper something to push back against.
     bump = np.zeros_like(img)
-    yy, xx = np.mgrid[0:img.shape[0], 0:img.shape[1]]
-    bump += 0.5 * np.exp(-((xx - 90.0) ** 2 + (yy - 90.0) ** 2) / (5.0 ** 2))
+    yy, xx = np.mgrid[0 : img.shape[0], 0 : img.shape[1]]
+    bump += 0.5 * np.exp(-((xx - 90.0) ** 2 + (yy - 90.0) ** 2) / (5.0**2))
     img = img + bump + rng.normal(0.0, 1e-4, size=img.shape)
 
     cfg_off = IsosterConfigMB(
-        bands=["g", "r"], reference_band="g", maxit=12,
+        bands=["g", "r"],
+        reference_band="g",
+        maxit=12,
     )
     with _warnings.catch_warnings():
         _warnings.simplefilter("ignore", UserWarning)
         cfg_on = IsosterConfigMB(
-            bands=["g", "r"], reference_band="g", maxit=12,
+            bands=["g", "r"],
+            reference_band="g",
+            maxit=12,
             use_outer_center_regularization=True,
             outer_reg_sma_onset=10.0,
             outer_reg_sma_width=2.0,
@@ -899,12 +1052,19 @@ def test_fit_isophote_mb_outer_damping_active_above_onset():
     seed_geom = {"x0": 128.0, "y0": 128.0, "eps": 0.2, "pa": 0.0}
 
     out_off = fit_isophote_mb(
-        images=[img, img], masks=None, sma=80.0, start_geometry=seed_geom,
+        images=[img, img],
+        masks=None,
+        sma=80.0,
+        start_geometry=seed_geom,
         config=cfg_off,
     )
     out_on = fit_isophote_mb(
-        images=[img, img], masks=None, sma=80.0, start_geometry=seed_geom,
-        config=cfg_on, outer_reference_geom=ref_geom,
+        images=[img, img],
+        masks=None,
+        sma=80.0,
+        start_geometry=seed_geom,
+        config=cfg_on,
+        outer_reference_geom=ref_geom,
     )
     # Damping shrinks the per-iteration step → after the same maxit the
     # damped fit should land closer to the seed (i.e. less total drift).
@@ -922,22 +1082,31 @@ def test_fit_isophote_mb_outer_damping_off_when_no_reference():
     use_outer_center_regularization=True. This guards the driver-level
     invariant: outer-reg cannot fire on the inward sweep."""
     import warnings as _warnings
+
     img = _planted_galaxy(seed=3)
     cfg_off = IsosterConfigMB(bands=["g", "r"], reference_band="g")
     with _warnings.catch_warnings():
         _warnings.simplefilter("ignore", UserWarning)
         cfg_on = IsosterConfigMB(
-            bands=["g", "r"], reference_band="g",
+            bands=["g", "r"],
+            reference_band="g",
             use_outer_center_regularization=True,
-            outer_reg_sma_onset=5.0, outer_reg_strength=10.0,
+            outer_reg_sma_onset=5.0,
+            outer_reg_strength=10.0,
         )
     seed_geom = {"x0": 128.0, "y0": 128.0, "eps": 0.2, "pa": 0.0}
     out_off = fit_isophote_mb(
-        images=[img, img], masks=None, sma=80.0, start_geometry=seed_geom,
+        images=[img, img],
+        masks=None,
+        sma=80.0,
+        start_geometry=seed_geom,
         config=cfg_off,
     )
     out_on = fit_isophote_mb(
-        images=[img, img], masks=None, sma=80.0, start_geometry=seed_geom,
+        images=[img, img],
+        masks=None,
+        sma=80.0,
+        start_geometry=seed_geom,
         config=cfg_on,  # no outer_reference_geom passed → inert
     )
     for k in ("x0", "y0", "eps", "pa"):
@@ -947,33 +1116,74 @@ def test_fit_isophote_mb_outer_damping_off_when_no_reference():
 def test_build_outer_reference_mb_flux_weighted_average():
     """Driver-level reference builder: x0/y0/eps come from the flux-
     weighted average of qualifying inward isophotes + anchor."""
-    from isoster.multiband.driver_mb import _build_outer_reference_mb
     import warnings as _warnings
+
+    from isoster.multiband.driver_mb import _build_outer_reference_mb
+
     with _warnings.catch_warnings():
         _warnings.simplefilter("ignore", UserWarning)
         cfg = IsosterConfigMB(
-            bands=["g", "r"], reference_band="g",
+            bands=["g", "r"],
+            reference_band="g",
             sma0=10.0,
             use_outer_center_regularization=True,
             outer_reg_ref_sma_factor=2.0,
         )
     anchor = {
-        "x0": 100.0, "y0": 100.0, "eps": 0.30, "pa": 0.5, "sma": 10.0,
-        "stop_code": 0, "intens_g": 100.0, "intens_r": 50.0,
+        "x0": 100.0,
+        "y0": 100.0,
+        "eps": 0.30,
+        "pa": 0.5,
+        "sma": 10.0,
+        "stop_code": 0,
+        "intens_g": 100.0,
+        "intens_r": 50.0,
     }
     inwards = [
         # In-window, finite, acceptable: contributes.
-        {"x0": 102.0, "y0": 99.0, "eps": 0.32, "pa": 0.45, "sma": 8.0,
-         "stop_code": 0, "intens_g": 200.0, "intens_r": 100.0},
+        {
+            "x0": 102.0,
+            "y0": 99.0,
+            "eps": 0.32,
+            "pa": 0.45,
+            "sma": 8.0,
+            "stop_code": 0,
+            "intens_g": 200.0,
+            "intens_r": 100.0,
+        },
         # In-window, intens_g=300 dominant flux weight.
-        {"x0": 98.0, "y0": 101.0, "eps": 0.28, "pa": 0.55, "sma": 5.0,
-         "stop_code": 0, "intens_g": 300.0, "intens_r": 150.0},
+        {
+            "x0": 98.0,
+            "y0": 101.0,
+            "eps": 0.28,
+            "pa": 0.55,
+            "sma": 5.0,
+            "stop_code": 0,
+            "intens_g": 300.0,
+            "intens_r": 150.0,
+        },
         # Out-of-window (sma > sma0 * factor=20): excluded.
-        {"x0": 1000.0, "y0": -1000.0, "eps": 0.9, "pa": 1.5, "sma": 30.0,
-         "stop_code": 0, "intens_g": 1.0, "intens_r": 0.5},
+        {
+            "x0": 1000.0,
+            "y0": -1000.0,
+            "eps": 0.9,
+            "pa": 1.5,
+            "sma": 30.0,
+            "stop_code": 0,
+            "intens_g": 1.0,
+            "intens_r": 0.5,
+        },
         # Bad stop_code: excluded.
-        {"x0": 5000.0, "y0": 5000.0, "eps": 0.99, "pa": 0.0, "sma": 7.0,
-         "stop_code": 3, "intens_g": 1e6, "intens_r": 1e6},
+        {
+            "x0": 5000.0,
+            "y0": 5000.0,
+            "eps": 0.99,
+            "pa": 0.0,
+            "sma": 7.0,
+            "stop_code": 3,
+            "intens_g": 1e6,
+            "intens_r": 1e6,
+        },
     ]
     ref = _build_outer_reference_mb(inwards, anchor, cfg)
     # Brute-force reference: anchor + first two inwards entries.
@@ -995,17 +1205,27 @@ def test_build_outer_reference_mb_flux_weighted_average():
 
 def test_build_outer_reference_mb_falls_back_to_anchor_with_no_inwards():
     """No inwards results → reference is the anchor's own geometry."""
-    from isoster.multiband.driver_mb import _build_outer_reference_mb
     import warnings as _warnings
+
+    from isoster.multiband.driver_mb import _build_outer_reference_mb
+
     with _warnings.catch_warnings():
         _warnings.simplefilter("ignore", UserWarning)
         cfg = IsosterConfigMB(
-            bands=["g", "r"], reference_band="g", sma0=10.0,
+            bands=["g", "r"],
+            reference_band="g",
+            sma0=10.0,
             use_outer_center_regularization=True,
         )
     anchor = {
-        "x0": 64.0, "y0": 64.0, "eps": 0.25, "pa": 0.3, "sma": 10.0,
-        "stop_code": 0, "intens_g": 50.0, "intens_r": 25.0,
+        "x0": 64.0,
+        "y0": 64.0,
+        "eps": 0.25,
+        "pa": 0.3,
+        "sma": 10.0,
+        "stop_code": 0,
+        "intens_g": 50.0,
+        "intens_r": 25.0,
     }
     ref = _build_outer_reference_mb([], anchor, cfg)
     assert ref["x0"] == pytest.approx(64.0)
@@ -1018,20 +1238,30 @@ def test_fit_image_multiband_end_to_end_with_outer_damping():
     """Driver end-to-end: outer damping enabled converges and gives
     finite geometry; baseline run with feature off must still match
     on inner isophotes (where lambda ≈ 0)."""
-    from isoster.multiband import fit_image_multiband
     import warnings as _warnings
+
+    from isoster.multiband import fit_image_multiband
+
     img1 = _planted_galaxy(amplitude=100.0, noise_sigma=0.005, seed=51)
     img2 = _planted_galaxy(amplitude=50.0, noise_sigma=0.005, seed=52)
 
     cfg_off = IsosterConfigMB(
-        bands=["g", "r"], reference_band="g",
-        sma0=10.0, maxsma=80.0, astep=0.2, debug=True,
+        bands=["g", "r"],
+        reference_band="g",
+        sma0=10.0,
+        maxsma=80.0,
+        astep=0.2,
+        debug=True,
     )
     with _warnings.catch_warnings():
         _warnings.simplefilter("ignore", UserWarning)
         cfg_on = IsosterConfigMB(
-            bands=["g", "r"], reference_band="g",
-            sma0=10.0, maxsma=80.0, astep=0.2, debug=True,
+            bands=["g", "r"],
+            reference_band="g",
+            sma0=10.0,
+            maxsma=80.0,
+            astep=0.2,
+            debug=True,
             use_outer_center_regularization=True,
             outer_reg_sma_onset=60.0,
             outer_reg_strength=4.0,
@@ -1059,31 +1289,38 @@ def test_fit_image_multiband_end_to_end_with_outer_damping():
 def test_is_lsb_isophote_mb_predicate():
     """Direct unit test on the lock-trigger predicate (joint gradient)."""
     from isoster.multiband.driver_mb import _is_lsb_isophote_mb
+
     # Healthy: small relative grad error, negative grad → no trigger.
     assert not _is_lsb_isophote_mb(
-        {"grad": -10.0, "grad_error": 1.0, "stop_code": 0}, 0.3,
+        {"grad": -10.0, "grad_error": 1.0, "stop_code": 0},
+        0.3,
     )
     # Above threshold: |0.5 / -1.0| = 0.5 > 0.3 → trigger.
     assert _is_lsb_isophote_mb(
-        {"grad": -1.0, "grad_error": 0.5, "stop_code": 0}, 0.3,
+        {"grad": -1.0, "grad_error": 0.5, "stop_code": 0},
+        0.3,
     )
     # Positive grad → trigger (galaxy gradient should be negative).
     assert _is_lsb_isophote_mb(
-        {"grad": 5.0, "grad_error": 1.0, "stop_code": 0}, 0.3,
+        {"grad": 5.0, "grad_error": 1.0, "stop_code": 0},
+        0.3,
     )
     # stop_code=-1 → trigger regardless of gradient values.
     assert _is_lsb_isophote_mb(
-        {"grad": -10.0, "grad_error": 0.1, "stop_code": -1}, 0.3,
+        {"grad": -10.0, "grad_error": 0.1, "stop_code": -1},
+        0.3,
     )
     # Missing keys → cannot assess, no trigger.
     assert not _is_lsb_isophote_mb({}, 0.3)
     assert not _is_lsb_isophote_mb({"grad": -10.0}, 0.3)
     # Non-finite values → no trigger.
     assert not _is_lsb_isophote_mb(
-        {"grad": float("nan"), "grad_error": 1.0, "stop_code": 0}, 0.3,
+        {"grad": float("nan"), "grad_error": 1.0, "stop_code": 0},
+        0.3,
     )
     assert not _is_lsb_isophote_mb(
-        {"grad": -10.0, "grad_error": 0.0, "stop_code": 0}, 0.3,
+        {"grad": -10.0, "grad_error": 0.0, "stop_code": 0},
+        0.3,
     )
 
 
@@ -1091,12 +1328,15 @@ def test_build_locked_cfg_mb_freezes_geometry_and_disables_outer_reg():
     """The lock clone must freeze geometry, disable auto-lock and
     outer-reg on itself, and (when integrator='median') flip
     fit_per_band_intens_jointly to False to satisfy Stage-A S1."""
-    from isoster.multiband.driver_mb import _build_locked_cfg_mb
     import warnings as _warnings
+
+    from isoster.multiband.driver_mb import _build_locked_cfg_mb
+
     with _warnings.catch_warnings():
         _warnings.simplefilter("ignore", UserWarning)
         cfg = IsosterConfigMB(
-            bands=["g", "r"], reference_band="g",
+            bands=["g", "r"],
+            reference_band="g",
             lsb_auto_lock=True,
             lsb_auto_lock_integrator="median",
             fit_per_band_intens_jointly=False,
@@ -1104,7 +1344,11 @@ def test_build_locked_cfg_mb_freezes_geometry_and_disables_outer_reg():
             sma0=10.0,
         )
     anchor = {
-        "x0": 100.0, "y0": 100.0, "eps": 0.3, "pa": 0.5, "sma": 25.0,
+        "x0": 100.0,
+        "y0": 100.0,
+        "eps": 0.3,
+        "pa": 0.5,
+        "sma": 25.0,
         "stop_code": 0,
     }
     locked = _build_locked_cfg_mb(cfg, anchor, "median")
@@ -1122,12 +1366,15 @@ def test_build_locked_cfg_mb_freezes_geometry_and_disables_outer_reg():
 def test_build_locked_cfg_mb_mean_keeps_intercept_mode():
     """Locked-region mean integrator does NOT need to flip the
     intercept mode."""
-    from isoster.multiband.driver_mb import _build_locked_cfg_mb
     import warnings as _warnings
+
+    from isoster.multiband.driver_mb import _build_locked_cfg_mb
+
     with _warnings.catch_warnings():
         _warnings.simplefilter("ignore", UserWarning)
         cfg = IsosterConfigMB(
-            bands=["g", "r"], reference_band="g",
+            bands=["g", "r"],
+            reference_band="g",
             lsb_auto_lock=True,
             lsb_auto_lock_integrator="mean",
         )
@@ -1142,25 +1389,46 @@ def test_lsb_auto_lock_fires_on_synthetic_galaxy():
     falls off in the outer region, run the driver with lsb_auto_lock on,
     confirm the lock fires and the outer isophotes carry the locked
     state metadata."""
-    from isoster.multiband import fit_image_multiband
     import warnings as _warnings
+
+    from isoster.multiband import fit_image_multiband
 
     # Compact planted galaxy + heavy noise so the outer-region gradient
     # quality drops below the trigger threshold deterministically.
     img1 = _planted_galaxy(
-        h=200, w=200, x0=100.0, y0=100.0, eps=0.25, pa=0.4,
-        amplitude=50.0, re=10.0, noise_sigma=2.0, seed=2026,
+        h=200,
+        w=200,
+        x0=100.0,
+        y0=100.0,
+        eps=0.25,
+        pa=0.4,
+        amplitude=50.0,
+        re=10.0,
+        noise_sigma=2.0,
+        seed=2026,
     )
     img2 = _planted_galaxy(
-        h=200, w=200, x0=100.0, y0=100.0, eps=0.25, pa=0.4,
-        amplitude=25.0, re=10.0, noise_sigma=2.0, seed=2027,
+        h=200,
+        w=200,
+        x0=100.0,
+        y0=100.0,
+        eps=0.25,
+        pa=0.4,
+        amplitude=25.0,
+        re=10.0,
+        noise_sigma=2.0,
+        seed=2027,
     )
 
     with _warnings.catch_warnings():
         _warnings.simplefilter("ignore", UserWarning)
         cfg = IsosterConfigMB(
-            bands=["g", "r"], reference_band="g",
-            sma0=5.0, minsma=2.0, maxsma=80.0, astep=0.15,
+            bands=["g", "r"],
+            reference_band="g",
+            sma0=5.0,
+            minsma=2.0,
+            maxsma=80.0,
+            astep=0.15,
             lsb_auto_lock=True,
             lsb_auto_lock_integrator="mean",  # avoid S1; keep matrix-mode
             lsb_auto_lock_maxgerr=0.2,
@@ -1196,10 +1464,15 @@ def test_lsb_auto_lock_fires_on_synthetic_galaxy():
 def test_lsb_auto_lock_off_no_metadata():
     """With lsb_auto_lock=False, the result dict carries no lock keys."""
     from isoster.multiband import fit_image_multiband
+
     img = _planted_galaxy(seed=4242)
     cfg = IsosterConfigMB(
-        bands=["g", "r"], reference_band="g",
-        sma0=10.0, maxsma=60.0, astep=0.15, debug=True,
+        bands=["g", "r"],
+        reference_band="g",
+        sma0=10.0,
+        maxsma=60.0,
+        astep=0.15,
+        debug=True,
     )
     res = fit_image_multiband([img, img], masks=None, config=cfg)
     assert "lsb_auto_lock" not in res
@@ -1213,7 +1486,9 @@ def test_top_level_grad_keys_under_debug():
     img = _planted_galaxy(amplitude=100.0, noise_sigma=0.001, seed=99)
     cfg = IsosterConfigMB(bands=["g", "r"], reference_band="g", debug=True)
     out = fit_isophote_mb(
-        images=[img, img], masks=None, sma=20.0,
+        images=[img, img],
+        masks=None,
+        sma=20.0,
         start_geometry={"x0": 128.0, "y0": 128.0, "eps": 0.2, "pa": 0.0},
         config=cfg,
     )
@@ -1229,11 +1504,18 @@ def test_top_level_grad_keys_under_debug():
 
 def test_compute_cog_mb_empty_isophote_list_returns_empty_arrays():
     from isoster.multiband.cog_mb import compute_cog_mb
+
     out = compute_cog_mb([], bands=["g", "r"])
     for key in (
-        "sma", "area_annulus", "area_annulus_raw",
-        "flag_cross", "flag_negative_area",
-        "cog_g", "cog_annulus_g", "cog_r", "cog_annulus_r",
+        "sma",
+        "area_annulus",
+        "area_annulus_raw",
+        "flag_cross",
+        "flag_negative_area",
+        "cog_g",
+        "cog_annulus_g",
+        "cog_r",
+        "cog_annulus_r",
     ):
         assert key in out, f"missing {key}"
         assert np.asarray(out[key]).size == 0
@@ -1242,9 +1524,19 @@ def test_compute_cog_mb_empty_isophote_list_returns_empty_arrays():
 def test_compute_cog_mb_single_isophote_uses_intensity_for_first_annulus():
     """First annulus area = π·a·b; first cog = intens · area."""
     from isoster.multiband.cog_mb import compute_cog_mb
+
     isos = [
-        {"sma": 10.0, "eps": 0.0, "x0": 0.0, "y0": 0.0, "pa": 0.0,
-         "stop_code": 0, "intens": 1.0, "intens_g": 5.0, "intens_r": 3.0},
+        {
+            "sma": 10.0,
+            "eps": 0.0,
+            "x0": 0.0,
+            "y0": 0.0,
+            "pa": 0.0,
+            "stop_code": 0,
+            "intens": 1.0,
+            "intens_g": 5.0,
+            "intens_r": 3.0,
+        },
     ]
     out = compute_cog_mb(isos, bands=["g", "r"])
     expected_area = float(np.pi * 10.0 * 10.0)
@@ -1257,13 +1549,22 @@ def test_compute_cog_mb_cumulative_flux_is_monotonic_on_clean_profile():
     """A monotonically decreasing per-band intens profile gives a
     monotonically increasing cog (until the per-band intens hits zero)."""
     from isoster.multiband.cog_mb import compute_cog_mb
+
     smas = np.linspace(5.0, 50.0, 10)
     intens_g = np.exp(-smas / 20.0) * 100.0
     intens_r = np.exp(-smas / 25.0) * 50.0
     isos = [
-        {"sma": float(s), "eps": 0.2, "x0": 0.0, "y0": 0.0, "pa": 0.0,
-         "stop_code": 0, "intens": float(intens_g[i]),
-         "intens_g": float(intens_g[i]), "intens_r": float(intens_r[i])}
+        {
+            "sma": float(s),
+            "eps": 0.2,
+            "x0": 0.0,
+            "y0": 0.0,
+            "pa": 0.0,
+            "stop_code": 0,
+            "intens": float(intens_g[i]),
+            "intens_g": float(intens_g[i]),
+            "intens_r": float(intens_r[i]),
+        }
         for i, s in enumerate(smas)
     ]
     out = compute_cog_mb(isos, bands=["g", "r"])
@@ -1278,22 +1579,45 @@ def test_compute_cog_mb_cumulative_flux_is_monotonic_on_clean_profile():
 
 def test_add_cog_mb_to_isophotes_stamps_per_band_columns():
     from isoster.multiband.cog_mb import (
-        add_cog_mb_to_isophotes, compute_cog_mb,
+        add_cog_mb_to_isophotes,
+        compute_cog_mb,
     )
+
     isos = [
-        {"sma": 5.0, "eps": 0.1, "x0": 0.0, "y0": 0.0, "pa": 0.0,
-         "stop_code": 0, "intens": 10.0,
-         "intens_g": 10.0, "intens_r": 8.0},
-        {"sma": 10.0, "eps": 0.1, "x0": 0.0, "y0": 0.0, "pa": 0.0,
-         "stop_code": 0, "intens": 5.0,
-         "intens_g": 5.0, "intens_r": 4.0},
+        {
+            "sma": 5.0,
+            "eps": 0.1,
+            "x0": 0.0,
+            "y0": 0.0,
+            "pa": 0.0,
+            "stop_code": 0,
+            "intens": 10.0,
+            "intens_g": 10.0,
+            "intens_r": 8.0,
+        },
+        {
+            "sma": 10.0,
+            "eps": 0.1,
+            "x0": 0.0,
+            "y0": 0.0,
+            "pa": 0.0,
+            "stop_code": 0,
+            "intens": 5.0,
+            "intens_g": 5.0,
+            "intens_r": 4.0,
+        },
     ]
     cog = compute_cog_mb(isos, bands=["g", "r"])
     add_cog_mb_to_isophotes(isos, ["g", "r"], cog)
     for iso in isos:
         for k in (
-            "area_annulus", "flag_cross", "flag_negative_area",
-            "cog_g", "cog_r", "cog_annulus_g", "cog_annulus_r",
+            "area_annulus",
+            "flag_cross",
+            "flag_negative_area",
+            "cog_g",
+            "cog_r",
+            "cog_annulus_g",
+            "cog_annulus_r",
         ):
             assert k in iso, f"row missing {k}"
         assert isinstance(iso["flag_cross"], bool)
@@ -1304,11 +1628,15 @@ def test_fit_image_multiband_compute_cog_end_to_end():
     """Driver end-to-end: compute_cog=True stamps per-band cog columns
     onto every row of result['isophotes']."""
     from isoster.multiband import fit_image_multiband
+
     img1 = _planted_galaxy(amplitude=100.0, noise_sigma=0.005, seed=88)
     img2 = _planted_galaxy(amplitude=50.0, noise_sigma=0.005, seed=89)
     cfg = IsosterConfigMB(
-        bands=["g", "r"], reference_band="g",
-        sma0=10.0, maxsma=60.0, astep=0.2,
+        bands=["g", "r"],
+        reference_band="g",
+        sma0=10.0,
+        maxsma=60.0,
+        astep=0.2,
         compute_cog=True,
     )
     res = fit_image_multiband([img1, img2], masks=None, config=cfg)
@@ -1316,8 +1644,13 @@ def test_fit_image_multiband_compute_cog_end_to_end():
     assert len(rows) >= 5
     for iso in rows:
         for key in (
-            "area_annulus", "flag_cross", "flag_negative_area",
-            "cog_g", "cog_r", "cog_annulus_g", "cog_annulus_r",
+            "area_annulus",
+            "flag_cross",
+            "flag_negative_area",
+            "cog_g",
+            "cog_r",
+            "cog_annulus_g",
+            "cog_annulus_r",
         ):
             assert key in iso, f"row at sma={iso['sma']} missing {key}"
         assert iso["area_annulus"] >= 0.0
@@ -1333,16 +1666,23 @@ def test_fit_image_multiband_compute_cog_end_to_end():
 def test_fit_image_multiband_compute_cog_off_no_extra_columns():
     """compute_cog=False (default) leaves the row dict untouched."""
     from isoster.multiband import fit_image_multiband
+
     img = _planted_galaxy(seed=77)
     cfg = IsosterConfigMB(
-        bands=["g", "r"], reference_band="g",
-        sma0=10.0, maxsma=40.0, astep=0.2,
+        bands=["g", "r"],
+        reference_band="g",
+        sma0=10.0,
+        maxsma=40.0,
+        astep=0.2,
     )
     res = fit_image_multiband([img, img], masks=None, config=cfg)
     for iso in res["isophotes"]:
         for key in (
-            "area_annulus", "flag_cross", "flag_negative_area",
-            "cog_g", "cog_r",
+            "area_annulus",
+            "flag_cross",
+            "flag_negative_area",
+            "cog_g",
+            "cog_r",
         ):
             assert key not in iso, f"unexpected {key} in row at sma={iso['sma']}"
 
@@ -1352,12 +1692,20 @@ def test_compute_cog_mb_sky_offsets_subtract_constant_before_integration():
     trapezoidal average; the cog_total picks up exactly
     -sky_offset * total_area."""
     from isoster.multiband.cog_mb import compute_cog_mb
+
     smas = np.linspace(5.0, 50.0, 8)
     intens_g = np.exp(-smas / 12.0) * 50.0
     isos = [
-        {"sma": float(s), "eps": 0.0, "x0": 0.0, "y0": 0.0, "pa": 0.0,
-         "stop_code": 0, "intens": float(intens_g[i]),
-         "intens_g": float(intens_g[i])}
+        {
+            "sma": float(s),
+            "eps": 0.0,
+            "x0": 0.0,
+            "y0": 0.0,
+            "pa": 0.0,
+            "stop_code": 0,
+            "intens": float(intens_g[i]),
+            "intens_g": float(intens_g[i]),
+        }
         for i, s in enumerate(smas)
     ]
     out_raw = compute_cog_mb(isos, bands=["g"])
@@ -1382,8 +1730,10 @@ def test_central_reg_penalty_zero_when_feature_off():
     from isoster.multiband.fitting_mb import (
         _compute_central_regularization_penalty_mb,
     )
+
     cfg = IsosterConfigMB(
-        bands=["g", "r"], reference_band="g",
+        bands=["g", "r"],
+        reference_band="g",
         use_central_regularization=False,
         central_reg_strength=10.0,
     )
@@ -1397,8 +1747,10 @@ def test_central_reg_penalty_zero_when_no_previous_geom():
     from isoster.multiband.fitting_mb import (
         _compute_central_regularization_penalty_mb,
     )
+
     cfg = IsosterConfigMB(
-        bands=["g", "r"], reference_band="g",
+        bands=["g", "r"],
+        reference_band="g",
         use_central_regularization=True,
     )
     cur = {"x0": 100.0, "y0": 100.0, "eps": 0.4, "pa": 0.5}
@@ -1411,8 +1763,10 @@ def test_central_reg_penalty_decays_with_sma():
     from isoster.multiband.fitting_mb import (
         _compute_central_regularization_penalty_mb,
     )
+
     cfg = IsosterConfigMB(
-        bands=["g", "r"], reference_band="g",
+        bands=["g", "r"],
+        reference_band="g",
         use_central_regularization=True,
         central_reg_strength=10.0,
         central_reg_sma_threshold=5.0,
@@ -1431,10 +1785,7 @@ def test_central_reg_penalty_decays_with_sma():
     delta_eps = 0.1
     delta_x = 1.0
     delta_y = 1.0
-    expected_at_thresh = (
-        10.0 * float(np.exp(-1.0))
-        * (1.0 * delta_eps**2 + 1.0 * (delta_x**2 + delta_y**2))
-    )
+    expected_at_thresh = 10.0 * float(np.exp(-1.0)) * (1.0 * delta_eps**2 + 1.0 * (delta_x**2 + delta_y**2))
     assert p_at_thresh == pytest.approx(expected_at_thresh, rel=1e-9)
 
 
@@ -1443,8 +1794,10 @@ def test_central_reg_penalty_pa_wraparound():
     from isoster.multiband.fitting_mb import (
         _compute_central_regularization_penalty_mb,
     )
+
     cfg = IsosterConfigMB(
-        bands=["g", "r"], reference_band="g",
+        bands=["g", "r"],
+        reference_band="g",
         use_central_regularization=True,
         central_reg_strength=1.0,
         central_reg_sma_threshold=10.0,
@@ -1462,16 +1815,25 @@ def test_central_reg_end_to_end_inner_isophote_stabilizes():
     on, the inner-isophote eps tracks closer to the truth (smaller
     deltas selected as best_geometry)."""
     from isoster.multiband import fit_image_multiband
+
     img1 = _planted_galaxy(amplitude=100.0, noise_sigma=0.005, seed=131)
     img2 = _planted_galaxy(amplitude=50.0, noise_sigma=0.005, seed=132)
     cfg_off = IsosterConfigMB(
-        bands=["g", "r"], reference_band="g",
-        sma0=8.0, minsma=2.0, maxsma=50.0, astep=0.2,
+        bands=["g", "r"],
+        reference_band="g",
+        sma0=8.0,
+        minsma=2.0,
+        maxsma=50.0,
+        astep=0.2,
         use_central_regularization=False,
     )
     cfg_on = IsosterConfigMB(
-        bands=["g", "r"], reference_band="g",
-        sma0=8.0, minsma=2.0, maxsma=50.0, astep=0.2,
+        bands=["g", "r"],
+        reference_band="g",
+        sma0=8.0,
+        minsma=2.0,
+        maxsma=50.0,
+        astep=0.2,
         use_central_regularization=True,
         central_reg_strength=2.0,
         central_reg_sma_threshold=5.0,
@@ -1494,24 +1856,38 @@ def test_compute_cog_mb_b1_matches_single_band_per_band_column():
     isophote list whose ``intens`` and ``intens_<b>`` are identical."""
     from isoster.cog import compute_cog as compute_cog_sb
     from isoster.multiband.cog_mb import compute_cog_mb
+
     smas = np.linspace(3.0, 30.0, 8)
     intens_arr = np.exp(-smas / 10.0) * 50.0
     isos = [
-        {"sma": float(s), "eps": 0.2, "x0": 0.0, "y0": 0.0, "pa": 0.0,
-         "stop_code": 0, "intens": float(intens_arr[i]),
-         "intens_g": float(intens_arr[i])}
+        {
+            "sma": float(s),
+            "eps": 0.2,
+            "x0": 0.0,
+            "y0": 0.0,
+            "pa": 0.0,
+            "stop_code": 0,
+            "intens": float(intens_arr[i]),
+            "intens_g": float(intens_arr[i]),
+        }
         for i, s in enumerate(smas)
     ]
     sb_out = compute_cog_sb(isos)
     mb_out = compute_cog_mb(isos, bands=["g"])
     np.testing.assert_allclose(
-        np.asarray(mb_out["cog_g"]), sb_out["cog"], rtol=1e-12,
+        np.asarray(mb_out["cog_g"]),
+        sb_out["cog"],
+        rtol=1e-12,
     )
     np.testing.assert_allclose(
-        np.asarray(mb_out["cog_annulus_g"]), sb_out["cog_annulus"], rtol=1e-12,
+        np.asarray(mb_out["cog_annulus_g"]),
+        sb_out["cog_annulus"],
+        rtol=1e-12,
     )
     np.testing.assert_allclose(
-        np.asarray(mb_out["area_annulus"]), sb_out["area_annulus"], rtol=1e-12,
+        np.asarray(mb_out["area_annulus"]),
+        sb_out["area_annulus"],
+        rtol=1e-12,
     )
 
 
@@ -1527,6 +1903,7 @@ def _template_iso(sma: float, x0=128.0, y0=128.0, eps=0.30, pa=0.50) -> dict:
 
 def test_resolve_template_mb_accepts_list_of_dicts():
     from isoster.multiband.driver_mb import _resolve_template_mb
+
     template = [_template_iso(20.0), _template_iso(5.0), _template_iso(10.0)]
     out = _resolve_template_mb(template)
     # Must come back sorted by SMA ascending.
@@ -1537,6 +1914,7 @@ def test_resolve_template_mb_accepts_list_of_dicts():
 
 def test_resolve_template_mb_accepts_results_dict():
     from isoster.multiband.driver_mb import _resolve_template_mb
+
     fake_result = {
         "isophotes": [_template_iso(15.0), _template_iso(8.0)],
         "config": None,  # ignored
@@ -1547,6 +1925,7 @@ def test_resolve_template_mb_accepts_results_dict():
 
 def test_resolve_template_mb_rejects_unknown_input_type():
     from isoster.multiband.driver_mb import _resolve_template_mb
+
     with pytest.raises(TypeError, match="must be a file path"):
         _resolve_template_mb(42)
     with pytest.raises(TypeError):
@@ -1555,6 +1934,7 @@ def test_resolve_template_mb_rejects_unknown_input_type():
 
 def test_resolve_template_mb_rejects_missing_keys():
     from isoster.multiband.driver_mb import _resolve_template_mb
+
     bad_template = [{"sma": 10.0, "x0": 100.0, "y0": 100.0}]  # missing eps, pa
     with pytest.raises(ValueError, match="missing required keys"):
         _resolve_template_mb(bad_template)
@@ -1562,6 +1942,7 @@ def test_resolve_template_mb_rejects_missing_keys():
 
 def test_resolve_template_mb_rejects_empty_input():
     from isoster.multiband.driver_mb import _resolve_template_mb
+
     with pytest.raises(ValueError, match="cannot be empty"):
         _resolve_template_mb([])
     with pytest.raises(ValueError, match="cannot be empty"):
@@ -1570,6 +1951,7 @@ def test_resolve_template_mb_rejects_empty_input():
 
 def test_resolve_template_mb_dict_without_isophotes_key_rejected():
     from isoster.multiband.driver_mb import _resolve_template_mb
+
     with pytest.raises(ValueError, match="must contain an 'isophotes' key"):
         _resolve_template_mb({"foo": "bar"})
 
@@ -1578,6 +1960,7 @@ def test_forced_photometry_pins_geometry_exactly():
     """Stage-H invariant: every output row's (x0, y0, eps, pa, sma)
     is bit-identical to the corresponding template row."""
     from isoster.multiband import fit_image_multiband
+
     img1 = _planted_galaxy(amplitude=100.0, noise_sigma=0.005, seed=171)
     img2 = _planted_galaxy(amplitude=50.0, noise_sigma=0.005, seed=172)
     cfg = IsosterConfigMB(bands=["g", "r"], reference_band="g")
@@ -1588,7 +1971,9 @@ def test_forced_photometry_pins_geometry_exactly():
         _template_iso(sma=40.0, x0=128.2, y0=128.3, eps=0.35, pa=0.25),
     ]
     res = fit_image_multiband(
-        [img1, img2], masks=None, config=cfg,
+        [img1, img2],
+        masks=None,
+        config=cfg,
         template_isophotes=template,
     )
     rows = res["isophotes"]
@@ -1609,6 +1994,7 @@ def test_forced_photometry_accepts_singleband_result_as_template():
     extraction."""
     from isoster import IsosterConfig, fit_image
     from isoster.multiband import fit_image_multiband
+
     # Fit single-band on a planted galaxy first.
     img_i = _planted_galaxy(amplitude=100.0, noise_sigma=0.01, seed=200)
     sb_cfg = IsosterConfig(sma0=10.0, maxsma=40.0, astep=0.2, debug=True)
@@ -1620,7 +2006,9 @@ def test_forced_photometry_accepts_singleband_result_as_template():
     img_z = _planted_galaxy(amplitude=200.0, noise_sigma=0.01, seed=202)
     mb_cfg = IsosterConfigMB(bands=["g", "i", "z"], reference_band="i")
     res = fit_image_multiband(
-        [img_g, img_i, img_z], masks=None, config=mb_cfg,
+        [img_g, img_i, img_z],
+        masks=None,
+        config=mb_cfg,
         template_isophotes=sb_result,
     )
     rows = res["isophotes"]
@@ -1642,13 +2030,17 @@ def test_forced_photometry_warns_on_meaningless_features():
     """Validators warn-and-ignore for lock / outer-reg / central-reg /
     ref-mode when template_isophotes is provided."""
     import warnings as _warnings
+
     from isoster.multiband import fit_image_multiband
+
     img = _planted_galaxy(seed=300)
     with _warnings.catch_warnings():
         _warnings.simplefilter("ignore", UserWarning)
         cfg = IsosterConfigMB(
-            bands=["g", "r"], reference_band="g",
-            lsb_auto_lock=True, lsb_auto_lock_integrator="mean",
+            bands=["g", "r"],
+            reference_band="g",
+            lsb_auto_lock=True,
+            lsb_auto_lock_integrator="mean",
             use_outer_center_regularization=True,
             use_central_regularization=True,
         )
@@ -1656,14 +2048,17 @@ def test_forced_photometry_warns_on_meaningless_features():
     with _warnings.catch_warnings(record=True) as w:
         _warnings.simplefilter("always")
         res = fit_image_multiband(
-            [img, img], masks=None, config=cfg,
+            [img, img],
+            masks=None,
+            config=cfg,
             template_isophotes=template,
         )
     msgs = [str(item.message) for item in w]
     relevant = [m for m in msgs if "template_isophotes" in m]
     assert len(relevant) == 1, f"expected one warning, got: {msgs}"
     for token in (
-        "lsb_auto_lock", "use_outer_center_regularization",
+        "lsb_auto_lock",
+        "use_outer_center_regularization",
         "use_central_regularization",
     ):
         assert token in relevant[0]
@@ -1676,14 +2071,18 @@ def test_forced_photometry_no_warning_when_no_iteration_features():
     """Sanity: the warn-and-ignore message does NOT fire when none of
     the iteration-only features is enabled."""
     import warnings as _warnings
+
     from isoster.multiband import fit_image_multiband
+
     img = _planted_galaxy(seed=301)
     cfg = IsosterConfigMB(bands=["g", "r"], reference_band="g")
     template = [_template_iso(sma=10.0)]
     with _warnings.catch_warnings(record=True) as w:
         _warnings.simplefilter("always")
         fit_image_multiband(
-            [img, img], masks=None, config=cfg,
+            [img, img],
+            masks=None,
+            config=cfg,
             template_isophotes=template,
         )
     assert not any("template_isophotes" in str(m.message) for m in w)
@@ -1693,20 +2092,30 @@ def test_forced_photometry_composes_with_compute_cog():
     """compute_cog=True is the primary use case on top of forced
     extraction. Per-band cog_<b> + shared area_annulus must appear."""
     from isoster.multiband import fit_image_multiband
+
     img1 = _planted_galaxy(amplitude=100.0, noise_sigma=0.005, seed=400)
     img2 = _planted_galaxy(amplitude=50.0, noise_sigma=0.005, seed=401)
     cfg = IsosterConfigMB(
-        bands=["g", "r"], reference_band="g", compute_cog=True,
+        bands=["g", "r"],
+        reference_band="g",
+        compute_cog=True,
     )
     template = [_template_iso(sma=s) for s in (5.0, 10.0, 20.0, 40.0)]
     res = fit_image_multiband(
-        [img1, img2], masks=None, config=cfg,
+        [img1, img2],
+        masks=None,
+        config=cfg,
         template_isophotes=template,
     )
     for iso in res["isophotes"]:
         for k in (
-            "area_annulus", "flag_cross", "flag_negative_area",
-            "cog_g", "cog_r", "cog_annulus_g", "cog_annulus_r",
+            "area_annulus",
+            "flag_cross",
+            "flag_negative_area",
+            "cog_g",
+            "cog_r",
+            "cog_annulus_g",
+            "cog_annulus_r",
         ):
             assert k in iso, f"forced + compute_cog row missing {k}"
 
@@ -1715,6 +2124,7 @@ def test_forced_photometry_central_pixel_dispatch():
     """sma=0 row dispatches to _fit_central_pixel_mb (single pixel
     record), not to extract_forced_photometry_mb (ring extraction)."""
     from isoster.multiband import fit_image_multiband
+
     img1 = _planted_galaxy(seed=500)
     img2 = _planted_galaxy(seed=501)
     cfg = IsosterConfigMB(bands=["g", "r"], reference_band="g")
@@ -1724,7 +2134,9 @@ def test_forced_photometry_central_pixel_dispatch():
         _template_iso(sma=20.0),
     ]
     res = fit_image_multiband(
-        [img1, img2], masks=None, config=cfg,
+        [img1, img2],
+        masks=None,
+        config=cfg,
         template_isophotes=template,
     )
     rows = res["isophotes"]
@@ -1742,15 +2154,20 @@ def test_forced_photometry_harmonics_filled_when_compute_deviations_true():
     magnitude — we just check that the slot is non-zero (i.e. the
     post-hoc compute_deviations path actually ran)."""
     from isoster.multiband import fit_image_multiband
+
     img1 = _planted_galaxy(amplitude=100.0, noise_sigma=0.05, seed=701)
     img2 = _planted_galaxy(amplitude=50.0, noise_sigma=0.05, seed=702)
     cfg = IsosterConfigMB(
-        bands=["g", "r"], reference_band="g",
-        compute_deviations=True, harmonic_orders=[3, 4],
+        bands=["g", "r"],
+        reference_band="g",
+        compute_deviations=True,
+        harmonic_orders=[3, 4],
     )
     template = [_template_iso(sma=s) for s in (10.0, 20.0, 30.0, 40.0, 50.0)]
     res = fit_image_multiband(
-        [img1, img2], masks=None, config=cfg,
+        [img1, img2],
+        masks=None,
+        config=cfg,
         template_isophotes=template,
     )
     rows = res["isophotes"]
@@ -1768,8 +2185,7 @@ def test_forced_photometry_harmonics_filled_when_compute_deviations_true():
                 if abs(float(iso[f"b{n}_{b}"])) > 1e-12:
                     found_non_zero = True
     assert found_non_zero, (
-        "Stage-H.1: per-band harmonics should be filled (non-zero) "
-        "in forced mode with compute_deviations=True"
+        "Stage-H.1: per-band harmonics should be filled (non-zero) in forced mode with compute_deviations=True"
     )
     # Errors should also be real (non-zero) since they're propagated
     # from the WLS / OLS covariance.
@@ -1787,15 +2203,20 @@ def test_forced_photometry_harmonics_zero_when_compute_deviations_false():
     bypasses the harmonic-fill pass — columns stay at the zero-fill
     set by extract_forced_photometry_mb."""
     from isoster.multiband import fit_image_multiband
+
     img1 = _planted_galaxy(amplitude=100.0, noise_sigma=0.05, seed=703)
     img2 = _planted_galaxy(amplitude=50.0, noise_sigma=0.05, seed=704)
     cfg = IsosterConfigMB(
-        bands=["g", "r"], reference_band="g",
-        compute_deviations=False, harmonic_orders=[3, 4],
+        bands=["g", "r"],
+        reference_band="g",
+        compute_deviations=False,
+        harmonic_orders=[3, 4],
     )
     template = [_template_iso(sma=s) for s in (10.0, 20.0, 30.0, 40.0)]
     res = fit_image_multiband(
-        [img1, img2], masks=None, config=cfg,
+        [img1, img2],
+        masks=None,
+        config=cfg,
         template_isophotes=template,
     )
     for iso in res["isophotes"]:
@@ -1815,19 +2236,23 @@ def test_forced_photometry_harmonics_recover_planted_signal():
     (Bender-normalized: ``a3_norm = a3_raw / (sma * |dI/da|)``).
     """
     from isoster.multiband import fit_image_multiband
+
     # A synthetic galaxy with a known boxy/disky perturbation.
     # We use _planted_galaxy with mild noise — the recovered a4 / b4
     # should be small but non-zero, and we just check finite + the
     # deviations are smaller than the intensity scale (sanity).
     img = _planted_galaxy(amplitude=100.0, noise_sigma=0.01, seed=801)
     cfg = IsosterConfigMB(
-        bands=["g", "r"], reference_band="g",
-        compute_deviations=True, harmonic_orders=[3, 4],
+        bands=["g", "r"],
+        reference_band="g",
+        compute_deviations=True,
+        harmonic_orders=[3, 4],
     )
-    template = [_template_iso(sma=s, eps=0.30, pa=0.50) for s in
-                np.linspace(10.0, 50.0, 8)]
+    template = [_template_iso(sma=s, eps=0.30, pa=0.50) for s in np.linspace(10.0, 50.0, 8)]
     res = fit_image_multiband(
-        [img, img], masks=None, config=cfg,
+        [img, img],
+        masks=None,
+        config=cfg,
         template_isophotes=template,
     )
     rows = res["isophotes"]
@@ -1850,13 +2275,18 @@ def test_forced_photometry_fits_path_template(tmp_path):
     """Template input as a Schema-1 multi-band FITS path round-trips
     through _resolve_template_mb."""
     from isoster.multiband import (
-        fit_image_multiband, isophote_results_mb_to_fits,
+        fit_image_multiband,
+        isophote_results_mb_to_fits,
     )
+
     img1 = _planted_galaxy(amplitude=100.0, noise_sigma=0.005, seed=600)
     img2 = _planted_galaxy(amplitude=50.0, noise_sigma=0.005, seed=601)
     cfg_fit = IsosterConfigMB(
-        bands=["g", "r"], reference_band="g",
-        sma0=10.0, maxsma=40.0, astep=0.2,
+        bands=["g", "r"],
+        reference_band="g",
+        sma0=10.0,
+        maxsma=40.0,
+        astep=0.2,
     )
     fit_result = fit_image_multiband([img1, img2], masks=None, config=cfg_fit)
 
@@ -1866,7 +2296,9 @@ def test_forced_photometry_fits_path_template(tmp_path):
     # Now use that FITS file as the template.
     cfg_forced = IsosterConfigMB(bands=["g", "r"], reference_band="g")
     res = fit_image_multiband(
-        [img1, img2], masks=None, config=cfg_forced,
+        [img1, img2],
+        masks=None,
+        config=cfg_forced,
         template_isophotes=str(template_fits_path),
     )
     assert res["forced_photometry_mode"] is True
@@ -1907,9 +2339,7 @@ def test_b1_simultaneous_in_loop_ols_errors_rescaled_by_residual_variance():
     # higher orders. The helper fits any spurious harmonic against pure
     # noise; the OLS-rescaled SE must scale as the noise std.
     truth_geom = np.array(
-        [100.0, 200.0,
-         0.0, 0.0, 0.0, 0.0,
-         0.0, 0.0, 0.0, 0.0],
+        [100.0, 200.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
         dtype=np.float64,
     )
     base_intens = evaluate_joint_model(angles, truth_geom, n_bands)
@@ -1918,14 +2348,19 @@ def test_b1_simultaneous_in_loop_ols_errors_rescaled_by_residual_variance():
         rng = np.random.default_rng(seed)
         intens = base_intens + rng.normal(0.0, sigma, size=base_intens.shape)
         coeffs, cov, wls = fit_simultaneous_joint(
-            angles, intens,
+            angles,
+            intens,
             band_weights_arr=np.ones(n_bands, dtype=np.float64),
-            harmonic_orders=orders, variances_per_band=None,
+            harmonic_orders=orders,
+            variances_per_band=None,
         )
         assert wls is False  # OLS mode (no variance map)
         geom: dict = {}
         _attach_simultaneous_higher_harmonics_from_coeffs(
-            geom, bands, coeffs, cov,
+            geom,
+            bands,
+            coeffs,
+            cov,
             harmonic_orders=orders,
             wls_mode=False,
             angles=angles,
@@ -1942,8 +2377,7 @@ def test_b1_simultaneous_in_loop_ols_errors_rescaled_by_residual_variance():
     assert err_low > 0.0 and err_high > 0.0
     ratio = err_high / err_low
     assert 8.0 < ratio < 12.0, (
-        f"OLS rescale wrong: 10× noise → a3_err ratio = {ratio:.2f}; "
-        f"expected ≈ 10 after the B1 fix."
+        f"OLS rescale wrong: 10× noise → a3_err ratio = {ratio:.2f}; expected ≈ 10 after the B1 fix."
     )
 
 
@@ -1969,7 +2403,8 @@ def test_b1_simultaneous_original_post_hoc_ols_errors_rescaled():
     base_intens = evaluate_joint_model(angles, truth_geom, n_bands)
 
     cfg = IsosterConfigMB(
-        bands=bands, reference_band="g",
+        bands=bands,
+        reference_band="g",
         multiband_higher_harmonics="simultaneous_original",
         harmonic_orders=orders,
     )
@@ -1979,7 +2414,12 @@ def test_b1_simultaneous_original_post_hoc_ols_errors_rescaled():
         intens = base_intens + rng.normal(0.0, sigma, size=base_intens.shape)
         geom: dict = {}
         _attach_simultaneous_original_post_hoc(
-            geom, bands, cfg, angles, intens, None,
+            geom,
+            bands,
+            cfg,
+            angles,
+            intens,
+            None,
             np.ones(n_bands, dtype=np.float64),
             jagged=False,
         )
@@ -1990,8 +2430,7 @@ def test_b1_simultaneous_original_post_hoc_ols_errors_rescaled():
     assert err_low > 0.0 and err_high > 0.0
     ratio = err_high / err_low
     assert 8.0 < ratio < 12.0, (
-        f"simultaneous_original OLS rescale wrong: 10× noise → "
-        f"ratio = {ratio:.2f}; expected ≈ 10."
+        f"simultaneous_original OLS rescale wrong: 10× noise → ratio = {ratio:.2f}; expected ≈ 10."
     )
 
 
@@ -1999,17 +2438,22 @@ def test_b2_forced_mode_warns_on_loose_validity():
     """Review fix B2: forced extraction silently no-ops loose_validity;
     the warn-and-ignore message must surface it."""
     import warnings as _warnings
+
     from isoster.multiband import fit_image_multiband
 
     img = _planted_galaxy(seed=600)
     cfg = IsosterConfigMB(
-        bands=["g", "r"], reference_band="g", loose_validity=True,
+        bands=["g", "r"],
+        reference_band="g",
+        loose_validity=True,
     )
     template = [_template_iso(sma=10.0)]
     with _warnings.catch_warnings(record=True) as w:
         _warnings.simplefilter("always")
         fit_image_multiband(
-            [img, img], masks=None, config=cfg,
+            [img, img],
+            masks=None,
+            config=cfg,
             template_isophotes=template,
         )
     msgs = [str(item.message) for item in w if "template_isophotes" in str(item.message)]
@@ -2023,12 +2467,14 @@ def test_b2_forced_mode_warns_on_non_independent_higher_harmonics():
     modes are silently lost in forced mode and must surface in the warn-
     and-ignore message."""
     import warnings as _warnings
+
     from isoster.multiband import fit_image_multiband
 
     img = _planted_galaxy(seed=601)
     for mode in ("shared", "simultaneous_in_loop", "simultaneous_original"):
         cfg = IsosterConfigMB(
-            bands=["g", "r"], reference_band="g",
+            bands=["g", "r"],
+            reference_band="g",
             multiband_higher_harmonics=mode,
             harmonic_orders=[3, 4],
         )
@@ -2036,17 +2482,15 @@ def test_b2_forced_mode_warns_on_non_independent_higher_harmonics():
         with _warnings.catch_warnings(record=True) as w:
             _warnings.simplefilter("always")
             fit_image_multiband(
-                [img, img], masks=None, config=cfg,
+                [img, img],
+                masks=None,
+                config=cfg,
                 template_isophotes=template,
             )
-        msgs = [
-            str(item.message) for item in w
-            if "template_isophotes" in str(item.message)
-        ]
+        msgs = [str(item.message) for item in w if "template_isophotes" in str(item.message)]
         assert msgs, f"expected forced-mode warning for mode={mode!r}"
         assert "multiband_higher_harmonics" in msgs[0], (
-            f"warning for mode={mode!r} did not mention multiband_higher_harmonics: "
-            f"{msgs[0]}"
+            f"warning for mode={mode!r} did not mention multiband_higher_harmonics: {msgs[0]}"
         )
 
 
@@ -2058,8 +2502,11 @@ def test_b3_forced_mode_stamps_per_band_grad_columns():
     img1 = _planted_galaxy(amplitude=100.0, noise_sigma=0.005, seed=700)
     img2 = _planted_galaxy(amplitude=200.0, noise_sigma=0.005, seed=701)
     cfg = IsosterConfigMB(
-        bands=["g", "r"], reference_band="g",
-        compute_deviations=True, harmonic_orders=[3, 4], debug=True,
+        bands=["g", "r"],
+        reference_band="g",
+        compute_deviations=True,
+        harmonic_orders=[3, 4],
+        debug=True,
     )
     template = [
         _template_iso(sma=10.0, x0=128.0, y0=128.0),
@@ -2067,7 +2514,9 @@ def test_b3_forced_mode_stamps_per_band_grad_columns():
         _template_iso(sma=30.0, x0=128.0, y0=128.0),
     ]
     res = fit_image_multiband(
-        [img1, img2], masks=None, config=cfg,
+        [img1, img2],
+        masks=None,
+        config=cfg,
         template_isophotes=template,
     )
     assert res["forced_photometry_mode"] is True
@@ -2077,9 +2526,7 @@ def test_b3_forced_mode_stamps_per_band_grad_columns():
         for b in ("g", "r"):
             grad = iso.get(f"grad_{b}")
             assert grad is not None, f"missing grad_{b} on forced ring iso"
-            assert np.isfinite(float(grad)), (
-                f"grad_{b} is non-finite on forced ring: {grad!r}"
-            )
+            assert np.isfinite(float(grad)), f"grad_{b} is non-finite on forced ring: {grad!r}"
 
 
 def test_h1_user_config_variance_mode_unchanged_across_fits():
@@ -2100,10 +2547,19 @@ def test_h1_user_config_variance_mode_unchanged_across_fits():
     var_r = np.full_like(img_r, 0.005**2)
 
     cfg = IsosterConfigMB(
-        bands=["g", "r"], reference_band="g",
-        sma0=15.0, eps=0.2, pa=0.4, astep=0.2, maxsma=40.0,
-        minit=6, maxit=30, conver=0.05, fix_center=True,
-        compute_deviations=True, nclip=0,
+        bands=["g", "r"],
+        reference_band="g",
+        sma0=15.0,
+        eps=0.2,
+        pa=0.4,
+        astep=0.2,
+        maxsma=40.0,
+        minit=6,
+        maxit=30,
+        conver=0.05,
+        fix_center=True,
+        compute_deviations=True,
+        nclip=0,
     )
     # Default is "ols" until the driver overrides; capture and ensure
     # the field never changes on the user's instance.
@@ -2112,18 +2568,14 @@ def test_h1_user_config_variance_mode_unchanged_across_fits():
     # First run: OLS (no variance maps).
     res_ols = fit_image_multiband([img_g, img_r], None, cfg)
     assert res_ols["variance_mode"] == "ols"
-    assert cfg.variance_mode == initial_variance_mode, (
-        "OLS run mutated user's IsosterConfigMB.variance_mode"
-    )
+    assert cfg.variance_mode == initial_variance_mode, "OLS run mutated user's IsosterConfigMB.variance_mode"
 
     # Second run: WLS (variance maps provided). The driver's resolved
     # config sees ``"wls"``, but the user's instance must NOT have
     # acquired that value.
     res_wls = fit_image_multiband([img_g, img_r], None, cfg, variance_maps=[var_g, var_r])
     assert res_wls["variance_mode"] == "wls"
-    assert cfg.variance_mode == initial_variance_mode, (
-        "WLS run mutated user's IsosterConfigMB.variance_mode"
-    )
+    assert cfg.variance_mode == initial_variance_mode, "WLS run mutated user's IsosterConfigMB.variance_mode"
 
     # Third run: back to OLS — verify the WLS run did not stick on the
     # user's instance and the OLS path resolves cleanly again.
@@ -2155,14 +2607,27 @@ def test_h3_central_pixel_wls_uses_variance_map_for_intens_err():
     var_r = np.full_like(img_r, sigma_r**2)
 
     cfg = IsosterConfigMB(
-        bands=["g", "r"], reference_band="g",
-        sma0=12.0, minsma=0.0, eps=0.2, pa=0.4, astep=0.2, maxsma=30.0,
-        minit=6, maxit=30, conver=0.05, fix_center=True, nclip=0,
+        bands=["g", "r"],
+        reference_band="g",
+        sma0=12.0,
+        minsma=0.0,
+        eps=0.2,
+        pa=0.4,
+        astep=0.2,
+        maxsma=30.0,
+        minit=6,
+        maxit=30,
+        conver=0.05,
+        fix_center=True,
+        nclip=0,
     )
 
     # WLS run.
     res_wls = fit_image_multiband(
-        [img_g, img_r], None, cfg, variance_maps=[var_g, var_r],
+        [img_g, img_r],
+        None,
+        cfg,
+        variance_maps=[var_g, var_r],
     )
     central = next(iso for iso in res_wls["isophotes"] if iso["sma"] == 0.0)
     assert central["intens_err_g"] == pytest.approx(sigma_g, rel=1e-9)
@@ -2190,12 +2655,25 @@ def test_h3_central_pixel_wls_with_single_broadcast_variance_map():
     var_shared = np.full_like(img_g, sigma**2)
 
     cfg = IsosterConfigMB(
-        bands=["g", "r"], reference_band="g",
-        sma0=12.0, minsma=0.0, eps=0.2, pa=0.4, astep=0.2, maxsma=30.0,
-        minit=6, maxit=30, conver=0.05, fix_center=True, nclip=0,
+        bands=["g", "r"],
+        reference_band="g",
+        sma0=12.0,
+        minsma=0.0,
+        eps=0.2,
+        pa=0.4,
+        astep=0.2,
+        maxsma=30.0,
+        minit=6,
+        maxit=30,
+        conver=0.05,
+        fix_center=True,
+        nclip=0,
     )
     res = fit_image_multiband(
-        [img_g, img_r], None, cfg, variance_maps=var_shared,
+        [img_g, img_r],
+        None,
+        cfg,
+        variance_maps=var_shared,
     )
     central = next(iso for iso in res["isophotes"] if iso["sma"] == 0.0)
     assert central["intens_err_g"] == pytest.approx(sigma, rel=1e-9)
@@ -2226,13 +2704,21 @@ def test_h4_forced_mode_ols_mean_sem_uses_unbiased_sample_std():
     img_r = base_r + rng.normal(0.0, sigma, size=base_r.shape)
 
     cfg = IsosterConfigMB(
-        bands=["g", "r"], reference_band="g",
+        bands=["g", "r"],
+        reference_band="g",
         integrator="mean",
     )
     geom = extract_forced_photometry_mb(
-        images=[img_g, img_r], masks=None,
-        x0=x0, y0=y0, sma=40.0, eps=0.0, pa=0.0,
-        bands=["g", "r"], config=cfg, variance_maps=None,
+        images=[img_g, img_r],
+        masks=None,
+        x0=x0,
+        y0=y0,
+        sma=40.0,
+        eps=0.0,
+        pa=0.0,
+        bands=["g", "r"],
+        config=cfg,
+        variance_maps=None,
     )
     # The unbiased SEM of N≈251 samples drawn from N(μ, σ²) should be
     # σ/√N to within 5% (large-N regime). The old (biased) formula
@@ -2244,7 +2730,13 @@ def test_h4_forced_mode_ols_mean_sem_uses_unbiased_sample_std():
     from isoster.multiband.sampling_mb import extract_isophote_data_multi
 
     data = extract_isophote_data_multi(
-        [img_g, img_r], None, x0, y0, 40.0, 0.0, 0.0,
+        [img_g, img_r],
+        None,
+        x0,
+        y0,
+        40.0,
+        0.0,
+        0.0,
         use_eccentric_anomaly=False,
     )
     n_b = data.intens.shape[1]
@@ -2280,27 +2772,38 @@ def test_h4_forced_mode_ols_median_sem_applies_gaussian_factor():
     # ``integrator='median'`` requires fit_per_band_intens_jointly=False
     # (Stage-A's S1 hard-error in joint matrix mode).
     cfg = IsosterConfigMB(
-        bands=["g", "r"], reference_band="g",
-        integrator="median", fit_per_band_intens_jointly=False,
+        bands=["g", "r"],
+        reference_band="g",
+        integrator="median",
+        fit_per_band_intens_jointly=False,
     )
     geom = extract_forced_photometry_mb(
-        images=[img_g, img_r], masks=None,
-        x0=x0, y0=y0, sma=40.0, eps=0.0, pa=0.0,
-        bands=["g", "r"], config=cfg, variance_maps=None,
+        images=[img_g, img_r],
+        masks=None,
+        x0=x0,
+        y0=y0,
+        sma=40.0,
+        eps=0.0,
+        pa=0.0,
+        bands=["g", "r"],
+        config=cfg,
+        variance_maps=None,
     )
 
     data = extract_isophote_data_multi(
-        [img_g, img_r], None, x0, y0, 40.0, 0.0, 0.0,
+        [img_g, img_r],
+        None,
+        x0,
+        y0,
+        40.0,
+        0.0,
+        0.0,
         use_eccentric_anomaly=False,
     )
     n_b = data.intens.shape[1]
     median_factor = float(np.sqrt(np.pi / 2.0))
-    expected_sem_g = float(
-        median_factor * np.std(data.intens[0], ddof=1) / np.sqrt(n_b)
-    )
-    expected_sem_r = float(
-        median_factor * np.std(data.intens[1], ddof=1) / np.sqrt(n_b)
-    )
+    expected_sem_g = float(median_factor * np.std(data.intens[0], ddof=1) / np.sqrt(n_b))
+    expected_sem_r = float(median_factor * np.std(data.intens[1], ddof=1) / np.sqrt(n_b))
     assert geom["intens_err_g"] == pytest.approx(expected_sem_g, rel=1e-9)
     assert geom["intens_err_r"] == pytest.approx(expected_sem_r, rel=1e-9)
     # And the mean-branch formula must NOT match — the user-visible
@@ -2329,13 +2832,27 @@ def test_h4_forced_mode_wls_intens_err_unchanged():
 
     cfg = IsosterConfigMB(bands=["g", "r"], reference_band="g")
     geom = extract_forced_photometry_mb(
-        images=[img_g, img_r], masks=None,
-        x0=x0, y0=y0, sma=40.0, eps=0.0, pa=0.0,
-        bands=["g", "r"], config=cfg, variance_maps=[var_g, var_r],
+        images=[img_g, img_r],
+        masks=None,
+        x0=x0,
+        y0=y0,
+        sma=40.0,
+        eps=0.0,
+        pa=0.0,
+        bands=["g", "r"],
+        config=cfg,
+        variance_maps=[var_g, var_r],
     )
     data = extract_isophote_data_multi(
-        [img_g, img_r], None, x0, y0, 40.0, 0.0, 0.0,
-        use_eccentric_anomaly=False, variance_maps=[var_g, var_r],
+        [img_g, img_r],
+        None,
+        x0,
+        y0,
+        40.0,
+        0.0,
+        0.0,
+        use_eccentric_anomaly=False,
+        variance_maps=[var_g, var_r],
     )
     sum_w_g = float((1.0 / data.variances[0]).sum())
     sum_w_r = float((1.0 / data.variances[1]).sum())
@@ -2357,12 +2874,24 @@ def test_h3_central_pixel_masked_wls_keeps_zero_error():
     mask_r = np.zeros_like(img, dtype=bool)
 
     cfg = IsosterConfigMB(
-        bands=["g", "r"], reference_band="r",
-        sma0=12.0, minsma=0.0, eps=0.2, pa=0.4, astep=0.2, maxsma=30.0,
-        minit=6, maxit=30, conver=0.05, fix_center=True, nclip=0,
+        bands=["g", "r"],
+        reference_band="r",
+        sma0=12.0,
+        minsma=0.0,
+        eps=0.2,
+        pa=0.4,
+        astep=0.2,
+        maxsma=30.0,
+        minit=6,
+        maxit=30,
+        conver=0.05,
+        fix_center=True,
+        nclip=0,
     )
     res = fit_image_multiband(
-        [img, img], [mask_g, mask_r], cfg,
+        [img, img],
+        [mask_g, mask_r],
+        cfg,
         variance_maps=[var_map, var_map],
     )
     central = next(iso for iso in res["isophotes"] if iso["sma"] == 0.0)

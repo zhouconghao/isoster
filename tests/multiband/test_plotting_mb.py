@@ -24,9 +24,7 @@ def _planted(amp: float, seed: int) -> np.ndarray:
     x_rot = dx * cos_pa + dy * sin_pa
     y_rot = -dx * sin_pa + dy * cos_pa
     r = np.sqrt(x_rot**2 + (y_rot / 0.7) ** 2)
-    return amp * np.exp(-3.0 * ((r / 25.0) ** (1 / 1.5) - 1.0)) + rng.normal(
-        0, 0.05, (h, w)
-    )
+    return amp * np.exp(-3.0 * ((r / 25.0) ** (1 / 1.5) - 1.0)) + rng.normal(0, 0.05, (h, w))
 
 
 @pytest.fixture
@@ -35,9 +33,14 @@ def three_band_result():
     img_r = _planted(200.0, 2)
     img_i = _planted(300.0, 3)
     cfg = IsosterConfigMB(
-        bands=["g", "r", "i"], reference_band="r",
-        sma0=15.0, astep=0.2, maxsma=50.0,
-        debug=True, compute_deviations=True, nclip=0,
+        bands=["g", "r", "i"],
+        reference_band="r",
+        sma0=15.0,
+        astep=0.2,
+        maxsma=50.0,
+        debug=True,
+        compute_deviations=True,
+        nclip=0,
     )
     return cfg, [img_g, img_r, img_i], fit_image_multiband([img_g, img_r, img_i], None, cfg)
 
@@ -52,8 +55,10 @@ def test_plot_qa_summary_mb_renders_without_exception(three_band_result, tmp_pat
 def test_plot_qa_summary_mb_with_sb_constants(three_band_result, tmp_path):
     cfg, images, result = three_band_result
     fig = plot_qa_summary_mb(
-        result, images,
-        sb_zeropoint=27.0, pixel_scale_arcsec=0.168,
+        result,
+        images,
+        sb_zeropoint=27.0,
+        pixel_scale_arcsec=0.168,
         softening_per_band={"g": 0.05, "r": 0.05, "i": 0.05},
         output_path=tmp_path / "qa_sb.png",
         title="multiband QA test",
@@ -82,21 +87,25 @@ def test_plot_qa_summary_mb_loose_validity_renders_n_valid_panel(tmp_path):
     img_g = _planted(100.0, 1)
     img_r = _planted(200.0, 2)
     cfg = IsosterConfigMB(
-        bands=["g", "r"], reference_band="g",
-        sma0=15.0, astep=0.2, maxsma=50.0,
-        debug=True, compute_deviations=True, nclip=0,
+        bands=["g", "r"],
+        reference_band="g",
+        sma0=15.0,
+        astep=0.2,
+        maxsma=50.0,
+        debug=True,
+        compute_deviations=True,
+        nclip=0,
         loose_validity=True,
     )
     result = fit_image_multiband([img_g, img_r], None, cfg)
     fig = plot_qa_summary_mb(
-        result, [img_g, img_r], output_path=tmp_path / "qa_loose.png",
+        result,
+        [img_g, img_r],
+        output_path=tmp_path / "qa_loose.png",
     )
     assert (tmp_path / "qa_loose.png").exists()
     # The bottom-right gridspec must have 4 stacked rows in loose mode
     # (eps / pa / center / n_valid) instead of the default 3.
-    geom_axes = [
-        ax for ax in fig.axes
-        if ax.get_ylabel().startswith(r"$N_{\rm valid}")
-    ]
+    geom_axes = [ax for ax in fig.axes if ax.get_ylabel().startswith(r"$N_{\rm valid}")]
     assert len(geom_axes) == 1
     plt.close(fig)

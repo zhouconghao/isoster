@@ -15,7 +15,6 @@ from isoster.multiband.sampling_mb import (
 )
 from isoster.sampling import extract_isophote_data
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -39,9 +38,7 @@ def test_b1_intensity_matches_single_band():
     mask = np.zeros_like(img, dtype=bool)
 
     sb = extract_isophote_data(img, mask, x0=64.0, y0=64.0, sma=15.0, eps=0.2, pa=0.3)
-    mb = extract_isophote_data_multi(
-        [img], mask, x0=64.0, y0=64.0, sma=15.0, eps=0.2, pa=0.3
-    )
+    mb = extract_isophote_data_multi([img], mask, x0=64.0, y0=64.0, sma=15.0, eps=0.2, pa=0.3)
 
     assert isinstance(mb, MultiIsophoteData)
     assert mb.intens.shape == (1, len(sb.intens))
@@ -55,12 +52,8 @@ def test_b1_with_variance_matches_single_band():
     mask = np.zeros_like(img, dtype=bool)
     var = np.ones_like(img) * 0.1
 
-    sb = extract_isophote_data(
-        img, mask, x0=64.0, y0=64.0, sma=15.0, eps=0.2, pa=0.3, variance_map=var
-    )
-    mb = extract_isophote_data_multi(
-        [img], mask, x0=64.0, y0=64.0, sma=15.0, eps=0.2, pa=0.3, variance_maps=[var]
-    )
+    sb = extract_isophote_data(img, mask, x0=64.0, y0=64.0, sma=15.0, eps=0.2, pa=0.3, variance_map=var)
+    mb = extract_isophote_data_multi([img], mask, x0=64.0, y0=64.0, sma=15.0, eps=0.2, pa=0.3, variance_maps=[var])
 
     np.testing.assert_allclose(mb.intens[0], sb.intens, atol=1e-12)
     assert mb.variances is not None
@@ -85,12 +78,20 @@ def test_shared_validity_via_per_band_masks():
     mb_unmasked = extract_isophote_data_multi(
         [img1, img2],
         masks=[mask1, np.zeros_like(img1, dtype=bool)],
-        x0=64.0, y0=64.0, sma=20.0, eps=0.0, pa=0.0,
+        x0=64.0,
+        y0=64.0,
+        sma=20.0,
+        eps=0.0,
+        pa=0.0,
     )
     mb_masked = extract_isophote_data_multi(
         [img1, img2],
         masks=[mask1, mask2],
-        x0=64.0, y0=64.0, sma=20.0, eps=0.0, pa=0.0,
+        x0=64.0,
+        y0=64.0,
+        sma=20.0,
+        eps=0.0,
+        pa=0.0,
     )
 
     # Some samples should have been dropped from both bands.
@@ -107,7 +108,13 @@ def test_shared_validity_via_nan_in_one_band():
     img2[64, 84] = np.nan
 
     mb = extract_isophote_data_multi(
-        [img1, img2], None, x0=64.0, y0=64.0, sma=20.0, eps=0.0, pa=0.0,
+        [img1, img2],
+        None,
+        x0=64.0,
+        y0=64.0,
+        sma=20.0,
+        eps=0.0,
+        pa=0.0,
     )
     # All retained intensities are finite in *both* bands.
     assert np.all(np.isfinite(mb.intens))
@@ -126,12 +133,24 @@ def test_non_positive_variance_sanitized_and_warned():
     var2[64, 84] = -1.0
 
     mb_clean = extract_isophote_data_multi(
-        [img1, img2], None, x0=64.0, y0=64.0, sma=20.0, eps=0.0, pa=0.0,
+        [img1, img2],
+        None,
+        x0=64.0,
+        y0=64.0,
+        sma=20.0,
+        eps=0.0,
+        pa=0.0,
         variance_maps=[var1, var1.copy()],
     )
     with pytest.warns(RuntimeWarning, match="non-positive"):
         mb_sanit = extract_isophote_data_multi(
-            [img1, img2], None, x0=64.0, y0=64.0, sma=20.0, eps=0.0, pa=0.0,
+            [img1, img2],
+            None,
+            x0=64.0,
+            y0=64.0,
+            sma=20.0,
+            eps=0.0,
+            pa=0.0,
             variance_maps=[var1, var2],
         )
     # No samples dropped — the bad pixel is clamped, not excluded. Users
@@ -148,7 +167,13 @@ def test_all_masked_returns_zero_valid():
     img2 = _gaussian_image()
     mask_all = np.ones_like(img1, dtype=bool)
     mb = extract_isophote_data_multi(
-        [img1, img2], [None, mask_all], x0=64.0, y0=64.0, sma=20.0, eps=0.0, pa=0.0,
+        [img1, img2],
+        [None, mask_all],
+        x0=64.0,
+        y0=64.0,
+        sma=20.0,
+        eps=0.0,
+        pa=0.0,
     )
     assert mb.valid_count == 0
     assert mb.intens.shape == (2, 0)
@@ -166,10 +191,22 @@ def test_single_mask_broadcasts():
     mask[60:68, 80:96] = True
 
     mb_broadcast = extract_isophote_data_multi(
-        [img1, img2], mask, x0=64.0, y0=64.0, sma=20.0, eps=0.0, pa=0.0,
+        [img1, img2],
+        mask,
+        x0=64.0,
+        y0=64.0,
+        sma=20.0,
+        eps=0.0,
+        pa=0.0,
     )
     mb_per_band = extract_isophote_data_multi(
-        [img1, img2], [mask, mask], x0=64.0, y0=64.0, sma=20.0, eps=0.0, pa=0.0,
+        [img1, img2],
+        [mask, mask],
+        x0=64.0,
+        y0=64.0,
+        sma=20.0,
+        eps=0.0,
+        pa=0.0,
     )
     np.testing.assert_array_equal(mb_broadcast.intens, mb_per_band.intens)
 
@@ -179,7 +216,13 @@ def test_variance_all_or_nothing_rejects_none_in_list():
     var = np.ones_like(img)
     with pytest.raises(ValueError, match="all-or-nothing"):
         extract_isophote_data_multi(
-            [img, img], None, x0=64.0, y0=64.0, sma=15.0, eps=0.0, pa=0.0,
+            [img, img],
+            None,
+            x0=64.0,
+            y0=64.0,
+            sma=15.0,
+            eps=0.0,
+            pa=0.0,
             variance_maps=[var, None],  # type: ignore[list-item]
         )
 
@@ -189,7 +232,14 @@ def test_variance_single_ndarray_broadcasts():
     img2 = _gaussian_image() * 0.5
     var = np.ones_like(img1) * 0.2
     mb = extract_isophote_data_multi(
-        [img1, img2], None, x0=64.0, y0=64.0, sma=15.0, eps=0.0, pa=0.0, variance_maps=var,
+        [img1, img2],
+        None,
+        x0=64.0,
+        y0=64.0,
+        sma=15.0,
+        eps=0.0,
+        pa=0.0,
+        variance_maps=var,
     )
     assert mb.variances is not None
     np.testing.assert_allclose(mb.variances[0], mb.variances[1], atol=1e-12)
@@ -205,7 +255,13 @@ def test_shape_mismatch_in_images_rejected():
     img2 = _gaussian_image(h=64, w=64)
     with pytest.raises(ValueError, match="shape"):
         extract_isophote_data_multi(
-            [img1, img2], None, x0=64.0, y0=64.0, sma=15.0, eps=0.0, pa=0.0,
+            [img1, img2],
+            None,
+            x0=64.0,
+            y0=64.0,
+            sma=15.0,
+            eps=0.0,
+            pa=0.0,
         )
 
 
@@ -214,7 +270,13 @@ def test_mask_list_wrong_length_rejected():
     mask = np.zeros_like(img, dtype=bool)
     with pytest.raises(ValueError, match="length"):
         extract_isophote_data_multi(
-            [img, img], [mask], x0=64.0, y0=64.0, sma=15.0, eps=0.0, pa=0.0,
+            [img, img],
+            [mask],
+            x0=64.0,
+            y0=64.0,
+            sma=15.0,
+            eps=0.0,
+            pa=0.0,
         )
 
 
@@ -223,7 +285,13 @@ def test_variance_list_wrong_length_rejected():
     var = np.ones_like(img)
     with pytest.raises(ValueError, match="length"):
         extract_isophote_data_multi(
-            [img, img, img], None, x0=64.0, y0=64.0, sma=15.0, eps=0.0, pa=0.0,
+            [img, img, img],
+            None,
+            x0=64.0,
+            y0=64.0,
+            sma=15.0,
+            eps=0.0,
+            pa=0.0,
             variance_maps=[var, var],
         )
 

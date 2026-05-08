@@ -34,7 +34,6 @@ from isoster.multiband.utils_mb import (
     isophote_results_mb_to_fits,
 )
 
-
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
@@ -72,9 +71,7 @@ def _three_band_planted(
     rng_seeds = (7, 11, 13)
     bands = []
     for scale, seed in zip((1.0, 1.5, 2.0), rng_seeds):
-        bands.append(
-            _planted_arc_band(scale=scale, m4_amp=m4_amp, seed=seed)
-        )
+        bands.append(_planted_arc_band(scale=scale, m4_amp=m4_amp, seed=seed))
     return tuple(bands)  # type: ignore[return-value]
 
 
@@ -120,12 +117,8 @@ def test_independent_default_runs_and_per_band_columns_differ():
     assert all(r["stop_code"] == 0 for r in iso)
     # With three independent bands and noise, per-band a4 / b4 generically
     # differ (especially at the iso-by-iso scale).
-    differs_a4 = any(
-        not (r["a4_g"] == r["a4_r"] == r["a4_i"]) for r in iso
-    )
-    differs_b4 = any(
-        not (r["b4_g"] == r["b4_r"] == r["b4_i"]) for r in iso
-    )
+    differs_a4 = any(not (r["a4_g"] == r["a4_r"] == r["a4_i"]) for r in iso)
+    differs_b4 = any(not (r["b4_g"] == r["b4_r"] == r["b4_i"]) for r in iso)
     assert differs_a4 or differs_b4
 
 
@@ -155,11 +148,7 @@ def test_shared_mode_produces_identical_per_band_values():
         for n_order in (3, 4):
             assert r[f"a{n_order}_g"] == r[f"a{n_order}_r"] == r[f"a{n_order}_i"]
             assert r[f"b{n_order}_g"] == r[f"b{n_order}_r"] == r[f"b{n_order}_i"]
-            assert (
-                r[f"a{n_order}_err_g"]
-                == r[f"a{n_order}_err_r"]
-                == r[f"a{n_order}_err_i"]
-            )
+            assert r[f"a{n_order}_err_g"] == r[f"a{n_order}_err_r"] == r[f"a{n_order}_err_i"]
 
 
 def test_shared_mode_recovers_planted_m4_signal():
@@ -291,7 +280,8 @@ def test_simultaneous_in_loop_emits_warning():
     with warnings.catch_warnings(record=True) as captured:
         warnings.simplefilter("always")
         IsosterConfigMB(
-            bands=["g", "r"], reference_band="g",
+            bands=["g", "r"],
+            reference_band="g",
             multiband_higher_harmonics="simultaneous_in_loop",
         )
     msgs = [str(w.message) for w in captured if issubclass(w.category, UserWarning)]
@@ -389,11 +379,7 @@ def test_fit_simultaneous_joint_recovers_planted_m4():
     phi = np.linspace(0.0, 2 * np.pi, N, endpoint=False)
     I0 = np.array([1.0, 1.5, 2.0])
     A4_true = 0.04
-    intens = (
-        I0[:, None]
-        + A4_true * np.cos(4 * phi)[None, :]
-        + 0.001 * rng.standard_normal((B, N))
-    ).astype(np.float64)
+    intens = (I0[:, None] + A4_true * np.cos(4 * phi)[None, :] + 0.001 * rng.standard_normal((B, N))).astype(np.float64)
     bw = np.ones(B, dtype=np.float64)
     coeffs, cov, _ = fit_simultaneous_joint(phi, intens, bw, [3, 4])
     assert coeffs.shape == (B + 4 + 4,)
@@ -401,9 +387,9 @@ def test_fit_simultaneous_joint_recovers_planted_m4():
     # Per-band I0
     np.testing.assert_allclose(coeffs[:B], I0, atol=2e-4)
     # Geometric (A1, B1, A2, B2) ≈ 0
-    np.testing.assert_allclose(coeffs[B:B + 4], np.zeros(4), atol=2e-3)
+    np.testing.assert_allclose(coeffs[B : B + 4], np.zeros(4), atol=2e-3)
     # Higher block: A3, B3, A4, B4. Only B4 has a planted signal.
-    higher = coeffs[B + 4: B + 8]
+    higher = coeffs[B + 4 : B + 8]
     np.testing.assert_allclose(higher[0], 0.0, atol=2e-3)  # a3
     np.testing.assert_allclose(higher[1], 0.0, atol=2e-3)  # b3
     np.testing.assert_allclose(higher[2], 0.0, atol=2e-3)  # a4
@@ -423,17 +409,16 @@ def test_fit_simultaneous_joint_loose_jagged_path():
     A4_true = 0.04
     intens_per_band = []
     for b in range(3):
-        i_b = (
-            I0[b]
-            + A4_true * np.cos(4 * phi_per_band[b])
-            + 0.001 * rng.standard_normal(n_keep[b])
-        )
+        i_b = I0[b] + A4_true * np.cos(4 * phi_per_band[b]) + 0.001 * rng.standard_normal(n_keep[b])
         intens_per_band.append(i_b)
     bw = np.ones(3, dtype=np.float64)
     coeffs, cov, _ = fit_simultaneous_joint_loose(
-        phi_per_band, intens_per_band, bw, [3, 4],
+        phi_per_band,
+        intens_per_band,
+        bw,
+        [3, 4],
     )
     assert coeffs.shape == (3 + 4 + 4,)
     np.testing.assert_allclose(coeffs[:3], I0, atol=5e-4)
-    a3, b3, a4, b4 = coeffs[3 + 4: 3 + 8]
+    a3, b3, a4, b4 = coeffs[3 + 4 : 3 + 8]
     np.testing.assert_allclose(b4, A4_true, atol=3e-3)

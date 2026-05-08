@@ -15,7 +15,6 @@ from isoster.multiband import (
     load_bands_from_hdus,
 )
 
-
 # ---------------------------------------------------------------------------
 # Helpers (lifted from test_driver_mb to avoid cross-fixture coupling)
 # ---------------------------------------------------------------------------
@@ -42,10 +41,16 @@ def _planted(amp: float = 100.0, seed: int = 0) -> np.ndarray:
 
 def _two_band_fit() -> dict:
     cfg = IsosterConfigMB(
-        bands=["g", "r"], reference_band="g",
-        sma0=15.0, eps=0.2, pa=0.4,
-        astep=0.2, maxsma=50.0,
-        debug=True, compute_deviations=True, nclip=0,
+        bands=["g", "r"],
+        reference_band="g",
+        sma0=15.0,
+        eps=0.2,
+        pa=0.4,
+        astep=0.2,
+        maxsma=50.0,
+        debug=True,
+        compute_deviations=True,
+        nclip=0,
     )
     return fit_image_multiband([_planted(100.0, 1), _planted(200.0, 2)], None, cfg)
 
@@ -64,8 +69,7 @@ def test_to_table_has_per_band_and_shared_columns():
         assert shared in cols, f"missing shared column {shared}"
     # Per-band suffixes
     for b in ("g", "r"):
-        for col in (f"intens_{b}", f"intens_err_{b}", f"rms_{b}",
-                    f"a3_{b}", f"b3_{b}", f"a4_{b}", f"b4_{b}"):
+        for col in (f"intens_{b}", f"intens_err_{b}", f"rms_{b}", f"a3_{b}", f"b3_{b}", f"a4_{b}", f"b4_{b}"):
             assert col in cols, f"missing per-band column {col}"
 
 
@@ -92,7 +96,10 @@ def test_fits_roundtrip_preserves_per_band_columns(tmp_path):
                     assert np.isnan(float(restored[col]))
                 else:
                     np.testing.assert_allclose(
-                        float(restored[col]), float(orig[col]), atol=1e-9, rtol=0,
+                        float(restored[col]),
+                        float(orig[col]),
+                        atol=1e-9,
+                        rtol=0,
                     )
 
 
@@ -102,9 +109,16 @@ def test_fits_roundtrip_loose_validity_preserves_n_valid_columns(tmp_path):
     img_g = _planted(100.0, 1)
     img_r = _planted(200.0, 2)
     cfg = IsosterConfigMB(
-        bands=["g", "r"], reference_band="g",
-        sma0=15.0, eps=0.2, pa=0.4, astep=0.2, maxsma=60.0,
-        debug=True, nclip=0, loose_validity=True,
+        bands=["g", "r"],
+        reference_band="g",
+        sma0=15.0,
+        eps=0.2,
+        pa=0.4,
+        astep=0.2,
+        maxsma=60.0,
+        debug=True,
+        nclip=0,
+        loose_validity=True,
     )
     result = fit_image_multiband([img_g, img_r], None, cfg)
     fname = tmp_path / "mb_loose.fits"
@@ -138,14 +152,22 @@ def test_fits_roundtrip_records_multiband_keys_in_primary_header(tmp_path):
 
 def test_fits_roundtrip_with_variance_maps_records_wls(tmp_path):
     cfg = IsosterConfigMB(
-        bands=["g", "r"], reference_band="g",
-        sma0=15.0, astep=0.2, maxsma=40.0, debug=True, nclip=0,
+        bands=["g", "r"],
+        reference_band="g",
+        sma0=15.0,
+        astep=0.2,
+        maxsma=40.0,
+        debug=True,
+        nclip=0,
     )
     img_g = _planted(100.0, 1)
     img_r = _planted(200.0, 2)
     var = np.full_like(img_g, 0.05**2)
     result = fit_image_multiband(
-        [img_g, img_r], None, cfg, variance_maps=[var, var.copy()],
+        [img_g, img_r],
+        None,
+        cfg,
+        variance_maps=[var, var.copy()],
     )
     fname = tmp_path / "mb_result_wls.fits"
     isophote_results_mb_to_fits(result, fname)
@@ -197,8 +219,13 @@ def test_fits_roundtrip_preserves_compute_cog_columns(tmp_path):
     img_g = _planted(100.0, 11)
     img_r = _planted(200.0, 12)
     cfg = IsosterConfigMB(
-        bands=["g", "r"], reference_band="g",
-        sma0=12.0, eps=0.2, pa=0.3, astep=0.2, maxsma=60.0,
+        bands=["g", "r"],
+        reference_band="g",
+        sma0=12.0,
+        eps=0.2,
+        pa=0.3,
+        astep=0.2,
+        maxsma=60.0,
         compute_cog=True,
     )
     result = fit_image_multiband([img_g, img_r], None, cfg)
@@ -210,12 +237,14 @@ def test_fits_roundtrip_preserves_compute_cog_columns(tmp_path):
     # Verify per-row per-band cog columns + shared geometry-derived
     # columns survive the FITS round-trip.
     for orig, restored in zip(result["isophotes"], loaded["isophotes"]):
-        for col in ("cog_g", "cog_r", "cog_annulus_g", "cog_annulus_r",
-                    "area_annulus"):
+        for col in ("cog_g", "cog_r", "cog_annulus_g", "cog_annulus_r", "area_annulus"):
             assert col in orig
             assert col in restored
             np.testing.assert_allclose(
-                float(restored[col]), float(orig[col]), atol=1e-9, rtol=0,
+                float(restored[col]),
+                float(orig[col]),
+                atol=1e-9,
+                rtol=0,
             )
         for col in ("flag_cross", "flag_negative_area"):
             assert col in orig
@@ -248,17 +277,32 @@ def test_asdf_roundtrip_preserves_per_band_columns(tmp_path):
 
     assert len(loaded["isophotes"]) == len(result["isophotes"])
     for orig, restored in zip(result["isophotes"], loaded["isophotes"]):
-        for col in ("sma", "x0", "y0", "eps", "pa",
-                    "intens_g", "intens_r",
-                    "a3_g", "b3_g", "a4_g", "b4_g",
-                    "a3_r", "b3_r", "a4_r", "b4_r"):
+        for col in (
+            "sma",
+            "x0",
+            "y0",
+            "eps",
+            "pa",
+            "intens_g",
+            "intens_r",
+            "a3_g",
+            "b3_g",
+            "a4_g",
+            "b4_g",
+            "a3_r",
+            "b3_r",
+            "a4_r",
+            "b4_r",
+        ):
             if col in orig and orig[col] is not None:
                 if isinstance(orig[col], float) and np.isnan(orig[col]):
                     assert np.isnan(float(restored[col]))
                 else:
                     np.testing.assert_allclose(
-                        float(restored[col]), float(orig[col]),
-                        atol=1e-9, rtol=0,
+                        float(restored[col]),
+                        float(orig[col]),
+                        atol=1e-9,
+                        rtol=0,
                     )
 
 
@@ -281,8 +325,13 @@ def test_asdf_roundtrip_preserves_compute_cog_columns(tmp_path):
     img_g = _planted(100.0, 11)
     img_r = _planted(200.0, 12)
     cfg = IsosterConfigMB(
-        bands=["g", "r"], reference_band="g",
-        sma0=12.0, eps=0.2, pa=0.3, astep=0.2, maxsma=60.0,
+        bands=["g", "r"],
+        reference_band="g",
+        sma0=12.0,
+        eps=0.2,
+        pa=0.3,
+        astep=0.2,
+        maxsma=60.0,
         compute_cog=True,
     )
     result = fit_image_multiband([img_g, img_r], None, cfg)
@@ -292,11 +341,13 @@ def test_asdf_roundtrip_preserves_compute_cog_columns(tmp_path):
 
     assert len(loaded["isophotes"]) == len(result["isophotes"])
     for orig, restored in zip(result["isophotes"], loaded["isophotes"]):
-        for col in ("cog_g", "cog_r", "cog_annulus_g", "cog_annulus_r",
-                    "area_annulus"):
+        for col in ("cog_g", "cog_r", "cog_annulus_g", "cog_annulus_r", "area_annulus"):
             assert col in restored
             np.testing.assert_allclose(
-                float(restored[col]), float(orig[col]), atol=1e-9, rtol=0,
+                float(restored[col]),
+                float(orig[col]),
+                atol=1e-9,
+                rtol=0,
             )
         for col in ("flag_cross", "flag_negative_area"):
             assert col in restored
@@ -312,17 +363,21 @@ def test_asdf_roundtrip_preserves_lsb_auto_lock_metadata(tmp_path):
     rng_h = rng_w = 200
     y, x = np.mgrid[0:rng_h, 0:rng_w].astype(np.float64)
     rng = np.random.default_rng(2026)
-    img1 = 50.0 * np.exp(-((x - 100.0)**2 + ((y - 100.0) / 0.75)**2) / (2 * 10.0**2))
+    img1 = 50.0 * np.exp(-((x - 100.0) ** 2 + ((y - 100.0) / 0.75) ** 2) / (2 * 10.0**2))
     img1 = img1 + rng.normal(0.0, 2.0, size=img1.shape)
     rng = np.random.default_rng(2027)
-    img2 = 25.0 * np.exp(-((x - 100.0)**2 + ((y - 100.0) / 0.75)**2) / (2 * 10.0**2))
+    img2 = 25.0 * np.exp(-((x - 100.0) ** 2 + ((y - 100.0) / 0.75) ** 2) / (2 * 10.0**2))
     img2 = img2 + rng.normal(0.0, 2.0, size=img2.shape)
 
     with _warnings.catch_warnings():
         _warnings.simplefilter("ignore", UserWarning)
         cfg = IsosterConfigMB(
-            bands=["g", "r"], reference_band="g",
-            sma0=5.0, minsma=2.0, maxsma=80.0, astep=0.15,
+            bands=["g", "r"],
+            reference_band="g",
+            sma0=5.0,
+            minsma=2.0,
+            maxsma=80.0,
+            astep=0.15,
             lsb_auto_lock=True,
             lsb_auto_lock_integrator="mean",
             lsb_auto_lock_maxgerr=0.2,
@@ -345,12 +400,8 @@ def test_asdf_roundtrip_preserves_lsb_auto_lock_metadata(tmp_path):
     orig_locked = [iso for iso in result["isophotes"] if iso.get("lsb_locked")]
     loaded_locked = [iso for iso in loaded["isophotes"] if iso.get("lsb_locked")]
     assert len(loaded_locked) == len(orig_locked)
-    orig_anchors = sum(
-        1 for iso in result["isophotes"] if iso.get("lsb_auto_lock_anchor")
-    )
-    loaded_anchors = sum(
-        1 for iso in loaded["isophotes"] if iso.get("lsb_auto_lock_anchor")
-    )
+    orig_anchors = sum(1 for iso in result["isophotes"] if iso.get("lsb_auto_lock_anchor"))
+    loaded_anchors = sum(1 for iso in loaded["isophotes"] if iso.get("lsb_auto_lock_anchor"))
     assert loaded_anchors == orig_anchors
 
 

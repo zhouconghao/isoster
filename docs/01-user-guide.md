@@ -111,7 +111,7 @@ The lock is wired only into the regular-mode driver. When combined with template
 
 ### Outer Region Center Regularization
 
-The automatic LSB lock is a hard switch — once the detector trips, the center is frozen. Outer-region center regularization is a *soft* complement that runs before the lock fires: a logistic-ramp penalty that makes it harder for the outward isophote centers to drift artificially in the LSB regime, while still letting real lopsided structure bleed through. Only the center `(x0, y0)` is regularized — position angle and ellipticity stay free.
+The automatic LSB lock is a hard switch — once the detector trips, the center is frozen. Outer-region regularization is a *soft* complement that runs before the lock fires: a logistic-ramp Tikhonov term that damps outward geometry updates in the LSB regime while still letting real structure dominate when the data support it. By default, the damping applies to center, ellipticity, and position angle through `outer_reg_weights={"center": 1.0, "eps": 1.0, "pa": 1.0}`. Set an axis weight to `0.0` to leave that axis undamped.
 
 **When to turn it on.** This feature is disabled by default because it is still being validated on a broader range of surveys. We recommend turning it on when fitting deep, low-surface-brightness structure where the outskirts are close to the sky level, and especially when contamination (nearby bright sources, scattered light, faint companions) is expected to pull the free outward fit away from the real galaxy center. On HSC-scale edge cases we see clear drift reduction in the pre-lock tail with minimal disruption in the high-S/N interior. On clean synthetic galaxies the feature is essentially a no-op at the recommended strengths.
 
@@ -127,11 +127,12 @@ config = IsosterConfig(
     # Automatic LSB lock (optional, composes cleanly)
     lsb_auto_lock=True,
     debug=True,
-    # Outer-region soft center regularization
+    # Outer-region soft geometry regularization
     use_outer_center_regularization=True,
     outer_reg_sma_onset=50.0,        # penalty starts ramping near sma=50
     outer_reg_sma_width=15.0,        # logistic width (growth-step scale)
     outer_reg_strength=2.0,          # penalty amplitude
+    outer_reg_weights={"center": 1.0, "eps": 1.0, "pa": 1.0},
 )
 result = fit_image(image, mask=mask, config=config, variance_map=variance)
 
@@ -141,10 +142,10 @@ print("inner reference:", result["outer_reg_x0_ref"], result["outer_reg_y0_ref"]
 How it works:
 
 1. The driver runs the inward loop first to collect high-S/N inner isophotes.
-2. A flux-weighted mean of their `(x0, y0)` — restricted to `sma <= sma0 * outer_reg_ref_sma_factor` — becomes the frozen inner reference `(x0_ref, y0_ref)`. If no inward isophotes qualify, the reference falls back to the anchor isophote center.
-3. During outward growth, each candidate fit iteration gets a penalty `lambda(sma) * ((x0 - x0_ref)^2 + (y0 - y0_ref)^2)` added to `effective_amp` in the best-iteration selector, where `lambda(sma) = outer_reg_strength / (1 + exp(-(sma - onset) / width))`. The penalty is near zero inside the bright galaxy (where it would over-constrain mid-sma structure) and ramps up in the LSB regime.
-4. Because it runs inside the best-iteration selector, the penalty biases which of the 50 fit iterations is kept — it never injects a restoring force into the geometry update equations, so real asymmetry is still recoverable.
-5. When `lsb_auto_lock=True` fires, the locked clone sets `fix_center=True` and the penalty becomes a no-op for the locked tail. The two mechanisms compose: soft pre-lock, hard post-lock.
+2. A flux-weighted mean of their `(x0, y0, eps, pa)` — restricted to `sma <= sma0 * outer_reg_ref_sma_factor` — becomes the frozen inner reference. If no inward isophotes qualify, the reference falls back to the anchor isophote geometry.
+3. During outward growth, the logistic ramp `lambda(sma) = outer_reg_strength / (1 + exp(-(sma - onset) / width))` scales a per-axis Tikhonov damping term. In default `outer_reg_mode="damping"`, harmonic geometry steps are multiplied by `(1 - alpha)` in the outer region; in `outer_reg_mode="solver"`, the update also pulls toward the frozen reference.
+4. A complementary selector-level penalty still participates in the best-iteration choice through `effective_amp`, which bounds cumulative drift when several candidate iterations are available.
+5. When `lsb_auto_lock=True` fires, the locked clone sets `fix_center=True`, `fix_pa=True`, and `fix_eps=True`, so the regularization becomes a no-op for the locked tail. The two mechanisms compose: soft pre-lock, hard post-lock.
 
 Result dict additions when `use_outer_center_regularization=True`:
 
@@ -152,6 +153,8 @@ Result dict additions when `use_outer_center_regularization=True`:
 result["use_outer_center_regularization"]  # True
 result["outer_reg_x0_ref"]                 # frozen inner reference x0
 result["outer_reg_y0_ref"]                 # frozen inner reference y0
+result["outer_reg_eps_ref"]                # frozen inner reference eps
+result["outer_reg_pa_ref"]                 # frozen inner reference pa
 ```
 
 Interaction with existing flags:
@@ -159,7 +162,7 @@ Interaction with existing flags:
 - **Independent from `lsb_auto_lock`**: either can run alone or both together.
 - **`minsma >= sma0`**: the reference falls back to the anchor; a `UserWarning` is emitted at config time.
 - **`outer_reg_sma_onset < sma0`**: the penalty would fire from the first outward step; a `UserWarning` is emitted.
-- **`fix_center=True`**: the penalty is inert because the center never moves; a `UserWarning` is emitted at config time so toggling `use_outer_center_regularization=True` under a fixed center is reported rather than silently ignored.
+- **Fixed geometry flags**: a positive weight on a fixed axis is inert because that axis never moves; a `UserWarning` is emitted at config time for `fix_center`, `fix_pa`, or `fix_eps` when the corresponding `outer_reg_weights` entry is positive.
 - **Forced photometry (`template=[...]`)**: the feature is wired only into the regular-mode driver. When combined with a template, `fit_image` emits a `UserWarning` and the feature is silently inactive.
 - **Sampling / harmonic modes**: the feature is agnostic to `use_eccentric_anomaly`, `simultaneous_harmonics`, and the isofit-style modes, because the penalty rides the same `effective_amp` rail in the best-iteration selector.
 
@@ -289,9 +292,7 @@ ASDF (Advanced Scientific Data Format) is supported as an optional alternative. 
 Install the optional dependency:
 
 ```bash
-pip install 'isoster[asdf]'
-# or with uv:
-uv add 'isoster[asdf]'
+uv sync --extra asdf
 ```
 
 Usage:
@@ -299,7 +300,7 @@ Usage:
 ```python
 from isoster import isophote_results_to_asdf, isophote_results_from_asdf
 
-# Save to ASDF (requires: pip install 'asdf>=3.0')
+# Save to ASDF (requires the `asdf` extra)
 isophote_results_to_asdf(results, 'galaxy.asdf')
 
 # Load from ASDF
@@ -325,9 +326,11 @@ loaded = isophote_results_from_asdf('galaxy.asdf')
 | `lsb_auto_lock` | bool | Only when `lsb_auto_lock=True` | Echoes that automatic LSB geometry lock was used |
 | `lsb_auto_lock_sma` | float or None | Only when `lsb_auto_lock=True` | SMA at which the lock committed; `None` if the detector never triggered |
 | `lsb_auto_lock_count` | int | Only when `lsb_auto_lock=True` | Number of outward isophotes fit under locked geometry |
-| `use_outer_center_regularization` | bool | Only when `use_outer_center_regularization=True` | Echoes that outer-region center regularization was used |
+| `use_outer_center_regularization` | bool | Only when `use_outer_center_regularization=True` | Echoes that outer-region regularization was used |
 | `outer_reg_x0_ref` | float | Only when `use_outer_center_regularization=True` | Frozen inner reference `x0` (flux-weighted mean over qualifying inward isophotes; falls back to anchor) |
 | `outer_reg_y0_ref` | float | Only when `use_outer_center_regularization=True` | Frozen inner reference `y0` |
+| `outer_reg_eps_ref` | float | Only when `use_outer_center_regularization=True` | Frozen inner reference ellipticity |
+| `outer_reg_pa_ref` | float | Only when `use_outer_center_regularization=True` | Frozen inner reference PA |
 
 ### Per-Isophote Fields: Always Present
 

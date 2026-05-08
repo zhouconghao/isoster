@@ -94,7 +94,9 @@ def _is_lsb_isophote_mb(iso: Dict[str, object], maxgerr_thresh: float) -> bool:
 
 
 def _mark_lsb_lock_state_mb(
-    iso: Dict[str, object], locked: bool, is_anchor: bool = False,
+    iso: Dict[str, object],
+    locked: bool,
+    is_anchor: bool = False,
 ) -> None:
     """Stamp ``lsb_locked`` and (optionally) ``lsb_auto_lock_anchor``
     onto a multi-band result row. Centralized so future loop reorders
@@ -105,7 +107,9 @@ def _mark_lsb_lock_state_mb(
 
 
 def _build_locked_cfg_mb(
-    cfg: IsosterConfigMB, anchor_iso: Dict[str, object], locked_integrator: str,
+    cfg: IsosterConfigMB,
+    anchor_iso: Dict[str, object],
+    locked_integrator: str,
 ) -> IsosterConfigMB:
     """Clone the multi-band config and freeze geometry to a clean anchor.
 
@@ -169,17 +173,16 @@ def _resolve_template_mb(template: object) -> List[Dict[str, object]]:
         # back to single-band on the typical "MULTIBND" header miss.
         try:
             from .utils_mb import isophote_results_mb_from_fits
+
             loaded = isophote_results_mb_from_fits(path_str)
         except Exception:
             from ..utils import isophote_results_from_fits
+
             loaded = isophote_results_from_fits(path_str)
         iso_list = loaded["isophotes"]
     elif isinstance(template, dict):
         if "isophotes" not in template:
-            raise ValueError(
-                f"template dict must contain an 'isophotes' key; got "
-                f"keys: {sorted(template.keys())}"
-            )
+            raise ValueError(f"template dict must contain an 'isophotes' key; got keys: {sorted(template.keys())}")
         iso_list = template["isophotes"]
     elif isinstance(template, list):
         iso_list = template
@@ -263,7 +266,8 @@ def _build_outer_reference_mb(
     eps_arr = np.array([float(iso["eps"]) for iso in candidates])  # type: ignore[arg-type]
     pa_arr = np.array([float(iso["pa"]) for iso in candidates])  # type: ignore[arg-type]
     weights = np.array(
-        [max(_intens(iso) or 1e-6, 1e-6) for iso in candidates], dtype=np.float64,
+        [max(_intens(iso) or 1e-6, 1e-6) for iso in candidates],
+        dtype=np.float64,
     )
     if weights.sum() <= 0.0 or not np.all(np.isfinite(weights)):
         return anchor_ref
@@ -302,9 +306,7 @@ def _validate_inputs(
     h, w = images[0].shape
     for i, im in enumerate(images):
         if im.shape != (h, w):
-            raise ValueError(
-                f"images[{i}] shape {im.shape} does not match images[0] shape {(h, w)}."
-            )
+            raise ValueError(f"images[{i}] shape {im.shape} does not match images[0] shape {(h, w)}.")
     # Mask shape consistency is delegated to the sampler. Variance map
     # all-or-nothing semantics likewise. We validate band counts here so
     # the user gets a clear error before any expensive call.
@@ -318,10 +320,7 @@ def _validate_inputs(
                 f"of length {n_bands}; got non-sequence {type(variance_maps).__name__}."
             ) from exc
         if n_var != n_bands:
-            raise ValueError(
-                f"len(variance_maps) ({n_var}) does not match "
-                f"len(config.bands) ({n_bands})."
-            )
+            raise ValueError(f"len(variance_maps) ({n_var}) does not match len(config.bands) ({n_bands}).")
     if masks is not None and not isinstance(masks, np.ndarray):
         try:
             n_masks = len(masks)
@@ -331,10 +330,7 @@ def _validate_inputs(
                 f"of length {n_bands}; got non-sequence {type(masks).__name__}."
             ) from exc
         if n_masks != n_bands:
-            raise ValueError(
-                f"len(masks) ({n_masks}) does not match "
-                f"len(config.bands) ({n_bands})."
-            )
+            raise ValueError(f"len(masks) ({n_masks}) does not match len(config.bands) ({n_bands}).")
 
 
 def _delegate_single_band(
@@ -369,10 +365,18 @@ def _delegate_single_band(
     # we share. Multi-band-only fields are dropped; ISOFIT/LSB-lock
     # defaults stay off.
     sb_kwargs = dict(
-        x0=config_mb.x0, y0=config_mb.y0, eps=config_mb.eps, pa=config_mb.pa,
-        sma0=config_mb.sma0, minsma=config_mb.minsma, maxsma=config_mb.maxsma,
-        astep=config_mb.astep, linear_growth=config_mb.linear_growth,
-        maxit=config_mb.maxit, minit=config_mb.minit, conver=config_mb.conver,
+        x0=config_mb.x0,
+        y0=config_mb.y0,
+        eps=config_mb.eps,
+        pa=config_mb.pa,
+        sma0=config_mb.sma0,
+        minsma=config_mb.minsma,
+        maxsma=config_mb.maxsma,
+        astep=config_mb.astep,
+        linear_growth=config_mb.linear_growth,
+        maxit=config_mb.maxit,
+        minit=config_mb.minit,
+        conver=config_mb.conver,
         convergence_scaling=config_mb.convergence_scaling,
         sigma_bg=config_mb.sigma_bg,
         use_corrected_errors=config_mb.use_corrected_errors,
@@ -385,10 +389,14 @@ def _delegate_single_band(
         geometry_tolerance=config_mb.geometry_tolerance,
         geometry_stable_iters=config_mb.geometry_stable_iters,
         geometry_update_mode=config_mb.geometry_update_mode,
-        sclip=config_mb.sclip, nclip=config_mb.nclip,
-        sclip_low=config_mb.sclip_low, sclip_high=config_mb.sclip_high,
-        fflag=config_mb.fflag, maxgerr=config_mb.maxgerr,
-        fix_center=config_mb.fix_center, fix_pa=config_mb.fix_pa,
+        sclip=config_mb.sclip,
+        nclip=config_mb.nclip,
+        sclip_low=config_mb.sclip_low,
+        sclip_high=config_mb.sclip_high,
+        fflag=config_mb.fflag,
+        maxgerr=config_mb.maxgerr,
+        fix_center=config_mb.fix_center,
+        fix_pa=config_mb.fix_pa,
         fix_eps=config_mb.fix_eps,
         compute_errors=config_mb.compute_errors,
         compute_deviations=config_mb.compute_deviations,
@@ -405,7 +413,10 @@ def _delegate_single_band(
 
 
 def _first_isophote_perturbations(
-    sma0: float, eps: float, pa: float, max_retries: int,
+    sma0: float,
+    eps: float,
+    pa: float,
+    max_retries: int,
 ) -> List[tuple]:
     """Mirror :func:`isoster.driver._first_isophote_perturbations`."""
     schedule = [
@@ -441,8 +452,7 @@ def _validate_non_negative_error_fields(isophotes: Sequence[Dict[str, object]]) 
                 continue
             if np.isfinite(v) and v < 0.0:
                 raise ValueError(
-                    f"multiband isoster produced negative error value "
-                    f"(field={field}, index={idx}, value={v})"
+                    f"multiband isoster produced negative error value (field={field}, index={idx}, value={v})"
                 )
 
 
@@ -454,11 +464,10 @@ def _validate_non_negative_error_fields(isophotes: Sequence[Dict[str, object]]) 
 def _fit_central_pixel_mb(
     images: Sequence[NDArray[np.floating]],
     masks: Union[None, NDArray[np.bool_], Sequence[Optional[NDArray[np.bool_]]]],
-    x0: float, y0: float,
+    x0: float,
+    y0: float,
     config: IsosterConfigMB,
-    variance_maps: Union[
-        None, NDArray[np.floating], Sequence[NDArray[np.floating]]
-    ] = None,
+    variance_maps: Union[None, NDArray[np.floating], Sequence[NDArray[np.floating]]] = None,
 ) -> Dict[str, object]:
     """Per-band central-pixel record at SMA=0.
 
@@ -478,8 +487,14 @@ def _fit_central_pixel_mb(
 
     row: Dict[str, object] = {
         "sma": 0.0,
-        "x0": x0, "y0": y0, "eps": 0.0, "pa": 0.0,
-        "x0_err": 0.0, "y0_err": 0.0, "eps_err": 0.0, "pa_err": 0.0,
+        "x0": x0,
+        "y0": y0,
+        "eps": 0.0,
+        "pa": 0.0,
+        "x0_err": 0.0,
+        "y0_err": 0.0,
+        "eps_err": 0.0,
+        "pa_err": 0.0,
         "rms": 0.0,
         "stop_code": 0 if in_bounds else -1,
         "niter": 0,
@@ -604,9 +619,7 @@ def _fit_image_template_forced_mb(
     if config.loose_validity:
         forced_noop_features.append("loose_validity")
     if config.multiband_higher_harmonics != "independent":
-        forced_noop_features.append(
-            f"multiband_higher_harmonics='{config.multiband_higher_harmonics}'"
-        )
+        forced_noop_features.append(f"multiband_higher_harmonics='{config.multiband_higher_harmonics}'")
     if forced_noop_features:
         warnings.warn(
             "template_isophotes=<provided> bypasses the iteration loop, "
@@ -623,9 +636,7 @@ def _fit_image_template_forced_mb(
     # column) and fill harmonic deviations using
     # _attach_per_band_harmonics. Mirrors the iteration loop's per-band
     # harmonic path.
-    do_harmonics = bool(
-        config.compute_deviations and len(config.harmonic_orders) > 0
-    )
+    do_harmonics = bool(config.compute_deviations and len(config.harmonic_orders) > 0)
 
     isophotes: List[Dict[str, object]] = []
     ring_data_per_row: List[object] = []  # MultiIsophoteData | None per row
@@ -633,8 +644,10 @@ def _fit_image_template_forced_mb(
         sma = float(template_iso["sma"])  # type: ignore[arg-type]
         if sma == 0.0:
             iso = _fit_central_pixel_mb(
-                images, masks,
-                float(template_iso["x0"]), float(template_iso["y0"]),  # type: ignore[arg-type]
+                images,
+                masks,
+                float(template_iso["x0"]),
+                float(template_iso["y0"]),  # type: ignore[arg-type]
                 config,
                 variance_maps=variance_maps,
             )
@@ -642,7 +655,8 @@ def _fit_image_template_forced_mb(
         else:
             if do_harmonics:
                 iso, ring = extract_forced_photometry_mb(
-                    images=images, masks=masks,
+                    images=images,
+                    masks=masks,
                     x0=float(template_iso["x0"]),  # type: ignore[arg-type]
                     y0=float(template_iso["y0"]),  # type: ignore[arg-type]
                     sma=sma,
@@ -656,7 +670,8 @@ def _fit_image_template_forced_mb(
                 ring_data_per_row.append(ring)
             else:
                 iso = extract_forced_photometry_mb(
-                    images=images, masks=masks,
+                    images=images,
+                    masks=masks,
                     x0=float(template_iso["x0"]),  # type: ignore[arg-type]
                     y0=float(template_iso["y0"]),  # type: ignore[arg-type]
                     sma=sma,
@@ -713,8 +728,11 @@ def _fit_image_template_forced_mb(
             for b, g_b in zip(bands, per_band_grad):
                 iso[f"grad_{b}"] = g_b
             _attach_per_band_harmonics(
-                iso, bands,
-                ring.angles, ring.intens, ring.variances,
+                iso,
+                bands,
+                ring.angles,
+                ring.intens,
+                ring.variances,
                 float(iso["sma"]),  # type: ignore[arg-type]
                 per_band_grad,
                 harmonic_orders=config.harmonic_orders,
@@ -742,9 +760,7 @@ def _fit_image_template_forced_mb(
         "harmonic_combination": config.harmonic_combination,
         "reference_band": config.reference_band,
         "band_weights": config.resolved_band_weights(),
-        "variance_mode": config.variance_mode or (
-            "wls" if variance_maps is not None else "ols"
-        ),
+        "variance_mode": config.variance_mode or ("wls" if variance_maps is not None else "ols"),
         "fit_per_band_intens_jointly": config.fit_per_band_intens_jointly,
         "loose_validity": config.loose_validity,
         "multiband_higher_harmonics": config.multiband_higher_harmonics,
@@ -851,7 +867,9 @@ def fit_image_multiband(
     # the standard multi-band result-dict shape.
     if template_isophotes is not None:
         return _fit_image_template_forced_mb(
-            images=images, masks=masks, config=config,
+            images=images,
+            masks=masks,
+            config=config,
             variance_maps=variance_maps,
             template=template_isophotes,
         )
@@ -860,7 +878,9 @@ def fit_image_multiband(
     # across every per-isophote call. This is the dominant performance
     # win identified in Stage-1 benchmarking (decision D19).
     image_stack, masks_resolved, var_stack = prepare_inputs(
-        images, masks, variance_maps,
+        images,
+        masks,
+        variance_maps,
     )
 
     h, w = np.asarray(images[0]).shape
@@ -874,32 +894,58 @@ def fit_image_multiband(
 
     # Central-pixel record (when minsma <= 0).
     central_result = _fit_central_pixel_mb(
-        images, masks, x0, y0, config, variance_maps=variance_maps,
+        images,
+        masks,
+        x0,
+        y0,
+        config,
+        variance_maps=variance_maps,
     )
 
     # First isophote at sma0.
     start_geometry = {"x0": x0, "y0": y0, "eps": config.eps, "pa": config.pa}
     first_iso = fit_isophote_mb(
-        images, masks, sma0, start_geometry, config, variance_maps=variance_maps,
-        image_stack=image_stack, masks_resolved=masks_resolved, var_stack=var_stack,
+        images,
+        masks,
+        sma0,
+        start_geometry,
+        config,
+        variance_maps=variance_maps,
+        image_stack=image_stack,
+        masks_resolved=masks_resolved,
+        var_stack=var_stack,
     )
 
     retry_log: List[Dict[str, object]] = []
     if not _is_acceptable(first_iso) and config.max_retry_first_isophote > 0:
         perturbations = _first_isophote_perturbations(
-            sma0, config.eps, config.pa, config.max_retry_first_isophote,
+            sma0,
+            config.eps,
+            config.pa,
+            config.max_retry_first_isophote,
         )
         for attempt_idx, (sma0_try, eps_try, pa_try) in enumerate(perturbations, start=1):
             retry_geom = {"x0": x0, "y0": y0, "eps": eps_try, "pa": pa_try}
             cand = fit_isophote_mb(
-                images, masks, sma0_try, retry_geom, config, variance_maps=variance_maps,
-                image_stack=image_stack, masks_resolved=masks_resolved, var_stack=var_stack,
+                images,
+                masks,
+                sma0_try,
+                retry_geom,
+                config,
+                variance_maps=variance_maps,
+                image_stack=image_stack,
+                masks_resolved=masks_resolved,
+                var_stack=var_stack,
             )
-            retry_log.append({
-                "attempt": attempt_idx,
-                "sma0": sma0_try, "eps": eps_try, "pa": pa_try,
-                "stop_code": cand["stop_code"],
-            })
+            retry_log.append(
+                {
+                    "attempt": attempt_idx,
+                    "sma0": sma0_try,
+                    "eps": eps_try,
+                    "pa": pa_try,
+                    "stop_code": cand["stop_code"],
+                }
+            )
             if _is_acceptable(cand):
                 first_iso = cand
                 sma0 = sma0_try
@@ -918,9 +964,15 @@ def fit_image_multiband(
             if probe_sma > maxsma:
                 break
             probe_iso = fit_isophote_mb(
-                images, masks, probe_sma, start_geometry, config,
+                images,
+                masks,
+                probe_sma,
+                start_geometry,
+                config,
                 variance_maps=variance_maps,
-                image_stack=image_stack, masks_resolved=masks_resolved, var_stack=var_stack,
+                image_stack=image_stack,
+                masks_resolved=masks_resolved,
+                var_stack=var_stack,
             )
             failed_initial.append(probe_iso)
             if _is_acceptable(probe_iso):
@@ -957,11 +1009,17 @@ def fit_image_multiband(
                 "pa": float(current_iso["pa"]),  # type: ignore[arg-type]
             }
             next_iso = fit_isophote_mb(
-                images, masks, current_sma, current_geom, config,
+                images,
+                masks,
+                current_sma,
+                current_geom,
+                config,
                 going_inwards=True,
                 previous_geometry=current_geom,
                 variance_maps=variance_maps,
-                image_stack=image_stack, masks_resolved=masks_resolved, var_stack=var_stack,
+                image_stack=image_stack,
+                masks_resolved=masks_resolved,
+                var_stack=var_stack,
             )
             inwards_results.append(next_iso)
             if _is_acceptable(next_iso) or config.permissive_geometry:
@@ -972,7 +1030,9 @@ def fit_image_multiband(
     outer_ref_geom: Optional[Dict[str, float]] = None
     if config.use_outer_center_regularization and anchor_iso is not None:
         outer_ref_geom = _build_outer_reference_mb(
-            inwards_results, anchor_iso, config,
+            inwards_results,
+            anchor_iso,
+            config,
         )
 
     # Outward growth.
@@ -1005,10 +1065,16 @@ def fit_image_multiband(
                 "pa": float(current_iso["pa"]),  # type: ignore[arg-type]
             }
             next_iso = fit_isophote_mb(
-                images, masks, current_sma, current_geom, active_cfg,
+                images,
+                masks,
+                current_sma,
+                current_geom,
+                active_cfg,
                 previous_geometry=current_geom,
                 variance_maps=variance_maps,
-                image_stack=image_stack, masks_resolved=masks_resolved, var_stack=var_stack,
+                image_stack=image_stack,
+                masks_resolved=masks_resolved,
+                var_stack=var_stack,
                 outer_reference_geom=outer_ref_geom,
             )
             if config.lsb_auto_lock:
@@ -1023,7 +1089,8 @@ def fit_image_multiband(
             # (plan section 7 S3) via _is_lsb_isophote_mb.
             if config.lsb_auto_lock and not lsb_state["locked"]:
                 triggered = _is_lsb_isophote_mb(
-                    next_iso, config.lsb_auto_lock_maxgerr,
+                    next_iso,
+                    config.lsb_auto_lock_maxgerr,
                 )
                 if triggered:
                     lsb_state["consec"] = int(lsb_state["consec"]) + 1
@@ -1032,13 +1099,13 @@ def fit_image_multiband(
                         # NOT the trigger isophote itself. The trigger
                         # isophotes are already partially in LSB and their
                         # geometries may have begun drifting.
-                        anchor_local_idx = (
-                            len(outwards_results) - 1 - config.lsb_auto_lock_debounce
-                        )
+                        anchor_local_idx = len(outwards_results) - 1 - config.lsb_auto_lock_debounce
                         anchor_local_idx = max(0, anchor_local_idx)
                         lock_anchor = outwards_results[anchor_local_idx]
                         active_cfg = _build_locked_cfg_mb(
-                            config, lock_anchor, config.lsb_auto_lock_integrator,
+                            config,
+                            lock_anchor,
+                            config.lsb_auto_lock_integrator,
                         )
                         lsb_state["locked"] = True
                         lsb_state["transition_sma"] = float(next_iso["sma"])  # type: ignore[arg-type]
@@ -1109,7 +1176,5 @@ def fit_image_multiband(
     if config.lsb_auto_lock:
         result["lsb_auto_lock"] = True
         result["lsb_auto_lock_sma"] = lsb_state["transition_sma"]
-        result["lsb_auto_lock_count"] = sum(
-            1 for iso in final_list if bool(iso.get("lsb_locked", False))
-        )
+        result["lsb_auto_lock_count"] = sum(1 for iso in final_list if bool(iso.get("lsb_locked", False)))
     return result

@@ -132,9 +132,7 @@ _build_joint_design_matrix_impl = (
 )
 
 
-def build_joint_design_matrix(
-    phi: NDArray[np.floating], n_bands: int
-) -> NDArray[np.floating]:
+def build_joint_design_matrix(phi: NDArray[np.floating], n_bands: int) -> NDArray[np.floating]:
     """
     Build the joint design matrix for multi-band harmonic fitting.
 
@@ -219,10 +217,7 @@ def _bilinear_sample_stack_numba(
         c11 = wy * wx
         for b in range(n_bands):
             out[b, n] = (
-                c00 * stack[b, y0, x0]
-                + c01 * stack[b, y0, x1]
-                + c10 * stack[b, y1, x0]
-                + c11 * stack[b, y1, x1]
+                c00 * stack[b, y0, x0] + c01 * stack[b, y0, x1] + c10 * stack[b, y1, x0] + c11 * stack[b, y1, x1]
             )
 
 
@@ -246,15 +241,15 @@ def _bilinear_sample_stack_numpy(
     coords = np.vstack([y_coords, x_coords]).astype(np.float64, copy=False)
     for b in range(n_bands):
         out[b] = map_coordinates(
-            stack[b], coords, order=1, mode="constant", cval=np.nan,
+            stack[b],
+            coords,
+            order=1,
+            mode="constant",
+            cval=np.nan,
         )
 
 
-bilinear_sample_stack = (
-    _bilinear_sample_stack_numba
-    if NUMBA_AVAILABLE
-    else _bilinear_sample_stack_numpy
-)
+bilinear_sample_stack = _bilinear_sample_stack_numba if NUMBA_AVAILABLE else _bilinear_sample_stack_numpy
 
 
 def warmup_numba_mb() -> None:
@@ -273,19 +268,37 @@ def warmup_numba_mb() -> None:
     band_offsets = np.array([0, 64], dtype=np.int64)
     phi_concat = np.concatenate([phi, phi[:60]])
     _ = _build_joint_design_matrix_jagged_numba(
-        phi_concat, band_offsets, n_per_band, 2, False,
+        phi_concat,
+        band_offsets,
+        n_per_band,
+        2,
+        False,
     )
     _ = _build_joint_design_matrix_jagged_numba(
-        phi_concat, band_offsets, n_per_band, 2, True,
+        phi_concat,
+        band_offsets,
+        n_per_band,
+        2,
+        True,
     )
     # Warm the higher-order joint design-matrix kernels (Section 6).
     orders = np.array([3, 4], dtype=np.int64)
     _ = _build_joint_design_matrix_higher_numba(phi, 2, orders)
     _ = _build_joint_design_matrix_jagged_higher_numba(
-        phi_concat, band_offsets, n_per_band, 2, orders, False,
+        phi_concat,
+        band_offsets,
+        n_per_band,
+        2,
+        orders,
+        False,
     )
     _ = _build_joint_design_matrix_jagged_higher_numba(
-        phi_concat, band_offsets, n_per_band, 2, orders, True,
+        phi_concat,
+        band_offsets,
+        n_per_band,
+        2,
+        orders,
+        True,
     )
     # Warm the per-band bilinear stack sampler.
     stack = np.zeros((2, 16, 16), dtype=np.float64)
@@ -361,9 +374,7 @@ def _build_joint_design_matrix_jagged_numpy(
 
 
 _build_joint_design_matrix_jagged_impl = (
-    _build_joint_design_matrix_jagged_numba
-    if NUMBA_AVAILABLE
-    else _build_joint_design_matrix_jagged_numpy
+    _build_joint_design_matrix_jagged_numba if NUMBA_AVAILABLE else _build_joint_design_matrix_jagged_numpy
 )
 
 
@@ -430,7 +441,7 @@ def _build_joint_design_matrix_higher_numpy(
     sin2 = np.sin(2.0 * phi)
     cos2 = np.cos(2.0 * phi)
     geom = np.column_stack([sin1, cos1, sin2, cos2])  # (N, 4)
-    A[:, n_bands:n_bands + 4] = np.tile(geom, (n_bands, 1))
+    A[:, n_bands : n_bands + 4] = np.tile(geom, (n_bands, 1))
 
     if L > 0:
         higher = np.empty((n_samples, 2 * L), dtype=np.float64)
@@ -438,14 +449,12 @@ def _build_joint_design_matrix_higher_numpy(
             n_order = int(orders[j])
             higher[:, 2 * j] = np.sin(n_order * phi)
             higher[:, 2 * j + 1] = np.cos(n_order * phi)
-        A[:, n_bands + 4:] = np.tile(higher, (n_bands, 1))
+        A[:, n_bands + 4 :] = np.tile(higher, (n_bands, 1))
     return A
 
 
 _build_joint_design_matrix_higher_impl = (
-    _build_joint_design_matrix_higher_numba
-    if NUMBA_AVAILABLE
-    else _build_joint_design_matrix_higher_numpy
+    _build_joint_design_matrix_higher_numba if NUMBA_AVAILABLE else _build_joint_design_matrix_higher_numpy
 )
 
 
@@ -584,9 +593,7 @@ def build_joint_design_matrix_jagged_higher(
     if n_bands < 1:
         raise ValueError(f"n_bands must be >= 1, got {n_bands}")
     if len(phi_per_band) != n_bands:
-        raise ValueError(
-            f"len(phi_per_band) ({len(phi_per_band)}) must equal n_bands ({n_bands})"
-        )
+        raise ValueError(f"len(phi_per_band) ({len(phi_per_band)}) must equal n_bands ({n_bands})")
     orders_i64 = np.ascontiguousarray(harmonic_orders, dtype=np.int64)
     L = int(orders_i64.shape[0])
     n_per_band = np.array([int(p.size) for p in phi_per_band], dtype=np.int64)
@@ -596,11 +603,14 @@ def build_joint_design_matrix_jagged_higher(
         band_offsets[1:] = np.cumsum(n_per_band)[:-1]
     if int(n_per_band.sum()) == 0:
         return np.zeros((0, n_bands + 4 + 2 * L), dtype=np.float64)
-    phi_concat = np.concatenate(
-        [np.asarray(p, dtype=np.float64) for p in phi_per_band]
-    )
+    phi_concat = np.concatenate([np.asarray(p, dtype=np.float64) for p in phi_per_band])
     return _build_joint_design_matrix_jagged_higher_impl(
-        phi_concat, band_offsets, n_per_band, n_bands, orders_i64, normalize,
+        phi_concat,
+        band_offsets,
+        n_per_band,
+        n_bands,
+        orders_i64,
+        normalize,
     )
 
 
@@ -654,9 +664,7 @@ def build_joint_design_matrix_jagged(
     if n_bands < 1:
         raise ValueError(f"n_bands must be >= 1, got {n_bands}")
     if len(phi_per_band) != n_bands:
-        raise ValueError(
-            f"len(phi_per_band) ({len(phi_per_band)}) must equal n_bands ({n_bands})"
-        )
+        raise ValueError(f"len(phi_per_band) ({len(phi_per_band)}) must equal n_bands ({n_bands})")
 
     n_per_band = np.array([int(p.size) for p in phi_per_band], dtype=np.int64)
     band_offsets = np.empty(n_bands, dtype=np.int64)
@@ -666,9 +674,11 @@ def build_joint_design_matrix_jagged(
     if int(n_per_band.sum()) == 0:
         # All bands empty — return a zero-row matrix of correct width.
         return np.zeros((0, n_bands + 4), dtype=np.float64)
-    phi_concat = np.concatenate(
-        [np.asarray(p, dtype=np.float64) for p in phi_per_band]
-    )
+    phi_concat = np.concatenate([np.asarray(p, dtype=np.float64) for p in phi_per_band])
     return _build_joint_design_matrix_jagged_impl(
-        phi_concat, band_offsets, n_per_band, n_bands, normalize,
+        phi_concat,
+        band_offsets,
+        n_per_band,
+        n_bands,
+        normalize,
     )

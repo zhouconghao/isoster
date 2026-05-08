@@ -102,7 +102,9 @@ def isophote_results_mb_to_astropy_table(results: dict) -> Table:
 
 
 def isophote_results_mb_to_fits(
-    results: dict, filename: Union[str, Path], overwrite: bool = True,
+    results: dict,
+    filename: Union[str, Path],
+    overwrite: bool = True,
 ) -> None:
     """
     Save multi-band isoster results to a multi-HDU FITS file (Schema 1).
@@ -270,12 +272,10 @@ def load_bands_from_hdus(
     bands: List[str] = []
     for i, hdu in enumerate(hdus):
         if filter_keyword not in hdu.header:
-            raise KeyError(
-                f"hdus[{i}] is missing the required '{filter_keyword}' header keyword."
-            )
+            raise KeyError(f"hdus[{i}] is missing the required '{filter_keyword}' header keyword.")
         raw = str(hdu.header[filter_keyword]).strip()
         if drop_prefix and raw.upper().startswith(drop_prefix.upper()):
-            raw = raw[len(drop_prefix):]
+            raw = raw[len(drop_prefix) :]
         # Replace remaining hyphens with underscores so the resulting
         # band name matches IsosterConfigMB's regex.
         raw = raw.replace("-", "_")
@@ -305,7 +305,8 @@ def _coerce_native(value):
 
 
 def isophote_results_mb_to_asdf(
-    results: dict, filename: Union[str, Path],
+    results: dict,
+    filename: Union[str, Path],
 ) -> None:
     """
     Save multi-band isoster results to an ASDF file (Schema 1 mirror).
@@ -358,12 +359,11 @@ def isophote_results_mb_to_asdf(
         "harmonic_combination": results.get("harmonic_combination", "joint"),
         "variance_mode": results.get("variance_mode", "ols"),
         "band_weights": dict(results.get("band_weights", {}) or {}),
-        "fit_per_band_intens_jointly": bool(
-            results.get("fit_per_band_intens_jointly", True)
-        ),
+        "fit_per_band_intens_jointly": bool(results.get("fit_per_band_intens_jointly", True)),
         "loose_validity": bool(results.get("loose_validity", False)),
         "multiband_higher_harmonics": results.get(
-            "multiband_higher_harmonics", "independent",
+            "multiband_higher_harmonics",
+            "independent",
         ),
         "harmonic_orders": list(results.get("harmonic_orders", [3, 4])),
         "harmonics_shared": bool(results.get("harmonics_shared", False)),
@@ -436,9 +436,7 @@ def isophote_results_mb_from_asdf(filename: Union[str, Path]) -> dict:
         loose_validity = bool(tree.get("loose_validity", False))
         higher_mode = tree.get("multiband_higher_harmonics", "independent")
         higher_orders = list(tree.get("harmonic_orders", [3, 4]))
-        harmonics_shared = bool(
-            tree.get("harmonics_shared", higher_mode != "independent")
-        )
+        harmonics_shared = bool(tree.get("harmonics_shared", higher_mode != "independent"))
         # Pull optional lock-state / first-isophote diagnostics if present.
         optional = {}
         for opt_key in (
@@ -469,7 +467,8 @@ def isophote_results_mb_from_asdf(filename: Union[str, Path]) -> dict:
             config = IsosterConfigMB(**filtered)
         except Exception as e:  # noqa: BLE001 — defensive
             logger.warning(
-                "Could not reconstruct IsosterConfigMB from ASDF: %s", e,
+                "Could not reconstruct IsosterConfigMB from ASDF: %s",
+                e,
             )
 
     # If config reconstruction succeeded, prefer its values for accuracy.

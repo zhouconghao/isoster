@@ -84,10 +84,7 @@ def _stack_images(images: Sequence[NDArray[np.floating]]) -> NDArray[np.float64]
     h, w = images[0].shape
     for i, im in enumerate(images):
         if im.shape != (h, w):
-            raise ValueError(
-                f"images[{i}] has shape {im.shape}, expected {(h, w)} "
-                "(must match images[0])"
-            )
+            raise ValueError(f"images[{i}] has shape {im.shape}, expected {(h, w)} (must match images[0])")
     # Cast to float64 so map_coordinates does not silently truncate.
     return np.stack([np.ascontiguousarray(im, dtype=np.float64) for im in images], axis=0)
 
@@ -115,9 +112,7 @@ def _resolve_masks(
 
     if isinstance(masks, np.ndarray):
         if masks.shape != (h, w):
-            raise ValueError(
-                f"masks ndarray shape {masks.shape} does not match images shape {(h, w)}"
-            )
+            raise ValueError(f"masks ndarray shape {masks.shape} does not match images shape {(h, w)}")
         m_f: NDArray[np.float64] = (
             masks.astype(np.float64) if masks.dtype.kind != "f" else masks.astype(np.float64, copy=False)
         )
@@ -135,13 +130,9 @@ def _resolve_masks(
             out.append(None)
             continue
         if not isinstance(m, np.ndarray):
-            raise TypeError(
-                f"masks[{i}] must be a numpy ndarray or None, got {type(m).__name__}"
-            )
+            raise TypeError(f"masks[{i}] must be a numpy ndarray or None, got {type(m).__name__}")
         if m.shape != (h, w):
-            raise ValueError(
-                f"masks[{i}] shape {m.shape} does not match images shape {(h, w)}"
-            )
+            raise ValueError(f"masks[{i}] shape {m.shape} does not match images shape {(h, w)}")
         m_arr: NDArray[np.float64] = (
             m.astype(np.float64, copy=False) if m.dtype != np.float64 else m  # type: ignore[assignment]
         )
@@ -157,9 +148,7 @@ BAD_PIXEL_VARIANCE = 1e30
 MIN_POSITIVE_VARIANCE = 1e-30
 
 
-def _sanitize_variance_array(
-    v: NDArray[np.floating], label: str
-) -> NDArray[np.float64]:
+def _sanitize_variance_array(v: NDArray[np.floating], label: str) -> NDArray[np.float64]:
     """Clamp NaN/inf and non-positive entries; emit a warning if any are touched.
 
     Implements the all-or-nothing variance contract from plan decision
@@ -222,18 +211,12 @@ def _resolve_variance_maps(
 
     if isinstance(variance_maps, np.ndarray):
         if variance_maps.shape != (h, w):
-            raise ValueError(
-                f"variance_maps ndarray shape {variance_maps.shape} does not match "
-                f"images shape {(h, w)}"
-            )
+            raise ValueError(f"variance_maps ndarray shape {variance_maps.shape} does not match images shape {(h, w)}")
         v_f = _sanitize_variance_array(variance_maps, "variance_maps (broadcast)")
         return [v_f] * n_bands
 
     if len(variance_maps) != n_bands:
-        raise ValueError(
-            f"variance_maps list length must equal n_bands ({n_bands}); got "
-            f"{len(variance_maps)}"
-        )
+        raise ValueError(f"variance_maps list length must equal n_bands ({n_bands}); got {len(variance_maps)}")
 
     out: List[NDArray[np.float64]] = []
     for i, v in enumerate(variance_maps):
@@ -244,13 +227,9 @@ def _resolve_variance_maps(
                 "band."
             )
         if not isinstance(v, np.ndarray):
-            raise TypeError(
-                f"variance_maps[{i}] must be a numpy ndarray, got {type(v).__name__}"
-            )
+            raise TypeError(f"variance_maps[{i}] must be a numpy ndarray, got {type(v).__name__}")
         if v.shape != (h, w):
-            raise ValueError(
-                f"variance_maps[{i}] shape {v.shape} does not match images shape {(h, w)}"
-            )
+            raise ValueError(f"variance_maps[{i}] shape {v.shape} does not match images shape {(h, w)}")
         out.append(_sanitize_variance_array(v, f"variance_maps[{i}]"))
     return out
 
@@ -291,9 +270,7 @@ def _sample_along_ellipse(
     n_bands = image_stack.shape[0]
     n_samples = max(64, int(2.0 * np.pi * sma))
 
-    x_coords, y_coords, psi, phi = compute_ellipse_coords(
-        n_samples, sma, eps, pa, x0, y0, use_eccentric_anomaly
-    )
+    x_coords, y_coords, psi, phi = compute_ellipse_coords(n_samples, sma, eps, pa, x0, y0, use_eccentric_anomaly)
     coords = np.vstack([y_coords, x_coords]).astype(np.float64, copy=False)
     angle_full = psi if use_eccentric_anomaly else phi
 
@@ -318,13 +295,12 @@ def _sample_along_ellipse(
     # invocation; on B=5 with ~75 isophotes that recovers ~25% of the
     # multi-band sampler runtime.
     mask_cache: dict[int, NDArray[np.float64]] = {}
+
     def _sample_mask(m_b: NDArray[np.float64]) -> NDArray[np.float64]:
         key = id(m_b)
         cached = mask_cache.get(key)
         if cached is None:
-            cached = map_coordinates(
-                m_b, coords, order=0, mode="constant", cval=1.0
-            )
+            cached = map_coordinates(m_b, coords, order=0, mode="constant", cval=1.0)
             mask_cache[key] = cached
         return cached
 
@@ -343,9 +319,7 @@ def _sample_along_ellipse(
                 valid &= np.isfinite(var_full[b]) & (var_full[b] > 0.0)
         n_valid_intersect = int(np.sum(valid))
         intens_intersect = intens_full[:, valid]
-        var_intersect: Optional[NDArray[np.float64]] = (
-            var_full[:, valid] if var_full is not None else None
-        )
+        var_intersect: Optional[NDArray[np.float64]] = var_full[:, valid] if var_full is not None else None
         angles_intersect = angle_full[valid]
         phi_intersect = phi[valid]
         n_valid_per_band = np.full(n_bands, n_valid_intersect, dtype=np.int64)
@@ -378,22 +352,14 @@ def _sample_along_ellipse(
     n_valid_intersect = int(np.sum(valid_intersect))
     n_valid_per_band = per_band_valid.sum(axis=1).astype(np.int64)
     intens_intersect = intens_full[:, valid_intersect]
-    var_intersect = (
-        var_full[:, valid_intersect] if var_full is not None else None
-    )
+    var_intersect = var_full[:, valid_intersect] if var_full is not None else None
     angles_intersect = angle_full[valid_intersect]
     phi_intersect = phi[valid_intersect]
 
-    intens_per_band: List[NDArray[np.float64]] = [
-        intens_full[b, per_band_valid[b]] for b in range(n_bands)
-    ]
-    phi_per_band: List[NDArray[np.float64]] = [
-        angle_full[per_band_valid[b]] for b in range(n_bands)
-    ]
+    intens_per_band: List[NDArray[np.float64]] = [intens_full[b, per_band_valid[b]] for b in range(n_bands)]
+    phi_per_band: List[NDArray[np.float64]] = [angle_full[per_band_valid[b]] for b in range(n_bands)]
     variances_per_band: Optional[List[NDArray[np.float64]]] = (
-        [var_full[b, per_band_valid[b]] for b in range(n_bands)]
-        if var_full is not None
-        else None
+        [var_full[b, per_band_valid[b]] for b in range(n_bands)] if var_full is not None else None
     )
 
     return MultiIsophoteData(
@@ -447,8 +413,15 @@ def extract_isophote_data_multi_prepared(
       band's own surviving samples instead of the cross-band AND.
     """
     return _sample_along_ellipse(
-        image_stack, masks_resolved, var_stack,
-        x0, y0, sma, eps, pa, use_eccentric_anomaly,
+        image_stack,
+        masks_resolved,
+        var_stack,
+        x0,
+        y0,
+        sma,
+        eps,
+        pa,
+        use_eccentric_anomaly,
         loose_validity=loose_validity,
     )
 
@@ -537,11 +510,16 @@ def extract_isophote_data_multi(
 
     masks_list = _resolve_masks(masks, n_bands, h, w)
     var_list = _resolve_variance_maps(variance_maps, n_bands, h, w)
-    var_stack: Optional[NDArray[np.float64]] = (
-        np.stack(var_list, axis=0) if var_list is not None else None
-    )
+    var_stack: Optional[NDArray[np.float64]] = np.stack(var_list, axis=0) if var_list is not None else None
     return _sample_along_ellipse(
-        image_stack, masks_list, var_stack,
-        x0, y0, sma, eps, pa, use_eccentric_anomaly,
+        image_stack,
+        masks_list,
+        var_stack,
+        x0,
+        y0,
+        sma,
+        eps,
+        pa,
+        use_eccentric_anomaly,
         loose_validity=loose_validity,
     )

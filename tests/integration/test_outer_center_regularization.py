@@ -128,7 +128,11 @@ def _combined_drift(isophotes, x0_ref, y0_ref):
         return 0.0, 0.0, 0.0
     dx = np.array([iso["x0"] - x0_ref for iso in isophotes])
     dy = np.array([iso["y0"] - y0_ref for iso in isophotes])
-    return float(np.max(np.abs(dx))), float(np.max(np.abs(dy))), float(np.sqrt(np.max(np.abs(dx)) ** 2 + np.max(np.abs(dy)) ** 2))
+    return (
+        float(np.max(np.abs(dx))),
+        float(np.max(np.abs(dy))),
+        float(np.sqrt(np.max(np.abs(dx)) ** 2 + np.max(np.abs(dy)) ** 2)),
+    )
 
 
 class TestBackwardCompatibility:
@@ -359,7 +363,7 @@ class TestLsbAutoLockStillFires:
 
         # Allow up to 2 growth steps difference.
         ratio = sma_both / sma_lock
-        assert 1.0 / (1.15 ** 2) <= ratio <= (1.15 ** 2), (
+        assert 1.0 / (1.15**2) <= ratio <= (1.15**2), (
             f"lock sma shifted too far: baseline={sma_lock:.1f}, with outer_reg={sma_both:.1f}"
         )
 
@@ -370,9 +374,7 @@ class TestForcedPhotometryGuard:
     def test_forced_photometry_warns_and_runs(self):
         image = _make_exponential_galaxy(scale=20.0, peak=10000.0)
 
-        template_cfg = IsosterConfig(
-            x0=100.0, y0=100.0, sma0=10.0, maxsma=40.0, astep=0.25
-        )
+        template_cfg = IsosterConfig(x0=100.0, y0=100.0, sma0=10.0, maxsma=40.0, astep=0.25)
         template_result = fit_image(image, None, template_cfg)
         template = template_result["isophotes"]
 
@@ -391,8 +393,7 @@ class TestForcedPhotometryGuard:
             result = fit_image(image, None, cfg, template=template)
 
         assert any(
-            "use_outer_center_regularization" in str(w.message)
-            and "forced photometry" in str(w.message)
+            "use_outer_center_regularization" in str(w.message) and "forced photometry" in str(w.message)
             for w in caught
         ), "expected a forced-photometry guard warning for outer_center_regularization"
         assert "use_outer_center_regularization" not in result
@@ -405,9 +406,7 @@ class TestForcedPhotometryGuard:
 # --- outer_reg_weights (center / eps / pa) coverage ------------------------
 
 
-def _count_saturated_outer_eps_steps(
-    isophotes, sma_threshold, clip_max_eps, frac=0.9
-):
+def _count_saturated_outer_eps_steps(isophotes, sma_threshold, clip_max_eps, frac=0.9):
     """Count adjacent-isophote |delta eps| steps at or above frac*clip_max_eps.
 
     Restricted to outward isophotes with sma >= sma_threshold.
@@ -617,9 +616,7 @@ class TestSolverModeTikhonov:
         assert cfg.outer_reg_mode == "damping"
         with pytest.raises(Exception):
             # Pydantic raises ValidationError (a subclass) on pattern mismatch
-            IsosterConfig(
-                x0=100.0, y0=100.0, maxsma=40.0, outer_reg_mode="selector"
-            )
+            IsosterConfig(x0=100.0, y0=100.0, maxsma=40.0, outer_reg_mode="selector")
 
     def test_default_weights_are_full(self):
         """Default outer_reg_weights damp center, eps, and pa uniformly.
@@ -632,13 +629,17 @@ class TestSolverModeTikhonov:
         """outer_reg_sma_width defaults to None and is auto-computed as
         0.4 * onset inside the fitting code. Expert users can still set it."""
         cfg_default = IsosterConfig(
-            x0=100.0, y0=100.0, maxsma=40.0,
+            x0=100.0,
+            y0=100.0,
+            maxsma=40.0,
             use_outer_center_regularization=True,
         )
         assert cfg_default.outer_reg_sma_width is None
         # Explicit override still works.
         cfg_explicit = IsosterConfig(
-            x0=100.0, y0=100.0, maxsma=40.0,
+            x0=100.0,
+            y0=100.0,
+            maxsma=40.0,
             use_outer_center_regularization=True,
             outer_reg_sma_width=15.0,
         )
@@ -649,9 +650,7 @@ class TestSolverModeTikhonov:
         fit exactly - this is the pixel-identity gate that proves the
         solver branch is dormant at zero weights (regardless of mode)."""
         image = _make_contaminated_truncated_galaxy()
-        base = dict(
-            x0=100.0, y0=100.0, sma0=8.0, minsma=2.0, maxsma=90.0, astep=0.15
-        )
+        base = dict(x0=100.0, y0=100.0, sma0=8.0, minsma=2.0, maxsma=90.0, astep=0.15)
         cfg_off = IsosterConfig(**base)
         cfg_solver_zero = IsosterConfig(
             **base,
@@ -681,9 +680,7 @@ class TestSolverModeTikhonov:
         the smoothness gate that motivated the Tikhonov solver-level
         rewrite of the outer-reg feature."""
         image = _make_contaminated_truncated_galaxy()
-        base = dict(
-            x0=100.0, y0=100.0, sma0=8.0, minsma=2.0, maxsma=90.0, astep=0.15
-        )
+        base = dict(x0=100.0, y0=100.0, sma0=8.0, minsma=2.0, maxsma=90.0, astep=0.15)
         cfg_off = IsosterConfig(**base)
         cfg_damping = IsosterConfig(
             **base,
@@ -710,9 +707,7 @@ class TestSolverModeTikhonov:
         the contaminated galaxy (the property that motivated the feature
         in the first place)."""
         image = _make_contaminated_truncated_galaxy()
-        base = dict(
-            x0=100.0, y0=100.0, sma0=8.0, minsma=2.0, maxsma=90.0, astep=0.15
-        )
+        base = dict(x0=100.0, y0=100.0, sma0=8.0, minsma=2.0, maxsma=90.0, astep=0.15)
         cfg_off = IsosterConfig(**base)
         cfg_solver = IsosterConfig(
             **base,
@@ -734,8 +729,7 @@ class TestSolverModeTikhonov:
         _, _, drift_off = _combined_drift(out_off, x0_ref, y0_ref)
         _, _, drift_solver = _combined_drift(out_solver, x0_ref, y0_ref)
         assert drift_solver < drift_off, (
-            f"solver mode center drift {drift_solver:.2f} px must be less "
-            f"than no-reg drift {drift_off:.2f} px"
+            f"solver mode center drift {drift_solver:.2f} px must be less than no-reg drift {drift_off:.2f} px"
         )
 
     def test_solver_mode_with_simultaneous_harmonics_warns(self):
@@ -759,20 +753,24 @@ class TestTikhonovAlphaHelper:
 
     def test_alpha_zero_when_weight_zero(self):
         from isoster.fitting import _tikhonov_alpha
+
         assert _tikhonov_alpha(coeff=1.0, lambda_sma=2.0, weight=0.0) == 0.0
 
     def test_alpha_zero_when_lambda_zero(self):
         from isoster.fitting import _tikhonov_alpha
+
         assert _tikhonov_alpha(coeff=1.0, lambda_sma=0.0, weight=1.0) == 0.0
 
     def test_alpha_in_unit_interval(self):
         from isoster.fitting import _tikhonov_alpha
+
         for coeff, lam, w in [(0.5, 1.0, 1.0), (3.0, 5.0, 2.0), (1e-6, 100.0, 100.0)]:
             a = _tikhonov_alpha(coeff, lam, w)
             assert 0.0 <= a < 1.0
 
     def test_alpha_monotone_in_lambda(self):
         from isoster.fitting import _tikhonov_alpha
+
         a_low = _tikhonov_alpha(coeff=1.0, lambda_sma=0.1, weight=1.0)
         a_hi = _tikhonov_alpha(coeff=1.0, lambda_sma=10.0, weight=1.0)
         assert a_hi > a_low

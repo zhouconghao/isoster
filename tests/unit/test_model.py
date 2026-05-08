@@ -86,7 +86,8 @@ class TestModel(unittest.TestCase):
         mean_val = (val_along_major + val_along_minor) / 2.0
         if mean_val > 0:
             self.assertGreater(
-                (val_along_major - val_along_minor) / mean_val, 0.10,
+                (val_along_major - val_along_minor) / mean_val,
+                0.10,
                 "Intensity difference along major vs minor axis should be >10% of mean",
             )
 

@@ -95,7 +95,9 @@ def compute_cog_mb(
     area_annulus_raw = np.diff(areas, prepend=0.0)
 
     crossing_info = detect_crossing(
-        list(isophotes), fix_center=fix_center, fix_geometry=fix_geometry,
+        list(isophotes),
+        fix_center=fix_center,
+        fix_geometry=fix_geometry,
     )
     flag_cross = crossing_info["flag_cross"]
     flag_negative_area = crossing_info["flag_negative_area"]
@@ -117,7 +119,8 @@ def compute_cog_mb(
         intens_col = np.array(
             [
                 float(iso[f"intens_{b}"])  # type: ignore[arg-type]
-                if f"intens_{b}" in iso else float("nan")
+                if f"intens_{b}" in iso
+                else float("nan")
                 for iso in isophotes
             ],
             dtype=np.float64,

@@ -417,10 +417,7 @@ class IsosterConfig(BaseModel):
         # starting from free geometry. If the caller already fixed anything,
         # the transition would be a no-op — fail loudly instead.
         if self.lsb_auto_lock:
-            conflicting = [
-                name for name in ("fix_center", "fix_pa", "fix_eps")
-                if getattr(self, name)
-            ]
+            conflicting = [name for name in ("fix_center", "fix_pa", "fix_eps") if getattr(self, name)]
             if conflicting:
                 raise ValueError(
                     f"lsb_auto_lock=True conflicts with {', '.join(conflicting)}=True: "
@@ -428,8 +425,7 @@ class IsosterConfig(BaseModel):
                 )
             if self.debug is False:
                 warnings.warn(
-                    "lsb_auto_lock=True requires gradient diagnostics; "
-                    "debug will be enabled internally for this fit.",
+                    "lsb_auto_lock=True requires gradient diagnostics; debug will be enabled internally for this fit.",
                     UserWarning,
                     stacklevel=2,
                 )
@@ -477,10 +473,7 @@ class IsosterConfig(BaseModel):
                     UserWarning,
                     stacklevel=2,
                 )
-            all_zero = all(
-                float(self.outer_reg_weights.get(k, 0.0)) <= 0.0
-                for k in ("center", "eps", "pa")
-            )
+            all_zero = all(float(self.outer_reg_weights.get(k, 0.0)) <= 0.0 for k in ("center", "eps", "pa"))
             if all_zero:
                 warnings.warn(
                     "use_outer_center_regularization=True but all outer_reg_weights "

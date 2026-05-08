@@ -8,9 +8,14 @@ Regular mode in `fit_image` (`isoster/driver.py`) runs:
 
 1. Central pixel estimate (`fit_central_pixel`).
 2. First free-geometry isophote at `sma0` (`fit_isophote`).
-3. Outward growth until `maxsma`.
-4. Optional inward growth until `max(minsma, 0.5)`, but only when the first fitted isophote stop code is acceptable (`0`, `1`, or `2`).
+3. Optional inward growth until `max(minsma, 0.5)`, but only when the anchor isophote stop code is acceptable (`0`, `1`, or `2`).
+4. Outward growth until `maxsma`.
 5. Optional CoG attachment (`compute_cog`) in regular mode.
+
+The inward-first execution order is unconditional. It lets the outer-region
+regularization feature build an inner reference before outward growth starts,
+while the returned `results["isophotes"]` list is still assembled in ascending
+SMA order.
 
 Mode selection priority is:
 

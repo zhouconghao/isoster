@@ -7,7 +7,6 @@ from pydantic import ValidationError
 
 from isoster.multiband import IsosterConfigMB
 
-
 # ---------------------------------------------------------------------------
 # Happy paths
 # ---------------------------------------------------------------------------
@@ -62,19 +61,21 @@ def test_harmonic_combination_ref():
 @pytest.mark.parametrize(
     "bad_band",
     [
-        "HSC-G",   # hyphen rejected
-        "1g",      # leading digit rejected
-        "g r",     # whitespace rejected
-        "g.r",     # dot rejected
-        "",        # empty rejected
-        "g+",      # special char rejected
+        "HSC-G",  # hyphen rejected
+        "1g",  # leading digit rejected
+        "g r",  # whitespace rejected
+        "g.r",  # dot rejected
+        "",  # empty rejected
+        "g+",  # special char rejected
     ],
 )
 def test_band_name_regex_rejected(bad_band):
     with pytest.raises(ValidationError) as exc_info:
         IsosterConfigMB(bands=[bad_band], reference_band=bad_band)
-    assert "regex" in str(exc_info.value).lower() or "match" in str(exc_info.value).lower() or bad_band in str(
-        exc_info.value
+    assert (
+        "regex" in str(exc_info.value).lower()
+        or "match" in str(exc_info.value).lower()
+        or bad_band in str(exc_info.value)
     )
 
 
@@ -162,8 +163,10 @@ def test_integrator_mean_and_median_accepted():
     # decoupled mode (S1 validator). Cover both legal pairings here.
     for integ, jointly in (("mean", True), ("mean", False), ("median", False)):
         cfg = IsosterConfigMB(
-            bands=["g"], reference_band="g",
-            integrator=integ, fit_per_band_intens_jointly=jointly,
+            bands=["g"],
+            reference_band="g",
+            integrator=integ,
+            fit_per_band_intens_jointly=jointly,
         )
         assert cfg.integrator == integ
         assert cfg.fit_per_band_intens_jointly is jointly
@@ -179,7 +182,8 @@ def test_median_requires_decoupled_intercept_mode(jointly):
     """Hard-error: integrator='median' ∧ fit_per_band_intens_jointly=True."""
     with pytest.raises(ValidationError) as exc_info:
         IsosterConfigMB(
-            bands=["g", "r"], reference_band="g",
+            bands=["g", "r"],
+            reference_band="g",
             integrator="median",
             fit_per_band_intens_jointly=jointly,
         )
@@ -191,7 +195,8 @@ def test_median_requires_decoupled_intercept_mode(jointly):
 
 def test_median_decoupled_mode_accepted_with_loose_validity():
     cfg = IsosterConfigMB(
-        bands=["g", "r"], reference_band="g",
+        bands=["g", "r"],
+        reference_band="g",
         integrator="median",
         fit_per_band_intens_jointly=False,
         loose_validity=True,
@@ -202,7 +207,8 @@ def test_median_decoupled_mode_accepted_with_loose_validity():
 
 def test_median_decoupled_mode_accepted_with_higher_harmonics_independent():
     cfg = IsosterConfigMB(
-        bands=["g", "r", "i"], reference_band="r",
+        bands=["g", "r", "i"],
+        reference_band="r",
         integrator="median",
         fit_per_band_intens_jointly=False,
         multiband_higher_harmonics="independent",
@@ -212,7 +218,8 @@ def test_median_decoupled_mode_accepted_with_higher_harmonics_independent():
 
 def test_median_decoupled_mode_accepted_with_shared_higher_harmonics():
     cfg = IsosterConfigMB(
-        bands=["g", "r", "i"], reference_band="r",
+        bands=["g", "r", "i"],
+        reference_band="r",
         integrator="median",
         fit_per_band_intens_jointly=False,
         multiband_higher_harmonics="shared",
@@ -225,7 +232,8 @@ def test_mean_remains_legal_in_matrix_mode():
     """Sanity: integrator='mean' is unconditionally legal — including the
     default matrix-mode solve."""
     cfg = IsosterConfigMB(
-        bands=["g", "r"], reference_band="g",
+        bands=["g", "r"],
+        reference_band="g",
         integrator="mean",
         fit_per_band_intens_jointly=True,
     )
@@ -241,7 +249,10 @@ def test_mean_remains_legal_in_matrix_mode():
 def test_maxsma_below_minsma_rejected():
     with pytest.raises(ValidationError) as exc_info:
         IsosterConfigMB(
-            bands=["g"], reference_band="g", minsma=10.0, maxsma=5.0,
+            bands=["g"],
+            reference_band="g",
+            minsma=10.0,
+            maxsma=5.0,
         )
     assert "maxsma" in str(exc_info.value)
 
@@ -283,7 +294,8 @@ def test_loose_validity_band_normalization_requires_loose_validity():
     """`per_band_count` is meaningless under shared validity (N_b all equal)."""
     with pytest.raises(ValidationError) as exc_info:
         IsosterConfigMB(
-            bands=["g", "r"], reference_band="g",
+            bands=["g", "r"],
+            reference_band="g",
             loose_validity=False,
             loose_validity_band_normalization="per_band_count",
         )
@@ -292,7 +304,8 @@ def test_loose_validity_band_normalization_requires_loose_validity():
 
 def test_loose_validity_band_normalization_accepted_with_loose_validity():
     cfg = IsosterConfigMB(
-        bands=["g", "r"], reference_band="g",
+        bands=["g", "r"],
+        reference_band="g",
         loose_validity=True,
         loose_validity_band_normalization="per_band_count",
     )
@@ -302,7 +315,8 @@ def test_loose_validity_band_normalization_accepted_with_loose_validity():
 
 def test_loose_validity_compatible_with_ring_mean_intercept():
     cfg = IsosterConfigMB(
-        bands=["g", "r"], reference_band="g",
+        bands=["g", "r"],
+        reference_band="g",
         loose_validity=True,
         fit_per_band_intens_jointly=False,
     )
@@ -312,7 +326,8 @@ def test_loose_validity_compatible_with_ring_mean_intercept():
 
 def test_loose_validity_compatible_with_ref_mode():
     cfg = IsosterConfigMB(
-        bands=["g", "r"], reference_band="g",
+        bands=["g", "r"],
+        reference_band="g",
         loose_validity=True,
         harmonic_combination="ref",
     )
@@ -341,7 +356,8 @@ def test_higher_harmonics_enum_values(value):
         # simultaneous_* emit an experimental UserWarning; not relevant here.
         warnings.simplefilter("ignore", UserWarning)
         cfg = IsosterConfigMB(
-            bands=["g", "r"], reference_band="g",
+            bands=["g", "r"],
+            reference_band="g",
             multiband_higher_harmonics=value,
         )
     assert cfg.multiband_higher_harmonics == value
@@ -350,7 +366,8 @@ def test_higher_harmonics_enum_values(value):
 def test_higher_harmonics_invalid_value_rejected():
     with pytest.raises(ValidationError):
         IsosterConfigMB(
-            bands=["g", "r"], reference_band="g",
+            bands=["g", "r"],
+            reference_band="g",
             multiband_higher_harmonics="bogus",
         )
 
@@ -362,7 +379,8 @@ def test_higher_harmonics_ref_mode_incompatible(value):
         warnings.simplefilter("ignore", UserWarning)
         with pytest.raises(ValidationError) as exc_info:
             IsosterConfigMB(
-                bands=["g", "r"], reference_band="g",
+                bands=["g", "r"],
+                reference_band="g",
                 multiband_higher_harmonics=value,
                 harmonic_combination="ref",
             )
@@ -373,7 +391,8 @@ def test_higher_harmonics_ref_mode_incompatible(value):
 def test_higher_harmonics_independent_compatible_with_ref():
     """Default 'independent' mode does NOT clash with ref-mode."""
     cfg = IsosterConfigMB(
-        bands=["g", "r"], reference_band="g",
+        bands=["g", "r"],
+        reference_band="g",
         multiband_higher_harmonics="independent",
         harmonic_combination="ref",
     )
@@ -386,7 +405,8 @@ def test_higher_harmonics_simultaneous_warns(value):
     with warnings.catch_warnings(record=True) as captured:
         warnings.simplefilter("always")
         IsosterConfigMB(
-            bands=["g", "r"], reference_band="g",
+            bands=["g", "r"],
+            reference_band="g",
             multiband_higher_harmonics=value,
         )
     msgs = [str(w.message) for w in captured if issubclass(w.category, UserWarning)]
@@ -398,7 +418,8 @@ def test_higher_harmonics_shared_does_not_warn():
     with warnings.catch_warnings(record=True) as captured:
         warnings.simplefilter("always")
         IsosterConfigMB(
-            bands=["g", "r"], reference_band="g",
+            bands=["g", "r"],
+            reference_band="g",
             multiband_higher_harmonics="shared",
         )
     msgs = [str(w.message) for w in captured if issubclass(w.category, UserWarning)]
@@ -412,7 +433,8 @@ def test_harmonic_orders_default():
 
 def test_harmonic_orders_custom_list():
     cfg = IsosterConfigMB(
-        bands=["g", "r"], reference_band="g",
+        bands=["g", "r"],
+        reference_band="g",
         harmonic_orders=[3, 4, 5, 6],
     )
     assert cfg.harmonic_orders == [3, 4, 5, 6]
@@ -421,7 +443,8 @@ def test_harmonic_orders_custom_list():
 def test_harmonic_orders_unique_sorted():
     """Out-of-order input is unique-sorted on construction."""
     cfg = IsosterConfigMB(
-        bands=["g", "r"], reference_band="g",
+        bands=["g", "r"],
+        reference_band="g",
         harmonic_orders=[5, 3, 4],
     )
     assert cfg.harmonic_orders == [3, 4, 5]
@@ -430,7 +453,8 @@ def test_harmonic_orders_unique_sorted():
 def test_harmonic_orders_empty_rejected():
     with pytest.raises(ValidationError):
         IsosterConfigMB(
-            bands=["g", "r"], reference_band="g",
+            bands=["g", "r"],
+            reference_band="g",
             harmonic_orders=[],
         )
 
@@ -439,7 +463,8 @@ def test_harmonic_orders_empty_rejected():
 def test_harmonic_orders_below_three_rejected(bad):
     with pytest.raises(ValidationError):
         IsosterConfigMB(
-            bands=["g", "r"], reference_band="g",
+            bands=["g", "r"],
+            reference_band="g",
             harmonic_orders=bad,
         )
 
@@ -447,7 +472,8 @@ def test_harmonic_orders_below_three_rejected(bad):
 def test_harmonic_orders_duplicates_rejected():
     with pytest.raises(ValidationError) as exc_info:
         IsosterConfigMB(
-            bands=["g", "r"], reference_band="g",
+            bands=["g", "r"],
+            reference_band="g",
             harmonic_orders=[3, 3, 4],
         )
     assert "duplicate" in str(exc_info.value).lower()
@@ -462,7 +488,8 @@ def test_higher_harmonics_compatible_with_ring_mean_intercept(value):
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", UserWarning)
         cfg = IsosterConfigMB(
-            bands=["g", "r"], reference_band="g",
+            bands=["g", "r"],
+            reference_band="g",
             multiband_higher_harmonics=value,
             fit_per_band_intens_jointly=False,
         )
@@ -478,7 +505,8 @@ def test_higher_harmonics_compatible_with_loose_validity(value):
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", UserWarning)
         cfg = IsosterConfigMB(
-            bands=["g", "r"], reference_band="g",
+            bands=["g", "r"],
+            reference_band="g",
             multiband_higher_harmonics=value,
             loose_validity=True,
         )
@@ -514,7 +542,8 @@ def test_outer_reg_solver_value_rejected_until_stage_e():
     """Stage B ships ``damping`` only; ``solver`` must fail Literal check."""
     with pytest.raises(ValidationError):
         IsosterConfigMB(
-            bands=["g", "r"], reference_band="g",
+            bands=["g", "r"],
+            reference_band="g",
             use_outer_center_regularization=True,
             outer_reg_mode="solver",  # type: ignore[arg-type]
         )
@@ -523,7 +552,8 @@ def test_outer_reg_solver_value_rejected_until_stage_e():
 def test_outer_reg_unknown_axis_key_rejected():
     with pytest.raises(ValidationError) as exc_info:
         IsosterConfigMB(
-            bands=["g", "r"], reference_band="g",
+            bands=["g", "r"],
+            reference_band="g",
             use_outer_center_regularization=True,
             outer_reg_weights={"center": 1.0, "spin": 1.0},
         )
@@ -534,23 +564,25 @@ def test_outer_reg_onset_below_sma0_emits_warning():
     with warnings.catch_warnings(record=True) as w:
         warnings.simplefilter("always")
         IsosterConfigMB(
-            bands=["g", "r"], reference_band="g",
+            bands=["g", "r"],
+            reference_band="g",
             use_outer_center_regularization=True,
-            sma0=20.0, outer_reg_sma_onset=10.0,
+            sma0=20.0,
+            outer_reg_sma_onset=10.0,
         )
     msgs = [str(item.message) for item in w]
-    assert any(
-        "outer_reg_sma_onset" in m and "sma0" in m for m in msgs
-    ), msgs
+    assert any("outer_reg_sma_onset" in m and "sma0" in m for m in msgs), msgs
 
 
 def test_outer_reg_minsma_above_sma0_emits_warning():
     with warnings.catch_warnings(record=True) as w:
         warnings.simplefilter("always")
         IsosterConfigMB(
-            bands=["g", "r"], reference_band="g",
+            bands=["g", "r"],
+            reference_band="g",
             use_outer_center_regularization=True,
-            sma0=10.0, minsma=20.0,
+            sma0=10.0,
+            minsma=20.0,
         )
     msgs = [str(item.message) for item in w]
     assert any("inward isophotes" in m for m in msgs), msgs
@@ -560,7 +592,8 @@ def test_outer_reg_all_zero_weights_emits_warning():
     with warnings.catch_warnings(record=True) as w:
         warnings.simplefilter("always")
         IsosterConfigMB(
-            bands=["g", "r"], reference_band="g",
+            bands=["g", "r"],
+            reference_band="g",
             use_outer_center_regularization=True,
             outer_reg_weights={"center": 0.0, "eps": 0.0, "pa": 0.0},
         )
@@ -574,7 +607,8 @@ def test_outer_reg_auto_enables_geometry_convergence():
     with warnings.catch_warnings(record=True) as w:
         warnings.simplefilter("always")
         cfg = IsosterConfigMB(
-            bands=["g", "r"], reference_band="g",
+            bands=["g", "r"],
+            reference_band="g",
             use_outer_center_regularization=True,
         )
     msgs = [str(item.message) for item in w]
@@ -587,7 +621,8 @@ def test_outer_reg_no_geom_conv_warning_when_already_enabled():
     with warnings.catch_warnings(record=True) as w:
         warnings.simplefilter("always")
         cfg = IsosterConfigMB(
-            bands=["g", "r"], reference_band="g",
+            bands=["g", "r"],
+            reference_band="g",
             use_outer_center_regularization=True,
             geometry_convergence=True,
         )
@@ -610,15 +645,14 @@ def test_outer_reg_fix_axis_warning(fixed_field, axis):
     with warnings.catch_warnings(record=True) as w:
         warnings.simplefilter("always")
         IsosterConfigMB(
-            bands=["g", "r"], reference_band="g",
+            bands=["g", "r"],
+            reference_band="g",
             use_outer_center_regularization=True,
             outer_reg_weights={"center": 1.0, "eps": 1.0, "pa": 1.0},
             **{fixed_field: True},
         )
     msgs = [str(item.message) for item in w]
-    assert any(
-        f"outer_reg_weights[{axis!r}]" in m and fixed_field in m for m in msgs
-    ), msgs
+    assert any(f"outer_reg_weights[{axis!r}]" in m and fixed_field in m for m in msgs), msgs
 
 
 def test_outer_reg_off_does_not_emit_warnings():
@@ -627,9 +661,11 @@ def test_outer_reg_off_does_not_emit_warnings():
     with warnings.catch_warnings(record=True) as w:
         warnings.simplefilter("always")
         cfg = IsosterConfigMB(
-            bands=["g", "r"], reference_band="g",
+            bands=["g", "r"],
+            reference_band="g",
             use_outer_center_regularization=False,
-            sma0=20.0, outer_reg_sma_onset=5.0,  # would warn if feature on
+            sma0=20.0,
+            outer_reg_sma_onset=5.0,  # would warn if feature on
             outer_reg_weights={"center": 0.0, "eps": 0.0, "pa": 0.0},
         )
     msgs = [str(item.message) for item in w]
@@ -659,7 +695,8 @@ def test_lsb_auto_lock_default_median_requires_decoupled_mode():
     which Stage-A S1 rejects. Catch at construction."""
     with pytest.raises(ValidationError) as exc_info:
         IsosterConfigMB(
-            bands=["g", "r"], reference_band="g",
+            bands=["g", "r"],
+            reference_band="g",
             lsb_auto_lock=True,
         )
     msg = str(exc_info.value)
@@ -672,7 +709,8 @@ def test_lsb_auto_lock_median_decoupled_legal():
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", UserWarning)
         cfg = IsosterConfigMB(
-            bands=["g", "r"], reference_band="g",
+            bands=["g", "r"],
+            reference_band="g",
             lsb_auto_lock=True,
             lsb_auto_lock_integrator="median",
             fit_per_band_intens_jointly=False,
@@ -685,7 +723,8 @@ def test_lsb_auto_lock_mean_legal_under_matrix_mode():
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", UserWarning)
         cfg = IsosterConfigMB(
-            bands=["g", "r"], reference_band="g",
+            bands=["g", "r"],
+            reference_band="g",
             lsb_auto_lock=True,
             lsb_auto_lock_integrator="mean",
         )
@@ -699,7 +738,8 @@ def test_lsb_auto_lock_rejects_frozen_geometry(fixed_field):
     fix_<axis>=True conflicts (mirror single-band)."""
     with pytest.raises(ValidationError) as exc_info:
         IsosterConfigMB(
-            bands=["g", "r"], reference_band="g",
+            bands=["g", "r"],
+            reference_band="g",
             lsb_auto_lock=True,
             lsb_auto_lock_integrator="mean",
             **{fixed_field: True},
@@ -714,14 +754,13 @@ def test_lsb_auto_lock_auto_enables_debug():
     with warnings.catch_warnings(record=True) as w:
         warnings.simplefilter("always")
         cfg = IsosterConfigMB(
-            bands=["g", "r"], reference_band="g",
+            bands=["g", "r"],
+            reference_band="g",
             lsb_auto_lock=True,
             lsb_auto_lock_integrator="mean",
         )
     msgs = [str(item.message) for item in w]
-    assert any(
-        "joint gradient diagnostics" in m and "debug" in m for m in msgs
-    ), msgs
+    assert any("joint gradient diagnostics" in m and "debug" in m for m in msgs), msgs
     assert cfg.debug is True
 
 
@@ -729,8 +768,10 @@ def test_lsb_auto_lock_no_debug_warning_when_already_enabled():
     with warnings.catch_warnings(record=True) as w:
         warnings.simplefilter("always")
         cfg = IsosterConfigMB(
-            bands=["g", "r"], reference_band="g",
-            lsb_auto_lock=True, debug=True,
+            bands=["g", "r"],
+            reference_band="g",
+            lsb_auto_lock=True,
+            debug=True,
             lsb_auto_lock_integrator="mean",
         )
     msgs = [str(item.message) for item in w]
@@ -742,7 +783,8 @@ def test_lsb_auto_lock_off_does_not_emit_warnings():
     with warnings.catch_warnings(record=True) as w:
         warnings.simplefilter("always")
         cfg = IsosterConfigMB(
-            bands=["g", "r"], reference_band="g",
+            bands=["g", "r"],
+            reference_band="g",
             lsb_auto_lock=False,
             fix_center=True,
             lsb_auto_lock_integrator="median",
@@ -757,12 +799,14 @@ def test_lsb_auto_lock_debounce_bounds():
     """ge=1, le=10 enforced on lsb_auto_lock_debounce."""
     with pytest.raises(ValidationError):
         IsosterConfigMB(
-            bands=["g", "r"], reference_band="g",
+            bands=["g", "r"],
+            reference_band="g",
             lsb_auto_lock_debounce=0,
         )
     with pytest.raises(ValidationError):
         IsosterConfigMB(
-            bands=["g", "r"], reference_band="g",
+            bands=["g", "r"],
+            reference_band="g",
             lsb_auto_lock_debounce=11,
         )
 
@@ -771,7 +815,8 @@ def test_lsb_auto_lock_integrator_only_mean_or_median():
     """``adaptive`` rejected at the Literal level."""
     with pytest.raises(ValidationError):
         IsosterConfigMB(
-            bands=["g", "r"], reference_band="g",
+            bands=["g", "r"],
+            reference_band="g",
             lsb_auto_lock_integrator="adaptive",  # type: ignore[arg-type]
         )
 
@@ -812,7 +857,8 @@ def test_central_reg_unknown_axis_key_rejected_always():
     surface before the user toggles use_central_regularization=True."""
     with pytest.raises(ValidationError) as exc_info:
         IsosterConfigMB(
-            bands=["g", "r"], reference_band="g",
+            bands=["g", "r"],
+            reference_band="g",
             central_reg_weights={"eps": 1.0, "spin": 1.0},
         )
     assert "spin" in str(exc_info.value)
@@ -822,7 +868,8 @@ def test_central_reg_strength_zero_legal():
     """strength=0 is allowed (ge=0 not gt=0): user might want to
     toggle the feature on with weights set up for later tuning."""
     cfg = IsosterConfigMB(
-        bands=["g", "r"], reference_band="g",
+        bands=["g", "r"],
+        reference_band="g",
         use_central_regularization=True,
         central_reg_strength=0.0,
     )
@@ -832,12 +879,14 @@ def test_central_reg_strength_zero_legal():
 def test_central_reg_threshold_must_be_positive():
     with pytest.raises(ValidationError):
         IsosterConfigMB(
-            bands=["g", "r"], reference_band="g",
+            bands=["g", "r"],
+            reference_band="g",
             central_reg_sma_threshold=0.0,
         )
     with pytest.raises(ValidationError):
         IsosterConfigMB(
-            bands=["g", "r"], reference_band="g",
+            bands=["g", "r"],
+            reference_band="g",
             central_reg_sma_threshold=-1.0,
         )
 
@@ -845,7 +894,8 @@ def test_central_reg_threshold_must_be_positive():
 def test_central_reg_strength_must_be_non_negative():
     with pytest.raises(ValidationError):
         IsosterConfigMB(
-            bands=["g", "r"], reference_band="g",
+            bands=["g", "r"],
+            reference_band="g",
             central_reg_strength=-1.0,
         )
 
@@ -853,7 +903,8 @@ def test_central_reg_strength_must_be_non_negative():
 def test_central_reg_subset_weights_allowed():
     """Weights dict can omit axes (defaults are 1.0 inside the helper)."""
     cfg = IsosterConfigMB(
-        bands=["g", "r"], reference_band="g",
+        bands=["g", "r"],
+        reference_band="g",
         use_central_regularization=True,
         central_reg_weights={"center": 0.5},
     )

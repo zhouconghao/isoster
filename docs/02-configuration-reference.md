@@ -342,7 +342,7 @@ Per-isophote additions (outward only):
 
 ### 13. Outer Region Center Regularization
 
-Soft damping complement to the automatic LSB lock. A logistic-ramp penalty biases the best-iteration selector toward outward isophote centers that stay close to a frozen inner reference, making it harder for contamination or background structure to drift the center before the hard lock fires. PA and ellipticity stay free — only the center is regularized.
+Soft damping complement to the automatic LSB lock. A logistic-ramp Tikhonov term damps noisy outward geometry updates against a frozen inner reference, making it harder for contamination or background structure to drive center, ellipticity, or PA walks before the hard lock fires. The default `outer_reg_weights={"center": 1.0, "eps": 1.0, "pa": 1.0}` damps all geometry axes; set an axis weight to `0.0` to leave that axis undamped.
 
 This feature is disabled by default and is still being validated on a broader range of surveys. Turn it on when fitting deep, LSB structure (e.g., HSC-scale edge cases) where contamination is expected to pull the free outward fit away from the real galaxy center. On clean high-S/N galaxies the feature is essentially a no-op at the recommended strengths.
 
@@ -350,21 +350,23 @@ The regular-mode driver always runs the inward loop before the outward loop. The
 
 | Parameter | Default | Type | Description |
 |-----------|---------|------|-------------|
-| `use_outer_center_regularization` | `False` | `bool` | Enable outer-region center regularization. When `False`, behavior is unchanged except for the inward-first loop reorder (which preserves all outward semantics). |
+| `use_outer_center_regularization` | `False` | `bool` | Enable outer-region geometry regularization. The field name is retained for backward compatibility. When `False`, behavior is unchanged except for the inward-first loop reorder (which preserves all outward semantics). |
 | `outer_reg_sma_onset` | `50.0` | `float` (> 0) | Logistic midpoint in pixels. The penalty is near zero for `sma << onset` and saturates for `sma >> onset`. Should be larger than `sma0`; a `UserWarning` is emitted if not. |
-| `outer_reg_sma_width` | `20.0` | `float` (> 0) | Logistic width (growth-step scale). Controls how sharply the penalty ramps up around `sma_onset`. |
-| `outer_reg_strength` | `2.0` | `float` (≥ 0) | Saturated penalty amplitude. This is the lambda coefficient on `delta_r^2` added directly to `effective_amp` (intensity units). Benchmarked as a reasonable default on HSC edge cases; increase for heavier damping when outskirts are dominated by contamination. |
+| `outer_reg_sma_width` | `None` | `float` (> 0) or `None` | Logistic width (growth-step scale). `None` auto-computes `0.4 * outer_reg_sma_onset`. |
+| `outer_reg_strength` | `2.0` | `float` (≥ 0) | Saturated Tikhonov amplitude. Benchmarked as a reasonable default on HSC edge cases; increase for heavier damping when outskirts are dominated by contamination. |
+| `outer_reg_weights` | `{'center': 1.0, 'eps': 1.0, 'pa': 1.0}` | `dict` | Per-axis damping weights for center, ellipticity, and PA. Unknown axes are ignored by the fitter but should be avoided; zero disables damping on that axis. |
+| `outer_reg_mode` | `'damping'` | `'damping'` or `'solver'` | `damping` shrinks harmonic geometry steps without a reference pull. `solver` also pulls toward the frozen inner reference and is more biasing. |
 | `outer_reg_ref_sma_factor` | `2.0` | `float` (> 1) | Inner reference window: only inward isophotes with `sma <= sma0 * factor` contribute to the flux-weighted reference mean. |
 
 **Interaction notes:**
 
 - **Independent from `lsb_auto_lock`**: the two flags compose cleanly. Soft regularization runs pre-lock; after the lock commits, `fix_center=True` makes the penalty a no-op on the locked tail.
-- **Selector, not prior**: the penalty sits inside the best-iteration selector (`effective_amp = abs(max_amp) + reg_penalty + outer_reg_penalty`). It biases *which of the 50 candidate iterations is kept*; it does not inject a restoring force into the geometry update equations. Real lopsided structure can still bleed through if it dominates every candidate iteration.
+- **Damping plus selector**: in default `outer_reg_mode='damping'`, the Tikhonov term shrinks harmonic geometry steps in the outer region. A selector-level penalty also contributes to `effective_amp = abs(max_amp) + reg_penalty + outer_reg_penalty` so cumulative drift is bounded when several candidate iterations are available. `outer_reg_mode='solver'` additionally pulls toward the frozen reference and should be treated as more biasing.
 - **Inward-first loop order**: the regular-mode driver unconditionally runs the inward pass before the outward pass. The inward pass's outputs are unchanged; consumers that iterate over `results['isophotes']` by index are unaffected because the result list is still assembled in sma-sorted order.
-- **Reference construction**: `(x0_ref, y0_ref)` is a flux-weighted mean over the anchor plus inward isophotes with acceptable stop codes and `sma <= sma0 * outer_reg_ref_sma_factor`. When no inward isophote qualifies, the reference falls back to `(anchor_iso['x0'], anchor_iso['y0'])`.
+- **Reference construction**: `(x0_ref, y0_ref, eps_ref, pa_ref)` is a flux-weighted mean over the anchor plus inward isophotes with acceptable stop codes and `sma <= sma0 * outer_reg_ref_sma_factor`. PA uses a circular mean on `2*pa`. When no inward isophote qualifies, the reference falls back to the anchor geometry.
 - **`outer_reg_sma_onset < sma0`**: the penalty would fire from the first outward step; a `UserWarning` is emitted at config time.
 - **`minsma >= sma0`**: no inward isophotes exist, reference falls back to the anchor; a `UserWarning` is emitted.
-- **`fix_center=True`**: the penalty is inert because the center never moves; a `UserWarning` is emitted at config time so that toggling `use_outer_center_regularization=True` under a fixed center is reported rather than silently ignored.
+- **Fixed geometry flags**: a positive weight on a fixed axis is inert because that axis never moves; a `UserWarning` is emitted at config time for `fix_center`, `fix_pa`, or `fix_eps` when the corresponding `outer_reg_weights` entry is positive.
 - **Forced photometry unaffected**: the feature applies only to regular `fit_image` calls. When combined with template-based forced photometry, `fit_image` emits a `UserWarning` and the feature is silently inactive.
 - **Sampling / harmonic modes**: agnostic to `use_eccentric_anomaly`, `simultaneous_harmonics`, and isofit-style modes, because the penalty rides the same `effective_amp` rail in the best-iteration selector.
 
@@ -373,6 +375,8 @@ Result dict additions when `use_outer_center_regularization=True`:
 - `result["use_outer_center_regularization"]` (`bool`): echoes that the feature was used.
 - `result["outer_reg_x0_ref"]` (`float`): frozen inner reference `x0`.
 - `result["outer_reg_y0_ref"]` (`float`): frozen inner reference `y0`.
+- `result["outer_reg_eps_ref"]` (`float`): frozen inner reference ellipticity.
+- `result["outer_reg_pa_ref"]` (`float`): frozen inner reference PA.
 
 No per-isophote fields are added.
 

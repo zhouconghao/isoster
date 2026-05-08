@@ -45,9 +45,7 @@ def _isophotes_from_arrays(
 
 def test_relative_intensity_deviation_matching_arrays() -> None:
     ref = np.array([10.0, 20.0, 30.0])
-    rms, rel_max, n_low = metrics.relative_intensity_deviation(
-        ref, ref.copy(), low_signal_threshold=1e-9
-    )
+    rms, rel_max, n_low = metrics.relative_intensity_deviation(ref, ref.copy(), low_signal_threshold=1e-9)
     assert rms == pytest.approx(0.0, abs=1e-12)
     assert rel_max == pytest.approx(0.0, abs=1e-12)
     assert n_low == 0
@@ -56,9 +54,7 @@ def test_relative_intensity_deviation_matching_arrays() -> None:
 def test_relative_intensity_deviation_known_deviation() -> None:
     ref = np.array([100.0, 100.0, 100.0])
     pert = np.array([105.0, 95.0, 110.0])  # +5%, -5%, +10%
-    rms, rel_max, n_low = metrics.relative_intensity_deviation(
-        ref, pert, low_signal_threshold=1e-9
-    )
+    rms, rel_max, n_low = metrics.relative_intensity_deviation(ref, pert, low_signal_threshold=1e-9)
     expected_rms = float(np.sqrt(np.mean([0.05**2, 0.05**2, 0.10**2])))
     assert rms == pytest.approx(expected_rms, rel=1e-9)
     assert rel_max == pytest.approx(0.10, rel=1e-9)
@@ -68,9 +64,7 @@ def test_relative_intensity_deviation_known_deviation() -> None:
 def test_relative_intensity_deviation_low_signal_points_dropped() -> None:
     ref = np.array([1e-12, 100.0, 100.0])
     pert = np.array([1.0, 105.0, 95.0])
-    rms, rel_max, n_low = metrics.relative_intensity_deviation(
-        ref, pert, low_signal_threshold=1e-6
-    )
+    rms, rel_max, n_low = metrics.relative_intensity_deviation(ref, pert, low_signal_threshold=1e-6)
     assert n_low == 1
     expected_rms = float(np.sqrt(np.mean([0.05**2, 0.05**2])))
     assert rms == pytest.approx(expected_rms, rel=1e-9)
@@ -95,9 +89,7 @@ def test_compare_to_reference_identical_lists_gives_zero_motion() -> None:
     intens = 100.0 * np.exp(-sma / 15.0)
     ref = _isophotes_from_arrays(sma, intens)
     pert = _isophotes_from_arrays(sma.copy(), intens.copy())
-    comparison = metrics.compare_to_reference(
-        ref, pert, low_signal_threshold=1e-9
-    )
+    comparison = metrics.compare_to_reference(ref, pert, low_signal_threshold=1e-9)
     assert comparison.frac_overlap == pytest.approx(1.0)
     assert comparison.profile_rel_rms == pytest.approx(0.0, abs=1e-10)
     assert comparison.profile_rel_max == pytest.approx(0.0, abs=1e-10)
@@ -114,9 +106,7 @@ def test_compare_to_reference_perturbed_outside_support_reduces_overlap() -> Non
     sma_pert = np.linspace(2.0, 70.0, 25)
     intens_pert = 100.0 * np.exp(-sma_pert / 15.0)
     pert = _isophotes_from_arrays(sma_pert, intens_pert)
-    comparison = metrics.compare_to_reference(
-        ref, pert, low_signal_threshold=1e-9
-    )
+    comparison = metrics.compare_to_reference(ref, pert, low_signal_threshold=1e-9)
     assert comparison.n_pert == 25
     assert comparison.n_overlap < 25
     assert comparison.frac_overlap < 1.0

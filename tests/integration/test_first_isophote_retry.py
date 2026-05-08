@@ -83,7 +83,10 @@ class TestFirstIsophoteFailureDetection:
         mask[(r >= 9.0) & (r <= 11.0)] = True
 
         config = IsosterConfig(
-            x0=50.0, y0=50.0, sma0=10.0, maxsma=40.0,
+            x0=50.0,
+            y0=50.0,
+            sma0=10.0,
+            maxsma=40.0,
             first_isophote_fail_count=3,
         )
 
@@ -118,7 +121,8 @@ class TestFirstIsophoteRetry:
 
         image = _make_galaxy_image(scale=10.0, peak=5000.0, background=10.0)
         config = IsosterConfig(
-            x0=50.0, y0=50.0,
+            x0=50.0,
+            y0=50.0,
             sma0=20.0,  # Fails at this SMA
             maxsma=30.0,
             max_retry_first_isophote=5,
@@ -147,7 +151,10 @@ class TestFirstIsophoteRetry:
 
         image = _make_galaxy_image(scale=10.0, peak=5000.0, background=10.0)
         config = IsosterConfig(
-            x0=50.0, y0=50.0, sma0=20.0, maxsma=30.0,
+            x0=50.0,
+            y0=50.0,
+            sma0=20.0,
+            maxsma=30.0,
             max_retry_first_isophote=5,
         )
 
@@ -165,7 +172,10 @@ class TestFirstIsophoteRetry:
         """All retries fail on completely flat image."""
         image = np.ones((100, 100)) * 100.0
         config = IsosterConfig(
-            x0=50.0, y0=50.0, sma0=10.0, maxsma=30.0,
+            x0=50.0,
+            y0=50.0,
+            sma0=10.0,
+            maxsma=30.0,
             max_retry_first_isophote=3,
         )
 
@@ -191,7 +201,10 @@ class TestFirstIsophoteRetry:
         """When first iso succeeds, retry is never triggered even if enabled."""
         image = _make_galaxy_image()
         config = IsosterConfig(
-            x0=50.0, y0=50.0, sma0=10.0, maxsma=40.0,
+            x0=50.0,
+            y0=50.0,
+            sma0=10.0,
+            maxsma=40.0,
             max_retry_first_isophote=5,
         )
 

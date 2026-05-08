@@ -29,12 +29,10 @@ Membership criteria for adding a new helper here:
 from __future__ import annotations
 
 import json
-from typing import Optional
 
 import numpy as np
 from astropy.io import fits
 from astropy.table import Table
-
 
 # ---------------------------------------------------------------------------
 # Mask / Tikhonov helpers (originally in isoster.fitting)
