@@ -1,17 +1,16 @@
+# ruff: noqa: E402
+import argparse
+import json
 import sys
 import time
-import argparse
-import os
-import json
 import warnings
 from pathlib import Path
 from unittest.mock import patch
 
+import matplotlib.gridspec as gridspec
+import matplotlib.pyplot as plt
 import numpy as np
 from astropy.io import fits
-import matplotlib.pyplot as plt
-import matplotlib.gridspec as gridspec
-from matplotlib.lines import Line2D
 
 # Add project root to path
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -20,8 +19,8 @@ if str(PROJECT_ROOT) not in sys.path:
 
 import isoster
 from isoster.config import IsosterConfig
-from isoster.output_paths import resolve_output_directory
 from isoster.model import build_isoster_model
+from isoster.output_paths import resolve_output_directory
 from isoster.plotting import (
     configure_qa_plot_style,
     normalize_pa_degrees,
@@ -153,7 +152,7 @@ def plot_comparison_qa(name, image, res_norm, res_lazy, res_photo, output_path,
     residual_lazy = np.where(np.isfinite(image), image - model_lazy, np.nan)
 
     # Common scale for residuals
-    all_res = np.concatenate([residual_norm[np.isfinite(residual_norm)], 
+    all_res = np.concatenate([residual_norm[np.isfinite(residual_norm)],
                              residual_lazy[np.isfinite(residual_lazy)]])
     res_limit = float(np.clip(np.nanpercentile(np.abs(all_res), 99.0) if all_res.size else 1.0, 0.05, None))
 
@@ -167,7 +166,7 @@ def plot_comparison_qa(name, image, res_norm, res_lazy, res_photo, output_path,
 
     # Bottom: 5 profile rows
     profile_height_ratios = [2.0, 1.0, 1.0, 1.0, 1.0]
-    bottom = gridspec.GridSpecFromSubplotSpec(n_profile_rows, 1, subplot_spec=outer[1], 
+    bottom = gridspec.GridSpecFromSubplotSpec(n_profile_rows, 1, subplot_spec=outer[1],
                                              height_ratios=profile_height_ratios, hspace=0.0)
 
     fig.suptitle(f"Benchmark: {name} - Lazy Gradient Evaluation Improvement", fontsize=16, y=0.98)
@@ -177,7 +176,8 @@ def plot_comparison_qa(name, image, res_norm, res_lazy, res_photo, output_path,
         ax = fig.add_subplot(top[0, i])
         ax.imshow(res_map, origin="lower", cmap="coolwarm", vmin=-res_limit, vmax=res_limit, interpolation="nearest")
         ax.set_title(title, fontsize=12)
-        ax.set_xticks([]); ax.set_yticks([])
+        ax.set_xticks([])
+        ax.set_yticks([])
 
     # Profile Plots
     ax_sb = fig.add_subplot(bottom[0])

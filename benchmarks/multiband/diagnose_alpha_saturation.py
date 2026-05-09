@@ -92,9 +92,9 @@ def main() -> None:
     # Console summary at PGC-typical operating points.
     print()
     print("Tikhonov α at typical PGC outer-LSB coefficients:")
-    print(f"  Assumed λ ≈ 2 (sigmoid saturated for sma >> onset)")
-    print(f"  coeff = (1-ε)/grad with ε≈0.3, grad≈1e-3 → coeff² ≈ 5e5")
-    print(f"  ⇒ λ·coeff² ≈ 1e6 (deep LSB regime)")
+    print("  Assumed λ ≈ 2 (sigmoid saturated for sma >> onset)")
+    print("  coeff = (1-ε)/grad with ε≈0.3, grad≈1e-3 → coeff² ≈ 5e5")
+    print("  ⇒ λ·coeff² ≈ 1e6 (deep LSB regime)")
     print()
     print(f"{'weight':>8} {'α':>12} {'(1-α) step shrink':>20}")
     print("-" * 45)

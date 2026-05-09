@@ -17,13 +17,12 @@ from pathlib import Path
 
 import numpy as np
 
-
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from benchmarks.utils.sersic_model import create_sersic_image_vectorized, sersic_1d  # noqa: E402
 from benchmarks.utils.run_metadata import collect_environment_metadata  # noqa: E402
+from benchmarks.utils.sersic_model import create_sersic_image_vectorized, sersic_1d  # noqa: E402
 from isoster import fit_image  # noqa: E402
 from isoster.config import IsosterConfig  # noqa: E402
 from isoster.output_paths import resolve_output_directory  # noqa: E402

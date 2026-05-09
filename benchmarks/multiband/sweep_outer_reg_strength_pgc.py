@@ -49,19 +49,15 @@ from typing import Dict, List, Tuple
 
 import matplotlib.pyplot as plt
 import numpy as np
+from legacysurvey_loader import (
+    load_legacysurvey_grz,
+)
 
 from isoster.multiband import (
     IsosterConfigMB,
     fit_image_multiband,
     isophote_results_mb_to_fits,
 )
-
-from legacysurvey_loader import (
-    LEGACYSURVEY_ZP,
-    asinh_softening_from_log10_match,
-    load_legacysurvey_grz,
-)
-
 
 # (label, use_outer_reg, strength, weights). Order drives the legend
 # and the comparison-panel line ordering.
@@ -253,8 +249,8 @@ def run(galaxy_dir: Path, galaxy_prefix: str, out_dir: Path) -> None:
     _comparison_figure(
         geometries, cmp_path,
         title_prefix=(
-            f"PGC006669 — outer_reg strength × weights sweep "
-            f"(dotted line: outer_reg_sma_onset = 40 px)"
+            "PGC006669 — outer_reg strength × weights sweep "
+            "(dotted line: outer_reg_sma_onset = 40 px)"
         ),
         sma_onset=40.0,
     )
@@ -264,8 +260,8 @@ def run(galaxy_dir: Path, galaxy_prefix: str, out_dir: Path) -> None:
     stats_path.write_text(json.dumps({
         "galaxy_prefix": galaxy_prefix,
         "sweep_configs": [
-            {"label": l, "use_outer_reg": on, "strength": s, "weights": w}
-            for (l, on, s, w) in SWEEP_CONFIGS
+            {"label": label, "use_outer_reg": on, "strength": s, "weights": w}
+            for (label, on, s, w) in SWEEP_CONFIGS
         ],
         "outer_metrics": metrics_by_label,
         "fits_paths": fits_paths,

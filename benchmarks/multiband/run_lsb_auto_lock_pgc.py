@@ -28,6 +28,11 @@ from typing import Dict, List
 
 import matplotlib.pyplot as plt
 import numpy as np
+from legacysurvey_loader import (
+    LEGACYSURVEY_ZP,
+    asinh_softening_from_log10_match,
+    load_legacysurvey_grz,
+)
 
 from isoster.multiband import (
     IsosterConfigMB,
@@ -35,13 +40,6 @@ from isoster.multiband import (
     isophote_results_mb_to_fits,
     plot_qa_summary_mb,
 )
-
-from legacysurvey_loader import (
-    LEGACYSURVEY_ZP,
-    asinh_softening_from_log10_match,
-    load_legacysurvey_grz,
-)
-
 
 LOCK_CONFIGS = (
     ("baseline", False, "mean"),
@@ -228,7 +226,7 @@ def run(galaxy_dir: Path, galaxy_prefix: str, out_dir: Path) -> None:
     cmp_path = out_dir / f"{galaxy_prefix}_lsb_auto_lock_compare.png"
     _comparison_figure(
         results_by_label, cmp_path,
-        title_prefix=f"PGC006669 — geometry vs SMA across lsb_auto_lock configs (red dashed = lock-fire SMA)",
+        title_prefix="PGC006669 — geometry vs SMA across lsb_auto_lock configs (red dashed = lock-fire SMA)",
     )
     print(f"Wrote {cmp_path}")
 

@@ -23,9 +23,7 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import numpy as np
 from astropy.visualization import AsinhStretch, ImageNormalize, PercentileInterval
-
 from legacysurvey_loader import load_legacysurvey_grz
-
 
 _BAND_COLORS = {"g": "#1f77b4", "r": "#2ca02c", "z": "#d62728"}
 

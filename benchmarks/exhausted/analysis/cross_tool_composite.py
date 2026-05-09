@@ -36,7 +36,6 @@ import numpy as np
 mpl.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
 
-
 PRIOR_COLS = [
     ("violates_drift_any", "drift"),
     ("violates_harmonics_outer", "harm"),

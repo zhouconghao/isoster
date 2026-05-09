@@ -7,7 +7,6 @@ import json
 from pathlib import Path
 from typing import Dict, List
 
-
 DEFAULT_INPUT_PATH = Path("outputs/benchmark_performance/bench_efficiency/efficiency_benchmark_results.json")
 DEFAULT_OUTPUT_PATH = Path("benchmarks/baselines/efficiency_thresholds.json")
 

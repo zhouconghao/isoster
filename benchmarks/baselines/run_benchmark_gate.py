@@ -27,10 +27,6 @@ if "MPLCONFIGDIR" not in os.environ:
     mpl_config_dir.mkdir(parents=True, exist_ok=True)
     os.environ["MPLCONFIGDIR"] = str(mpl_config_dir)
 
-from benchmarks.baselines.collect_phase4_profile_baseline import collect_baseline_metrics  # noqa: E402
-from benchmarks.performance.bench_efficiency import run_benchmark_suite  # noqa: E402
-from benchmarks.utils.run_metadata import collect_environment_metadata, write_json  # noqa: E402
-from benchmarks.utils.sersic_model import create_sersic_image_vectorized  # noqa: E402
 from examples.huang2013.run_huang2013_real_mock_demo import (  # noqa: E402
     DEFAULT_PIXEL_SCALE_ARCSEC,
     DEFAULT_REDSHIFT,
@@ -38,11 +34,15 @@ from examples.huang2013.run_huang2013_real_mock_demo import (  # noqa: E402
     build_method_qa_figure,
     prepare_profile_table,
 )
+
+from benchmarks.baselines.collect_phase4_profile_baseline import collect_baseline_metrics  # noqa: E402
+from benchmarks.performance.bench_efficiency import run_benchmark_suite  # noqa: E402
+from benchmarks.utils.run_metadata import collect_environment_metadata, write_json  # noqa: E402
+from benchmarks.utils.sersic_model import create_sersic_image_vectorized  # noqa: E402
 from isoster import fit_image  # noqa: E402
 from isoster.config import IsosterConfig  # noqa: E402
 from isoster.model import build_isoster_model  # noqa: E402
 from isoster.output_paths import resolve_output_directory  # noqa: E402
-
 
 DEFAULT_EFFICIENCY_LOCK_PATH = Path("benchmarks/baselines/efficiency_thresholds.json")
 DEFAULT_PROFILE_LOCK_PATH = Path("benchmarks/baselines/phase4_profile_thresholds.json")

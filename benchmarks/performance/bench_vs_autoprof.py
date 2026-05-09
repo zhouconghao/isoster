@@ -20,12 +20,11 @@ Usage:
     uv run python benchmarks/performance/bench_vs_autoprof.py --skip-autoprof --plots
 """
 
-import sys
-import csv
-import time
-import json
 import argparse
+import csv
 import os
+import sys
+import time
 from pathlib import Path
 
 import numpy as np
@@ -44,22 +43,23 @@ if "MPLCONFIGDIR" not in os.environ:
     mpl_config_dir.mkdir(parents=True, exist_ok=True)
     os.environ["MPLCONFIGDIR"] = str(mpl_config_dir)
 
-import matplotlib.pyplot as plt  # noqa: E402
 import matplotlib.gridspec as gridspec  # noqa: E402
-from matplotlib.patches import Ellipse as MplEllipse  # noqa: E402
+import matplotlib.pyplot as plt  # noqa: E402
 from astropy.io import fits as afits  # noqa: E402
+from matplotlib.patches import Ellipse as MplEllipse  # noqa: E402
+
 import isoster  # noqa: E402
-from isoster.config import IsosterConfig  # noqa: E402
-from isoster.model import build_isoster_model  # noqa: E402
-from isoster.output_paths import resolve_output_directory  # noqa: E402
-from benchmarks.utils.run_metadata import (  # noqa: E402
-    collect_environment_metadata,
-    write_json,
-)
 from benchmarks.utils.autoprof_adapter import (  # noqa: E402
     check_autoprof_available,
     run_autoprof_fit,
 )
+from benchmarks.utils.run_metadata import (  # noqa: E402
+    collect_environment_metadata,
+    write_json,
+)
+from isoster.config import IsosterConfig  # noqa: E402
+from isoster.model import build_isoster_model  # noqa: E402
+from isoster.output_paths import resolve_output_directory  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # Galaxy registry
@@ -788,7 +788,7 @@ def run_all_benchmarks(
         names_set = set(QUICK_GALAXIES)
         registry = [g for g in registry if g["name"] in names_set]
 
-    print(f"\nBenchmark: isoster vs AutoProf")
+    print("\nBenchmark: isoster vs AutoProf")
     print(f"Galaxies: {[g['name'] for g in registry]}")
     print(f"AutoProf available: {check_autoprof_available()}")
     print(f"Output: {output_dir}")
@@ -1047,14 +1047,12 @@ def generate_galaxy_comparison_figure(result: dict, plots_dir: Path, dpi: int = 
     iso_prof = profiles.get("isoster")
     ap_prof = profiles.get("autoprof")
     image = profiles.get("image")
-    models = profiles.get("models", {})
     residuals = profiles.get("residuals", {})
 
     if iso_prof is None or image is None:
         return
 
     has_autoprof = ap_prof is not None
-    has_native_model = models.get("ap_native") is not None
 
     # -----------------------------------------------------------------------
     # Shared display data

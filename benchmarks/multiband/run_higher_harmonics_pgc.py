@@ -29,6 +29,11 @@ from typing import Dict, List
 
 import matplotlib.pyplot as plt
 import numpy as np
+from legacysurvey_loader import (
+    LEGACYSURVEY_ZP,
+    asinh_softening_from_log10_match,
+    load_legacysurvey_grz,
+)
 
 from isoster.multiband import (
     IsosterConfigMB,
@@ -36,13 +41,6 @@ from isoster.multiband import (
     isophote_results_mb_to_fits,
     plot_qa_summary_mb,
 )
-
-from legacysurvey_loader import (
-    LEGACYSURVEY_ZP,
-    asinh_softening_from_log10_match,
-    load_legacysurvey_grz,
-)
-
 
 HARMONICS_MODES = (
     "independent",
@@ -227,7 +225,7 @@ def run(
     cmp_path = out_dir / f"{galaxy_prefix}_higher_harmonics_compare.png"
     _comparison_figure(
         results_by_mode, bands, cmp_path,
-        title_prefix=f"PGC006669 — per-band a_n/b_n vs SMA across modes",
+        title_prefix="PGC006669 — per-band a_n/b_n vs SMA across modes",
     )
     print(f"Wrote {cmp_path}")
 

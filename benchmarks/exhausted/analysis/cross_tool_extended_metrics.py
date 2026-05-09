@@ -57,7 +57,6 @@ from .cross_tool_composite import (  # noqa: E402
     _parse_bool_or_none,
 )
 
-
 TOOLS = ("isoster", "photutils", "autoprof")
 
 

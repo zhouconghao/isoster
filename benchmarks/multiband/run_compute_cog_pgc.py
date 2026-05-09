@@ -23,6 +23,11 @@ from typing import Dict, List
 
 import matplotlib.pyplot as plt
 import numpy as np
+from legacysurvey_loader import (
+    LEGACYSURVEY_ZP,
+    asinh_softening_from_log10_match,
+    load_legacysurvey_grz,
+)
 
 from isoster.multiband import (
     IsosterConfigMB,
@@ -31,13 +36,6 @@ from isoster.multiband import (
     plot_qa_summary_mb,
     subtract_outermost_sky_offset,
 )
-
-from legacysurvey_loader import (
-    LEGACYSURVEY_ZP,
-    asinh_softening_from_log10_match,
-    load_legacysurvey_grz,
-)
-
 
 GRZ_COLORS = {"g": "#1f77b4", "r": "#2ca02c", "z": "#9467bd"}
 
@@ -133,7 +131,7 @@ def run(galaxy_dir: Path, galaxy_prefix: str, out_dir: Path) -> None:
             compute_cog=True,
         )
 
-    print(f"=== Running PGC006669 with compute_cog=True ===")
+    print("=== Running PGC006669 with compute_cog=True ===")
     res = fit_image_multiband(
         cutout.images, masks_per_band, cfg, variance_maps=cutout.variances,
     )
@@ -148,10 +146,12 @@ def run(galaxy_dir: Path, galaxy_prefix: str, out_dir: Path) -> None:
 
     # Stage-3 Stage-D follow-up: recompute CoG with the sky offsets
     # subtracted from intens_<b> before the trapezoidal integration.
-    from isoster.multiband.cog_mb import (
-        add_cog_mb_to_isophotes, compute_cog_mb,
-    )
     import copy as _copy
+
+    from isoster.multiband.cog_mb import (
+        add_cog_mb_to_isophotes,
+        compute_cog_mb,
+    )
     res_bg = _copy.deepcopy(res)
     cog_bg = compute_cog_mb(
         res_bg["isophotes"], bands=bands, sky_offsets=sky_offsets,
@@ -168,14 +168,14 @@ def run(galaxy_dir: Path, galaxy_prefix: str, out_dir: Path) -> None:
         softening_per_band=softening,
         object_mask=cutout.combined_mask,
         output_path=str(qa_path),
-        title=f"PGC006669 — compute_cog=True",
+        title="PGC006669 — compute_cog=True",
     )
     print(f"  wrote {qa_path}")
 
     curves_path = out_dir / f"{galaxy_prefix}_compute_cog_curves.png"
     _curves_figure(
         res, res_bg, sky_offsets, bands, curves_path,
-        title=f"PGC006669 — per-band CoG (raw vs background-corrected)",
+        title="PGC006669 — per-band CoG (raw vs background-corrected)",
     )
     print(f"  wrote {curves_path}")
 

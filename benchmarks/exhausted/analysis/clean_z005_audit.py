@@ -47,7 +47,6 @@ from .scenario_summary import (
     sma_zones,
 )
 
-
 # Prior labels shown in the heatmap / shortlist tables.
 PRIOR_LABELS = [
     ("violates_drift_any", "1. IW drift (any zone)"),
@@ -276,24 +275,32 @@ def _render_worst_case_page(
     ax.axvspan(0, s_in_end, alpha=0.08, color="C0", label="inner")
     ax.axvspan(s_in_end, s_mid_end, alpha=0.08, color="green", label="mid")
     ax.axvspan(s_mid_end, sma.max(), alpha=0.08, color="orange", label="outer")
-    ax.set_xlabel("sma [pix]"); ax.set_ylabel("intens"); ax.set_title("SB profile")
+    ax.set_xlabel("sma [pix]")
+    ax.set_ylabel("intens")
+    ax.set_title("SB profile")
     ax.legend(fontsize=7, loc="lower left")
     # eps
     ax = axes[0, 1]
     ax.plot(sma[ok], eps[ok], "b.-", ms=3, lw=0.7)
     ax.axvspan(s_mid_end, sma.max(), alpha=0.08, color="orange")
-    ax.set_xlabel("sma [pix]"); ax.set_ylabel("eps"); ax.set_title("ellipticity")
+    ax.set_xlabel("sma [pix]")
+    ax.set_ylabel("eps")
+    ax.set_title("ellipticity")
     # pa
     ax = axes[0, 2]
     ax.plot(sma[ok], pa[ok], "b.-", ms=3, lw=0.7)
     ax.axvspan(s_mid_end, sma.max(), alpha=0.08, color="orange")
-    ax.set_xlabel("sma [pix]"); ax.set_ylabel("pa [deg]"); ax.set_title("position angle")
+    ax.set_xlabel("sma [pix]")
+    ax.set_ylabel("pa [deg]")
+    ax.set_title("position angle")
     # drift
     ax = axes[1, 0]
     ax.plot(sma[ok], drift[ok], "r.-", ms=3, lw=0.7)
     ax.axhline(0.5, color="k", ls="--", lw=0.6, label="inner/mid thresh 0.5 px")
     ax.axhline(2.0, color="gray", ls="--", lw=0.6, label="outer thresh 2 px")
-    ax.set_xlabel("sma [pix]"); ax.set_ylabel("drift [pix]"); ax.set_title("center drift (per-iso)")
+    ax.set_xlabel("sma [pix]")
+    ax.set_ylabel("drift [pix]")
+    ax.set_title("center drift (per-iso)")
     ax.legend(fontsize=7)
     # a3, a4
     ax = axes[1, 1]
@@ -301,15 +308,20 @@ def _render_worst_case_page(
     ax.plot(sma[ok], a4[ok], "m.-", ms=3, lw=0.7, label="a4")
     ax.axhline(0, color="k", lw=0.6)
     ax.axvspan(s_mid_end, sma.max(), alpha=0.08, color="orange")
-    ax.set_xlabel("sma [pix]"); ax.set_ylabel("harmonic"); ax.set_title("A3 / A4 (raw)")
+    ax.set_xlabel("sma [pix]")
+    ax.set_ylabel("harmonic")
+    ax.set_title("A3 / A4 (raw)")
     ax.legend(fontsize=7)
     # center trace in xy
     ax = axes[1, 2]
     ax.plot(x0[ok] - manifest.true_center[0], y0[ok] - manifest.true_center[1],
             "k.-", ms=3, lw=0.7)
-    ax.axhline(0, color="gray", lw=0.3); ax.axvline(0, color="gray", lw=0.3)
+    ax.axhline(0, color="gray", lw=0.3)
+    ax.axvline(0, color="gray", lw=0.3)
     ax.set_aspect("equal")
-    ax.set_xlabel("dx [pix]"); ax.set_ylabel("dy [pix]"); ax.set_title("center trace")
+    ax.set_xlabel("dx [pix]")
+    ax.set_ylabel("dy [pix]")
+    ax.set_title("center trace")
     fig.tight_layout()
     pdf.savefig(fig, dpi=110)
     plt.close(fig)
