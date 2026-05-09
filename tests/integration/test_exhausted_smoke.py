@@ -60,7 +60,7 @@ def _write_campaign(
             "cross_arm_overlay": False,
             "cross_tool_comparison": False,
             "summary_grids": False,
-            "residual_models": False,
+            "residual_models": True,
         },
         "execution": {
             "max_parallel_galaxies": 1,
@@ -140,18 +140,44 @@ def test_exhausted_smoke_end_to_end(tmp_path):
     assert len(rows) == 2
     statuses = [str(s).strip() for s in rows["status"]]
     assert statuses.count("ok") == 2, f"expected 2 ok, got {statuses}"
+    for column in (
+        "F_ref",
+        "R_ref_used_pix",
+        "r_inner_floor_pix",
+        "sigma_inner",
+        "sigma_mid",
+        "sigma_outer",
+        "abs_resid_over_ref_inner",
+        "abs_resid_over_sigma_inner",
+        "azim_A1_inner",
+        "azim_A2_inner",
+        "azim_struct_ratio_inner",
+        "azim_phase1_deg_inner",
+        "quadrant_imbalance_inner",
+    ):
+        assert column in rows.names
+    assert np.all(np.isfinite(rows["F_ref"]))
+    assert np.all(np.isfinite(rows["R_ref_used_pix"]))
+    assert np.all(np.isfinite(rows["abs_resid_over_sigma_inner"]))
 
     for arm_id in ("ref_default", "sclip_off"):
         arm_dir = dataset_dir / "smoke_galaxy" / "isoster" / "arms" / arm_id
         profile_path = arm_dir / "profile.fits"
         qa_path = arm_dir / "qa.png"
+        model_path = arm_dir / "model.fits"
+        run_record_path = arm_dir / "run_record.json"
         assert profile_path.is_file()
         assert qa_path.is_file() and qa_path.stat().st_size > 0
+        assert model_path.is_file()
 
         with fits.open(profile_path) as hdul:
             sma = np.asarray(hdul[1].data["sma"], dtype=float)
         assert sma.size >= 2, f"{arm_id}: too few isophotes"
         assert np.all(np.diff(sma) > 0), f"{arm_id}: sma not strictly monotonic"
+        with run_record_path.open() as handle:
+            run_record = yaml.safe_load(handle)
+        assert "abs_resid_over_sigma_mid" in run_record["metrics"]
+        assert "azim_A1_mid" in run_record["metrics"]
 
     # Second run: every arm must short-circuit via skip_existing.
     plan = load_campaign(campaign_yaml)

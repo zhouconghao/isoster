@@ -32,24 +32,22 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+# Safety: headless matplotlib.
+import matplotlib
 import numpy as np
 from astropy.io import fits
 from astropy.table import Table
 
-# Safety: headless matplotlib.
-import matplotlib
 matplotlib.use("Agg")
 
+from benchmarks.exhausted.plotting.cross_arm_overlay import plot_cross_arm_overlay
+from benchmarks.exhausted.plotting.cross_tool_comparison import DEFAULT_ARM_PER_TOOL
 from isoster import build_isoster_model
 from isoster.plotting import (
     build_method_profile,
     plot_comparison_qa_figure,
     plot_qa_summary,
 )
-
-from benchmarks.exhausted.plotting.cross_arm_overlay import plot_cross_arm_overlay
-from benchmarks.exhausted.plotting.cross_tool_comparison import DEFAULT_ARM_PER_TOOL
-
 
 TOOLS = ("isoster", "photutils", "autoprof")
 
@@ -133,7 +131,13 @@ def _load_model(path: Path) -> np.ndarray | None:
         return None
     try:
         with fits.open(path) as hdul:
-            data = hdul[0].data
+            data = None
+            for hdu in hdul:
+                if getattr(hdu, "name", "").upper() == "MODEL" and hdu.data is not None:
+                    data = hdu.data
+                    break
+            if data is None:
+                data = hdul[0].data
         return np.asarray(data, dtype=np.float64) if data is not None else None
     except (OSError, ValueError):
         return None
@@ -170,6 +174,8 @@ def _rebuild_arm_qa(
     iso = _load_profile_as_iso_list(profile_path)
     if not iso:
         return 0, 0
+    for row in iso:
+        row["tool"] = tool
     # Reconstruct isoster-style 2-D model: prefer on-disk model.fits so
     # photutils/autoprof variants keep the tool's own model convention.
     model = _load_model(arm_dir / "model.fits")
@@ -194,9 +200,7 @@ def _rebuild_arm_qa(
         )
         return 1, 0
     except Exception as exc:  # noqa: BLE001 — per-arm render isolation
-        qa_path.with_suffix(".png.err.txt").write_text(
-            f"{type(exc).__name__}: {exc}\n\n{traceback.format_exc()}"
-        )
+        qa_path.with_suffix(".png.err.txt").write_text(f"{type(exc).__name__}: {exc}\n\n{traceback.format_exc()}")
         return 0, 1
 
 
@@ -223,9 +227,7 @@ def _rebuild_cross_arm_overlay(
         )
         return 1, 0
     except Exception as exc:  # noqa: BLE001
-        overlay_path.with_suffix(".png.err.txt").write_text(
-            f"{type(exc).__name__}: {exc}\n\n{traceback.format_exc()}"
-        )
+        overlay_path.with_suffix(".png.err.txt").write_text(f"{type(exc).__name__}: {exc}\n\n{traceback.format_exc()}")
         return 0, 1
 
 
@@ -237,6 +239,7 @@ def _rebuild_cross_tool(
     galaxy_id: str,
 ) -> tuple[int, int]:
     profiles: dict[str, dict[str, np.ndarray] | None] = {}
+    models: dict[str, np.ndarray] = {}
     for tool in TOOLS:
         arm = DEFAULT_ARM_PER_TOOL.get(tool)
         if arm is None:
@@ -249,7 +252,11 @@ def _rebuild_cross_tool(
         if data is None:
             profiles[tool] = None
             continue
+        data["tool"] = np.full(len(data["sma"]), tool)
         profiles[tool] = build_method_profile(data)
+        model = _load_model(galaxy_dir / tool / "arms" / arm / "model.fits")
+        if model is not None:
+            models[tool] = model
     # Keep only tools that have a usable profile.
     usable = {k: v for k, v in profiles.items() if v is not None}
     if not usable:
@@ -261,15 +268,14 @@ def _rebuild_cross_tool(
         plot_comparison_qa_figure(
             image=image,
             profiles=usable,
+            models=models,
             title=galaxy_id,
             output_path=str(out),
             relative_residual=False,
         )
         return 1, 0
     except Exception as exc:  # noqa: BLE001
-        out.with_suffix(".png.err.txt").write_text(
-            f"{type(exc).__name__}: {exc}\n\n{traceback.format_exc()}"
-        )
+        out.with_suffix(".png.err.txt").write_text(f"{type(exc).__name__}: {exc}\n\n{traceback.format_exc()}")
         return 0, 1
 
 
@@ -293,8 +299,7 @@ class GalaxyStats:
         return (
             f"{self.galaxy_tag}: qa {self.qa_ok}/{self.qa_ok + self.qa_err}  "
             f"overlay {self.overlay_ok}/{self.overlay_ok + self.overlay_err}  "
-            f"cross {self.cross_ok}/{self.cross_ok + self.cross_err}"
-            + (f"  FATAL: {self.fatal}" if self.fatal else "")
+            f"cross {self.cross_ok}/{self.cross_ok + self.cross_err}" + (f"  FATAL: {self.fatal}" if self.fatal else "")
         )
 
 
@@ -355,9 +360,7 @@ def rebuild_one_galaxy(galaxy_dir: Path) -> GalaxyStats:
 # ---------------------------------------------------------------------------
 
 
-def _enumerate_galaxies(
-    campaign_root: Path, dataset: str, only: list[str] | None
-) -> list[Path]:
+def _enumerate_galaxies(campaign_root: Path, dataset: str, only: list[str] | None) -> list[Path]:
     """Every galaxy dir across all campaign subdirs.
 
     The campaign tree is ``<root>/huang2013_*_z*/<dataset>/<galaxy>`` for
@@ -397,8 +400,7 @@ def main(argv: list[str] | None = None) -> int:
         "--only",
         nargs="*",
         default=None,
-        help="Optional filter: only re-render these galaxy directory names "
-        "(e.g. IC1459__clean_z005).",
+        help="Optional filter: only re-render these galaxy directory names (e.g. IC1459__clean_z005).",
     )
     parser.add_argument(
         "--max-parallel",
@@ -421,8 +423,7 @@ def main(argv: list[str] | None = None) -> int:
 
     galaxies = _enumerate_galaxies(args.campaign_root, args.dataset, args.only)
     print(
-        f"Found {len(galaxies)} galaxies under {args.campaign_root} / "
-        f"{args.dataset}",
+        f"Found {len(galaxies)} galaxies under {args.campaign_root} / {args.dataset}",
         flush=True,
     )
     if args.dry_run:
@@ -439,9 +440,7 @@ def main(argv: list[str] | None = None) -> int:
     totals = GalaxyStats(galaxy_tag="TOTAL")
     any_fatal = False
     with ProcessPoolExecutor(max_workers=max(1, args.max_parallel)) as ex:
-        future_to_tag = {
-            ex.submit(rebuild_one_galaxy, g): g.name for g in galaxies
-        }
+        future_to_tag = {ex.submit(rebuild_one_galaxy, g): g.name for g in galaxies}
         for fut in as_completed(future_to_tag):
             tag = future_to_tag[fut]
             try:
@@ -469,17 +468,10 @@ def main(argv: list[str] | None = None) -> int:
 
     print("=" * 60)
     print(f"Re-rendered {done} galaxies from {args.campaign_root}")
-    print(
-        f"qa.png:                {totals.qa_ok} ok, {totals.qa_err} errors"
-    )
-    print(
-        f"cross_arm_overlay.png: {totals.overlay_ok} ok, {totals.overlay_err} errors"
-    )
-    print(
-        f"cross_tool_comparison.png: {totals.cross_ok} ok, {totals.cross_err} errors"
-    )
-    return 0 if (totals.qa_err + totals.overlay_err + totals.cross_err == 0
-                 and not any_fatal) else 1
+    print(f"qa.png:                {totals.qa_ok} ok, {totals.qa_err} errors")
+    print(f"cross_arm_overlay.png: {totals.overlay_ok} ok, {totals.overlay_err} errors")
+    print(f"cross_tool_comparison.png: {totals.cross_ok} ok, {totals.cross_err} errors")
+    return 0 if (totals.qa_err + totals.overlay_err + totals.cross_err == 0 and not any_fatal) else 1
 
 
 if __name__ == "__main__":

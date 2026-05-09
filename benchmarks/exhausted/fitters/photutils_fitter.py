@@ -34,8 +34,8 @@ from isoster.utils import isophote_results_to_fits
 from ..adapters.base import GalaxyBundle
 from ..analysis.inventory import INVENTORY_COLUMNS
 from ..analysis.metrics import summarize_fit
+from ..analysis.model_evaluation import evaluate_model_v11, profile_summary_for_inventory
 from ..analysis.quality_flags import evaluate_flags
-from ..analysis.residual_zones import residual_zone_stats
 
 
 def run_one_arm(
@@ -46,6 +46,8 @@ def run_one_arm(
     *,
     write_qa: bool = True,
     write_model_fits: bool = True,
+    sb_profile_scale: str = "log10",
+    sb_asinh_softening: float | None = None,
 ) -> dict[str, Any]:
     """Run one ``(galaxy, photutils-arm)`` pair. Returns an inventory row."""
     from photutils.isophote import Ellipse, EllipseGeometry
@@ -59,9 +61,7 @@ def run_one_arm(
     if resolved["skip_reason"] is not None:
         row["status"] = "skipped"
         row["error_msg"] = resolved["skip_reason"]
-        _write_run_record(
-            output_dir, {"status": "skipped", "reason": resolved["skip_reason"]}
-        )
+        _write_run_record(output_dir, {"status": "skipped", "reason": resolved["skip_reason"]})
         return row
 
     geom = bundle.initial_geometry
@@ -184,41 +184,29 @@ def run_one_arm(
                 relative_residual=False,
                 sb_zeropoint=bundle.metadata.sb_zeropoint,
                 pixel_scale_arcsec=bundle.metadata.pixel_scale_arcsec,
+                sb_profile_scale=sb_profile_scale,
+                sb_asinh_softening=sb_asinh_softening,
             )
         except Exception as exc:  # noqa: BLE001 - never abort on QA failure
-            qa_path.with_suffix(".png.err.txt").write_text(
-                f"{type(exc).__name__}: {exc}\n"
-            )
+            qa_path.with_suffix(".png.err.txt").write_text(f"{type(exc).__name__}: {exc}\n")
             qa_path = None
 
     # Metrics + residual zones + flags (shared with isoster pipeline).
-    metrics = summarize_fit(
-        results, sma0=sma0_used, lsb_sma_threshold_pix=None
-    )
+    metrics = summarize_fit(results, sma0=sma0_used, lsb_sma_threshold_pix=None)
+    metrics.update(profile_summary_for_inventory(str(profile_path)))
     model_for_zones = build_isoster_model(image.shape, results["isophotes"])
-    zone_stats = residual_zone_stats(
-        image,
-        model_for_zones,
+    model_metrics = evaluate_model_v11(
+        image=image,
+        model=model_for_zones,
+        mask=mask,
         x0=float(geom["x0"]),
         y0=float(geom["y0"]),
         eps=float(geom.get("eps", 0.2)),
-        pa=float(geom.get("pa", 0.0)),
-        R_ref=bundle.metadata.effective_Re_pix,
-        maxsma=maxsma,
-        mask=mask,
+        pa_rad=float(geom.get("pa", 0.0)),
+        R_ref_pix=bundle.metadata.effective_Re_pix,
+        maxsma_pix=maxsma,
+        r_inner_floor_pix=float(metrics.get("min_sma_pix", 0.0) or 0.0),
     )
-    zone_row = {
-        k: zone_stats[k]
-        for k in (
-            "resid_rms_inner",
-            "resid_rms_mid",
-            "resid_rms_outer",
-            "resid_median_inner",
-            "resid_median_mid",
-            "resid_median_outer",
-            "frac_above_3sigma_outer",
-        )
-    }
 
     row.update(
         {
@@ -227,7 +215,7 @@ def run_one_arm(
             "wall_time_fit_s": float(wall_fit),
             "wall_time_total_s": float(time.perf_counter() - total_start),
             **metrics,
-            **zone_row,
+            **model_metrics,
             # photutils does not expose a first-isophote-retry log.
             "first_isophote_failure": False,
             "first_isophote_retry_attempts": 0,
@@ -245,7 +233,7 @@ def run_one_arm(
             "status": "ok",
             "wall_time_fit_s": float(wall_fit),
             "wall_time_total_s": row["wall_time_total_s"],
-            "metrics": {**metrics, **zone_stats},
+            "metrics": {**metrics, **model_metrics},
             "flags": row.get("flags", ""),
             "flag_severity_max": row.get("flag_severity_max", 0.0),
             "sma0_used": float(sma0_used),
@@ -278,9 +266,7 @@ PHOTUTILS_DEFAULTS: dict[str, Any] = {
 ALLOWED_ARM_KEYS = set(PHOTUTILS_DEFAULTS.keys())
 
 
-def _resolve_arm(
-    arm_delta: dict[str, Any], _bundle: GalaxyBundle
-) -> dict[str, Any]:
+def _resolve_arm(arm_delta: dict[str, Any], _bundle: GalaxyBundle) -> dict[str, Any]:
     """Merge arm delta into the photutils defaults. No sentinels today."""
     cfg = dict(PHOTUTILS_DEFAULTS)
     for key, value in (arm_delta or {}).items():
@@ -348,12 +334,11 @@ def _iso_to_dict(iso) -> dict[str, Any]:
                 out[out_key] = 0
     # lsb_locked column: photutils has no LSB lock concept; always False.
     out["lsb_locked"] = False
+    out["tool"] = "photutils"
     return out
 
 
-def _build_results_dict(
-    isolist, resolved: dict[str, Any], sma0_used: float
-) -> dict[str, Any]:
+def _build_results_dict(isolist, resolved: dict[str, Any], sma0_used: float) -> dict[str, Any]:
     """Return an isoster-compatible results dict from a photutils IsophoteList."""
     isophotes: list[dict[str, Any]] = [_iso_to_dict(iso) for iso in isolist]
     return {
@@ -386,8 +371,14 @@ def _empty_inventory_row(galaxy_id: str, arm_id: str) -> dict[str, Any]:
     row["arm_id"] = arm_id
     row["status"] = "pending"
     for int_col in (
-        "n_iso", "n_stop_0", "n_stop_1", "n_stop_2", "n_stop_m1", "n_locked",
-        "first_isophote_retry_attempts", "n_iso_ref_used",
+        "n_iso",
+        "n_stop_0",
+        "n_stop_1",
+        "n_stop_2",
+        "n_stop_m1",
+        "n_locked",
+        "first_isophote_retry_attempts",
+        "n_iso_ref_used",
     ):
         row[int_col] = 0
     row["first_isophote_failure"] = False

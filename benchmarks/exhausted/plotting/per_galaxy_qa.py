@@ -26,6 +26,8 @@ def render_per_arm_qa(
     output_path: Path,
     *,
     relative_residual: bool = False,
+    sb_profile_scale: str = "log10",
+    sb_asinh_softening: float | None = None,
 ) -> None:
     """Write a 6-panel QA PNG for one ``(galaxy, arm)`` pair.
 
@@ -49,12 +51,12 @@ def render_per_arm_qa(
         relative_residual=relative_residual,
         sb_zeropoint=bundle.metadata.sb_zeropoint,
         pixel_scale_arcsec=bundle.metadata.pixel_scale_arcsec,
+        sb_profile_scale=sb_profile_scale,
+        sb_asinh_softening=sb_asinh_softening,
     )
 
 
-def build_model_cube(
-    bundle: GalaxyBundle, results: dict[str, Any]
-) -> tuple[np.ndarray, np.ndarray]:
+def build_model_cube(bundle: GalaxyBundle, results: dict[str, Any]) -> tuple[np.ndarray, np.ndarray]:
     """Return ``(model, residual)`` 2D arrays for FITS output."""
     image = np.asarray(bundle.image, dtype=np.float64)
     isophotes = results.get("isophotes", [])

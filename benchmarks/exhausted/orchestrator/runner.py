@@ -237,6 +237,12 @@ def _process_one_galaxy(
                     mask=bundle.mask,
                     sb_zeropoint=bundle.metadata.sb_zeropoint,
                     pixel_scale_arcsec=bundle.metadata.pixel_scale_arcsec,
+                    sb_profile_scale=str(plan.qa.get("sb_profile_scale", "log10")),
+                    sb_asinh_softening=(
+                        float(plan.qa["sb_asinh_softening"])
+                        if plan.qa.get("sb_asinh_softening") is not None
+                        else None
+                    ),
                     title=f"{galaxy_id}  |  cross-tool",
                 )
             except Exception as exc:  # noqa: BLE001
@@ -438,7 +444,11 @@ def _run_tool_on_galaxy(
         write_model_fits = plan.qa.get("residual_models", True)
         fitter_fn = _TOOL_DISPATCH[tool_plan.name]
         # AutoProf needs a venv_python path from the tool's YAML extras.
-        extra_kwargs: dict[str, Any] = {}
+        extra_kwargs: dict[str, Any] = {
+            "sb_profile_scale": str(plan.qa.get("sb_profile_scale", "log10")),
+        }
+        if plan.qa.get("sb_asinh_softening") is not None:
+            extra_kwargs["sb_asinh_softening"] = float(plan.qa["sb_asinh_softening"])
         if tool_plan.name == "autoprof":
             extra = tool_plan.extra or {}
             if "venv_python" in extra:

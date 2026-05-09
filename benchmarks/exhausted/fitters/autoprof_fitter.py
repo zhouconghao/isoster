@@ -33,9 +33,8 @@ from isoster.utils import isophote_results_to_fits
 from ..adapters.base import GalaxyBundle
 from ..analysis.inventory import INVENTORY_COLUMNS
 from ..analysis.metrics import summarize_fit
+from ..analysis.model_evaluation import evaluate_model_v11, profile_summary_for_inventory
 from ..analysis.quality_flags import evaluate_flags
-from ..analysis.residual_zones import residual_zone_stats
-
 
 _VENV_PROBE_CACHE: dict[str, str] = {}
 
@@ -136,6 +135,8 @@ def run_one_arm(
     *,
     write_qa: bool = True,
     write_model_fits: bool = True,
+    sb_profile_scale: str = "log10",
+    sb_asinh_softening: float | None = None,
     venv_python: str = "/tmp/autoprof_venv/bin/python",
     timeout: int = 300,
 ) -> dict[str, Any]:
@@ -167,9 +168,7 @@ def run_one_arm(
     if bundle.mask is not None:
         mask_path = temp_dir / f"{galaxy_tag}_mask.fits"
         # AutoProf convention: 0 = good, >0 = bad (matches isoster bool mask)
-        fits.PrimaryHDU(
-            data=np.asarray(bundle.mask, dtype=np.int16)
-        ).writeto(mask_path, overwrite=True)
+        fits.PrimaryHDU(data=np.asarray(bundle.mask, dtype=np.int16)).writeto(mask_path, overwrite=True)
 
     # 3) Build options JSON. A per-arm _fix_center_from sentinel can
     # pin AutoProf's center to an external reference; absent that, we
@@ -225,9 +224,7 @@ def run_one_arm(
     small_image_fallback: dict[str, Any] | None = None
     small_image_signature: str | None = None
     if rc != 0:
-        signature = _detect_small_image_failure(
-            stderr, _read_autoprof_log(autoprof_log_path)
-        )
+        signature = _detect_small_image_failure(stderr, _read_autoprof_log(autoprof_log_path))
         if signature is not None:
             small_image_signature = signature
             small_image_fallback = _small_image_fallback_delta(image.shape)
@@ -239,9 +236,7 @@ def run_one_arm(
             if status_path.is_file():
                 status_path.unlink()
             if autoprof_log_path.is_file():
-                autoprof_log_path.rename(
-                    autoprof_log_path.with_name(autoprof_log_path.name + ".attempt1")
-                )
+                autoprof_log_path.rename(autoprof_log_path.with_name(autoprof_log_path.name + ".attempt1"))
             rc, stderr, extra_wall = _invoke_once()
             wall_fit += extra_wall
     fallback_record = {
@@ -255,8 +250,7 @@ def run_one_arm(
         row["wall_time_total_s"] = float(time.perf_counter() - total_start)
         _write_run_record(
             output_dir,
-            {"status": "failed", "error_msg": stderr, "wall_time_fit_s": float(wall_fit),
-             **fallback_record},
+            {"status": "failed", "error_msg": stderr, "wall_time_fit_s": float(wall_fit), **fallback_record},
         )
         return row
     if rc != 0 and not status_path.is_file():
@@ -285,7 +279,8 @@ def run_one_arm(
     prof_path = raw_dir / f"{galaxy_tag}.prof"
     aux_path = raw_dir / f"{galaxy_tag}.aux"
     isophotes, n_raw, n_filtered = _parse_prof_file(
-        prof_path, pixel_scale_arcsec=bundle.metadata.pixel_scale_arcsec,
+        prof_path,
+        pixel_scale_arcsec=bundle.metadata.pixel_scale_arcsec,
         sb_zeropoint=bundle.metadata.sb_zeropoint,
     )
     aux_info = _parse_aux_file(aux_path)
@@ -381,38 +376,28 @@ def run_one_arm(
                 relative_residual=False,
                 sb_zeropoint=bundle.metadata.sb_zeropoint,
                 pixel_scale_arcsec=bundle.metadata.pixel_scale_arcsec,
+                sb_profile_scale=sb_profile_scale,
+                sb_asinh_softening=sb_asinh_softening,
             )
         except Exception as exc:  # noqa: BLE001
-            qa_path.with_suffix(".png.err.txt").write_text(
-                f"{type(exc).__name__}: {exc}\n"
-            )
+            qa_path.with_suffix(".png.err.txt").write_text(f"{type(exc).__name__}: {exc}\n")
             qa_path = None
 
-    # 7) Metrics + residual zones + flags (shared pipeline).
+    # 7) Metrics + v1.1 model evaluation + flags (shared pipeline).
     metrics = summarize_fit(results, sma0=float(geom.get("sma0", 1.0)))
-    zone_stats = residual_zone_stats(
-        image,
-        model,
+    metrics.update(profile_summary_for_inventory(str(profile_path)))
+    model_metrics = evaluate_model_v11(
+        image=image,
+        model=model,
+        mask=bundle.mask,
         x0=float(geom["x0"]),
         y0=float(geom["y0"]),
         eps=float(geom.get("eps", 0.2)),
-        pa=float(geom.get("pa", 0.0)),
-        R_ref=bundle.metadata.effective_Re_pix,
-        maxsma=float(geom.get("maxsma", min(image.shape) // 2)),
-        mask=bundle.mask,
+        pa_rad=float(geom.get("pa", 0.0)),
+        R_ref_pix=bundle.metadata.effective_Re_pix,
+        maxsma_pix=float(geom.get("maxsma", min(image.shape) // 2)),
+        r_inner_floor_pix=float(metrics.get("min_sma_pix", 0.0) or 0.0),
     )
-    zone_row = {
-        k: zone_stats[k]
-        for k in (
-            "resid_rms_inner",
-            "resid_rms_mid",
-            "resid_rms_outer",
-            "resid_median_inner",
-            "resid_median_mid",
-            "resid_median_outer",
-            "frac_above_3sigma_outer",
-        )
-    }
 
     row.update(
         {
@@ -421,7 +406,7 @@ def run_one_arm(
             "wall_time_fit_s": float(wall_fit),
             "wall_time_total_s": float(time.perf_counter() - total_start),
             **metrics,
-            **zone_row,
+            **model_metrics,
             "first_isophote_failure": False,
             "first_isophote_retry_attempts": 0,
             "first_isophote_retry_stop_codes": "",
@@ -438,7 +423,7 @@ def run_one_arm(
             "status": "ok",
             "wall_time_fit_s": float(wall_fit),
             "wall_time_total_s": row["wall_time_total_s"],
-            "metrics": {**metrics, **zone_stats},
+            "metrics": {**metrics, **model_metrics},
             "flags": row.get("flags", ""),
             "flag_severity_max": row.get("flag_severity_max", 0.0),
             "arm_delta": arm_delta,
@@ -492,10 +477,7 @@ def _probe_venv(venv_python: str) -> str | None:
         _VENV_PROBE_CACHE[cache_key] = reason
         return reason
     if proc.returncode != 0:
-        reason = (
-            "autoprof import failed inside venv "
-            f"({venv_path}): {proc.stderr.strip()[:200]}"
-        )
+        reason = f"autoprof import failed inside venv ({venv_path}): {proc.stderr.strip()[:200]}"
         _VENV_PROBE_CACHE[cache_key] = reason
         return reason
     _VENV_PROBE_CACHE[cache_key] = "OK"
@@ -622,13 +604,7 @@ def _resolve_center_override(
     y0 = y0[order]
     intens = intens[order]
     stop_code = stop_code[order]
-    valid = (
-        (stop_code == 0)
-        & np.isfinite(x0)
-        & np.isfinite(y0)
-        & np.isfinite(intens)
-        & (intens > 0.0)
-    )
+    valid = (stop_code == 0) & np.isfinite(x0) & np.isfinite(y0) & np.isfinite(intens) & (intens > 0.0)
     pool_x = x0[valid][:10]
     pool_y = y0[valid][:10]
     pool_i = intens[valid][:10]
@@ -671,7 +647,7 @@ def _parse_prof_file(
     sb = data["SB"]
     sb_err = data["SB_e"]
     intens_arcsec2 = 10.0 ** (-(sb - sb_zeropoint) / 2.5)
-    intens = intens_arcsec2 * pixel_scale_arcsec ** 2
+    intens = intens_arcsec2 * pixel_scale_arcsec**2
     intens_err = intens * np.log(10.0) / 2.5 * np.abs(sb_err)
 
     eps = data["ellip"]
@@ -721,6 +697,7 @@ def _parse_prof_file(
             "npix_e": 0,
             "npix_c": 0,
             "lsb_locked": False,
+            "tool": "autoprof",
         }
         for key, arr in harmonics.items():
             iso[key] = float(arr[i])
@@ -753,6 +730,7 @@ def _parse_aux_file(aux_path: Path) -> dict[str, float]:
             #   option ap_set_center: {'x': 566.0, 'y': 566.0}
             try:
                 import ast
+
                 payload = line.split(":", 1)[1].strip()
                 parsed = ast.literal_eval(payload)
                 info["center_x"] = float(parsed["x"])
@@ -764,16 +742,12 @@ def _parse_aux_file(aux_path: Path) -> dict[str, float]:
                 after = line.split(":", 1)[1].strip()
                 info["background"] = float(after.split()[0])
                 if "noise:" in line:
-                    info["background_noise"] = float(
-                        line.split("noise:")[1].strip().split()[0]
-                    )
+                    info["background_noise"] = float(line.split("noise:")[1].strip().split()[0])
             except (ValueError, IndexError):
                 pass
         elif line.startswith("psf fwhm:"):
             try:
-                info["psf_fwhm"] = float(
-                    line.split(":")[1].strip().split()[0]
-                )
+                info["psf_fwhm"] = float(line.split(":")[1].strip().split()[0])
             except (ValueError, IndexError):
                 pass
     return info
@@ -791,8 +765,14 @@ def _empty_inventory_row(galaxy_id: str, arm_id: str) -> dict[str, Any]:
     row["arm_id"] = arm_id
     row["status"] = "pending"
     for int_col in (
-        "n_iso", "n_stop_0", "n_stop_1", "n_stop_2", "n_stop_m1", "n_locked",
-        "first_isophote_retry_attempts", "n_iso_ref_used",
+        "n_iso",
+        "n_stop_0",
+        "n_stop_1",
+        "n_stop_2",
+        "n_stop_m1",
+        "n_locked",
+        "first_isophote_retry_attempts",
+        "n_iso_ref_used",
     ):
         row[int_col] = 0
     row["first_isophote_failure"] = False

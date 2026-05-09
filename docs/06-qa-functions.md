@@ -29,6 +29,115 @@ isoster.plot_qa_summary(
 )
 ```
 
+## QA Figure Generation Standard
+
+The QA figures are meant to audit the same products that feed
+benchmark metrics and ranking tables. Treat the figure as a visual
+manifest for the run, not as a separate analysis path.
+
+### Use persisted fit artifacts
+
+Build comparison figures from the persisted fit products whenever they
+exist:
+
+- `profile.fits`: the canonical 1D profile table for one method/arm.
+- `model.fits`: the rendered 2D model and residual image for that
+  method/arm.
+- `MANIFEST.json`: image metadata such as pixel scale, zeropoint,
+  initial geometry, and image-noise estimate.
+- `inventory.fits` / `run_record.json`: metrics, flags, runtime, and
+  effective configuration provenance.
+
+Avoid recomputing profile quantities only for plotting unless the plot
+explicitly documents that it is a diagnostic overlay. The displayed
+profile, residual map, model contours, and flags should correspond to
+the data that will be scored.
+
+### Required visual context
+
+A production QA figure for a single method should include:
+
+- the original image with selected isophote overlays;
+- the rendered model with model iso-brightness contours;
+- the residual image using the same model that feeds residual metrics;
+- a surface-brightness profile with uncertainties when available;
+- a radial residual or profile-difference panel;
+- geometry panels for ellipticity, position angle, and centroid drift;
+- stop-code or quality-state markers for isoster/photutils profiles;
+- the most important flags or failure status in the title, caption, or
+  associated table.
+
+Cross-arm and cross-tool figures should keep the image stretch,
+surface-brightness convention, x-axis transform, and y-axis clipping
+consistent across methods. Differences should be visible because the
+methods differ, not because the plotting convention changed between
+panels.
+
+### Coordinate and axis conventions
+
+Use `sma ** 0.25` for radial profile panels. This compresses the outer
+profile while retaining enough inner-region resolution for centroid,
+PA, and ellipticity diagnostics. Use scatter points with errorbars for
+measured profiles. Use lines only for reference curves, model profiles,
+or smoothed diagnostic guides.
+
+Normalize position angles before comparison. A jump near 180 degrees is
+usually an angle-wrapping artifact, not a physical twist. The helper
+`normalize_pa_degrees()` uses a double-angle convention and should be
+preferred over ad hoc wrapping.
+
+When choosing y-limits, do not let a few outer errorbars dominate the
+panel. Clip limits from the measured values first, then draw errorbars.
+The errorbars remain visible where they are informative, but they do
+not compress the full profile into an unreadable band.
+
+### Surface-brightness profiles
+
+`log10` is the default SB profile scale because it preserves the
+long-standing magnitude/profile convention and makes high-S/N inner
+regions easy to compare across runs. Use `sb_profile_scale="asinh"` or
+`"arcsinh"` when low-S/N outskirts, near-zero intensity, or negative
+residual behavior needs to remain visible.
+
+When `sb_zeropoint` and `pixel_scale_arcsec` are both provided, both
+the log10 and asinh profiles are calibrated in mag/arcsec². In the
+high-S/N regime, the calibrated asinh profile should visually coincide
+with the log10 magnitude profile. In the low-S/N regime, the asinh
+profile remains finite through zero and negative intensity values. The
+plot draws a dashed horizontal `I = 0` reference line so the transition
+point is explicit.
+
+When no zeropoint is provided, the default profile is `log10(I)` and
+the asinh profile is an uncalibrated `asinh(I / b)` diagnostic. Use
+uncalibrated profiles only for relative QA, not for publication
+surface-brightness values.
+
+### Cross-arm and cross-tool comparisons
+
+For cross-arm comparison, keep tool-specific diagnostics visible:
+centroid drift, stop-code fractions, first-isophote retry, harmonic
+behavior, and completeness all explain why one arm is more stable than
+another. These diagnostics are fair within one tool because the arms
+share the same output contract.
+
+For cross-tool comparison, separate visual evidence from ranking
+semantics. Different tools do not expose the same internal failure
+axes: AutoProf, for example, does not emit photutils-style stop codes
+and may use a shared center by construction. A cross-tool QA figure
+should therefore show these method-specific diagnostics without
+assuming they are all scoreable on the same scale. Use tool-neutral
+model residuals and runtime for ranking; use method-specific flags to
+interpret the result.
+
+### Demo and regression workflow
+
+When validating a plotting change, regenerate the QA PNGs instead of
+using cached per-arm results. In exhausted benchmark campaigns, set
+`execution.skip_existing: false` or delete the relevant arm directory.
+Cached profiles can validate table reconstruction, but they do not
+prove that a new plotting option, contour overlay, or SB transform was
+actually rendered.
+
 ## Functions
 
 ### `plot_qa_summary`
@@ -36,9 +145,9 @@ isoster.plot_qa_summary(
 Standard QA figure for a single isoster fit.
 
 **Layout**: left column shows the galaxy image with isophote overlays,
-the reconstructed model, and the residual map; right column shows 1D
-profiles (surface brightness, residual, ellipticity, PA, a3/b3, a4/b4)
-sharing an SMA^0.25 x-axis.
+the reconstructed model with iso-brightness contours, and the residual
+map; right column shows 1D profiles (surface brightness, residual,
+ellipticity, PA, a3/b3, a4/b4) sharing an SMA^0.25 x-axis.
 
 ```python
 isoster.plot_qa_summary(
@@ -52,6 +161,8 @@ isoster.plot_qa_summary(
     relative_residual=False,   # True: show (model-data)/data [%]
     sb_zeropoint=None,         # mag zeropoint (see SB section below)
     pixel_scale_arcsec=None,   # arcsec/pix; must accompany sb_zeropoint
+    sb_profile_scale="log10",  # or "asinh" / "arcsinh"
+    sb_asinh_softening=None,   # optional positive softening scale
 )
 ```
 
@@ -75,6 +186,8 @@ isoster.plot_qa_summary_extended(
     filename="qa_summary_extended.png",
     sb_zeropoint=None,          # mag zeropoint (see SB section below)
     pixel_scale_arcsec=None,    # arcsec/pix; must accompany sb_zeropoint
+    sb_profile_scale="log10",   # or "asinh" / "arcsinh"
+    sb_asinh_softening=None,
 )
 ```
 
@@ -109,6 +222,20 @@ derive it from `CD1_1` / `CDELT1`) and pass it alongside the
 survey-specific zeropoint — do not hard-code a value that could
 diverge from the image WCS.
 
+Set `sb_profile_scale="asinh"` to use an arcsinh/asinh profile instead
+of the default log10 profile. In calibrated mode this uses the standard
+asinh-magnitude form
+
+```
+μ_asinh = zp - (2.5 / ln 10) * [asinh(f / 2b) + ln b]
+f = I_per_pix / pixarea
+```
+
+where `b` is `sb_asinh_softening` in flux per arcsec², or an automatic
+positive profile scale when omitted. For `f >> b`, `μ_asinh` approaches
+the regular log10 magnitude profile. The SB panel also draws a dashed
+horizontal line at the finite y-value corresponding to `I = 0`.
+
 ### `plot_comparison_qa_figure`
 
 Multi-method comparison figure with automatic layout selection.
@@ -123,6 +250,10 @@ isoster.plot_comparison_qa_figure(
     mask=None,
     method_styles=None,   # override METHOD_STYLES
     relative_residual=False,
+    sb_zeropoint=None,
+    pixel_scale_arcsec=None,
+    sb_profile_scale="log10",
+    sb_asinh_softening=None,
     dpi=150,
 )
 ```
@@ -179,10 +310,25 @@ draw_isophote_overlays(
 ```
 
 When `draw_harmonics=True` (the default) and the isophote dicts contain
-keys like `a3`, `b3`, `a4`, `b4`, the overlay traces the
-harmonic-perturbed contour using 360 sample points.  This reveals
-disky (b4 > 0) and boxy (b4 < 0) shapes directly on the image.
-Set `draw_harmonics=False` to fall back to pure-ellipse patches.
+keys like `a3`, `b3`, `a4`, `b4`, the overlay traces a
+harmonic-perturbed contour using 360 sample points. Each row is gated:
+if the raw harmonic perturbation exceeds `DELTA_ROW_GATE = 0.5`, that
+row falls back to a pure ellipse so a single noisy outer coefficient
+cannot dominate the QA panel.
+
+The contour formula follows the producing tool. Isoster rows with
+`use_eccentric_anomaly=False` use the image-azimuth phi-mode formula;
+isoster rows with `use_eccentric_anomaly=True` and photutils rows use
+the eccentric-anomaly/psi formula; AutoProf rows use pure ellipses
+because its SuperEllipse coefficient scale is not yet ported.
+Set `draw_harmonics=False` to force pure-ellipse patches for every
+tool.
+
+Model panels use a different overlay: `overlay_model_contours()` draws
+iso-brightness contours from the rendered 2D model itself. These are
+not per-row isophote shapes; they reveal structure in the model image,
+including spline ringing or harmonic artifacts that may not be obvious
+from the arcsinh stretch alone.
 
 ## Helper Functions
 
@@ -192,6 +338,8 @@ Set `draw_harmonics=False` to fall back to pure-ellipse patches.
 | `configure_qa_plot_style()` | Apply shared matplotlib rcParams for QA figures. |
 | `derive_arcsinh_parameters(image)` | Compute arcsinh stretch parameters for display. |
 | `make_arcsinh_display(image)` | Apply arcsinh stretch to an image for display. |
+| `model_isobrightness_levels(model)` | Choose model intensity levels for contour overlays. |
+| `overlay_model_contours(ax, model)` | Draw model iso-brightness contours on an existing axes. |
 | `plot_profile_by_stop_code(ax, x, y, stop_codes, ...)` | Scatter plot with per-stop-code color and marker. |
 | `normalize_pa_degrees(pa_deg, anchor=None)` | Unwrap PA jumps using the double-angle trick. |
 | `style_for_stop_code(code)` | Return color/marker/label dict for a stop code. |
