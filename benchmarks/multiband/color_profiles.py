@@ -25,13 +25,11 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
+from legacysurvey_loader import load_legacysurvey_grz
 
 from isoster import IsosterConfig, fit_image
 from isoster.multiband import isophote_results_mb_from_fits
 from isoster.utils import isophote_results_from_fits, isophote_results_to_fits
-
-from legacysurvey_loader import load_legacysurvey_grz
-
 
 _BAND_COLORS = {"g": "#1f77b4", "r": "#2ca02c", "z": "#d62728"}
 

@@ -1,4 +1,5 @@
 #!/usr/bin/env python
+# ruff: noqa: E402
 """Run isoster baseline fits on registered galaxies with photutils/autoprof comparison.
 
 Per-galaxy artifacts:
@@ -24,10 +25,10 @@ import argparse
 import os
 import sys
 import time
-
-import numpy as np
 from datetime import datetime, timezone
 from pathlib import Path
+
+import numpy as np
 
 # Ensure project root is on sys.path for imports
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -45,10 +46,9 @@ if "MPLCONFIGDIR" not in os.environ:
     os.environ["MPLCONFIGDIR"] = str(_mpl)
 
 import matplotlib
+
 matplotlib.rcParams["text.usetex"] = False
 
-from isoster.output_paths import resolve_output_directory
-from benchmarks.utils.run_metadata import collect_environment_metadata, write_json
 from benchmarks.benchmark_baseline.baseline_shared import (
     GALAXY_REGISTRY,
     MAX_RETRIES,
@@ -75,7 +75,8 @@ from benchmarks.benchmark_baseline.baseline_shared import (
     save_profile_ecsv,
     save_profile_fits,
 )
-
+from benchmarks.utils.run_metadata import collect_environment_metadata, write_json
+from isoster.output_paths import resolve_output_directory
 
 QUICK_GALAXY = "IC3370_mock2"
 
@@ -250,7 +251,7 @@ def run_galaxy(
                 "retries": phot_retries,
             }
         else:
-            print(f"    photutils not available or failed")
+            print("    photutils not available or failed")
 
     # --- AUTOPROF (with retry) ---
     if run_autoprof_flag:
@@ -316,13 +317,13 @@ def run_galaxy(
                 "retries": ap_retries,
             }
         else:
-            print(f"    AutoProf not available or failed")
+            print("    AutoProf not available or failed")
 
     # Save fit configurations JSON
     save_fit_configs(fit_configs, galaxy_dir / "fit_configs.json")
 
     # Generate comparison QA figures (all 3 modes)
-    print(f"  Generating comparison QA figures (modes 1, 2, 3) ...")
+    print("  Generating comparison QA figures (modes 1, 2, 3) ...")
     # Mode 3: all methods (default auto-detection)
     make_comparison_qa_figure(
         image, methods_data, name,
@@ -422,7 +423,7 @@ def write_aggregate_report(
         "",
         "## Method Availability",
         "",
-        f"- isoster: available",
+        "- isoster: available",
         f"- photutils: {'available' if photutils_available else 'NOT AVAILABLE'}",
         f"- AutoProf: {'available' if autoprof_available else 'NOT AVAILABLE'}",
         "",

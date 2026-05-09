@@ -28,6 +28,7 @@ if "MPLCONFIGDIR" not in os.environ:
     os.environ["MPLCONFIGDIR"] = str(mpl_config_dir)
 
 import matplotlib.pyplot as plt  # noqa: E402
+
 from benchmarks.utils.run_metadata import collect_environment_metadata, write_json  # noqa: E402
 from benchmarks.utils.sersic_model import compute_bn  # noqa: E402
 from isoster.output_paths import resolve_output_directory  # noqa: E402

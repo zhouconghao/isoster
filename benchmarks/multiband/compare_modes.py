@@ -22,25 +22,21 @@ import json
 from pathlib import Path
 from typing import Dict, List, Sequence, Tuple
 
+import matplotlib
 import numpy as np
+from legacysurvey_loader import (
+    asinh_softening_from_log10_match,
+    load_legacysurvey_grz,
+)
 
 from isoster import IsosterConfig, fit_image
 from isoster.model import build_isoster_model
 from isoster.multiband import isophote_results_mb_from_fits
 from isoster.utils import isophote_results_to_fits
 
-from legacysurvey_loader import (
-    LEGACYSURVEY_ZP,
-    asinh_softening_from_log10_match,
-    load_legacysurvey_grz,
-)
-
-import matplotlib
-
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from matplotlib.patches import Ellipse
-
 
 _BAND_COLORS = {"g": "#1f77b4", "r": "#2ca02c", "z": "#d62728"}
 

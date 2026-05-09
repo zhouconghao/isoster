@@ -17,7 +17,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from benchmarks.utils.run_metadata import collect_environment_metadata, write_json  # noqa: E402
-from isoster import fit_image, IsosterConfig  # noqa: E402
+from isoster import IsosterConfig, fit_image  # noqa: E402
 from isoster.output_paths import resolve_output_directory  # noqa: E402
 
 

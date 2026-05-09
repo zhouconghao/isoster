@@ -33,6 +33,7 @@ import argparse
 from pathlib import Path
 
 import numpy as np
+from legacysurvey_loader import LEGACYSURVEY_ZP, asinh_softening_from_log10_match, load_legacysurvey_grz
 
 from isoster.multiband import (
     IsosterConfigMB,
@@ -40,8 +41,6 @@ from isoster.multiband import (
     isophote_results_mb_to_fits,
     plot_qa_summary_mb,
 )
-
-from legacysurvey_loader import LEGACYSURVEY_ZP, asinh_softening_from_log10_match, load_legacysurvey_grz
 
 
 def plant_band_arc_artifact(

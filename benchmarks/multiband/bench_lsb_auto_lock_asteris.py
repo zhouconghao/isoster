@@ -47,7 +47,6 @@ from isoster.multiband.numba_kernels_mb import warmup_numba_mb
 from isoster.multiband.utils_mb import isophote_results_mb_to_fits
 from isoster.numba_kernels import warmup_numba
 
-
 DEMO_BAND_FOLDERS = ["HSC-G", "HSC-R", "HSC-I", "HSC-Z", "HSC-Y"]
 DEMO_BANDS = ["g", "r", "i", "z", "y"]
 ASTERIS_OBJ_ID = "37484563299062823"

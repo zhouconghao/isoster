@@ -31,6 +31,11 @@ from typing import Dict, List
 
 import matplotlib.pyplot as plt
 import numpy as np
+from legacysurvey_loader import (
+    LEGACYSURVEY_ZP,
+    asinh_softening_from_log10_match,
+    load_legacysurvey_grz,
+)
 
 from isoster.multiband import (
     IsosterConfigMB,
@@ -38,13 +43,6 @@ from isoster.multiband import (
     isophote_results_mb_to_fits,
     plot_qa_summary_mb,
 )
-
-from legacysurvey_loader import (
-    LEGACYSURVEY_ZP,
-    asinh_softening_from_log10_match,
-    load_legacysurvey_grz,
-)
-
 
 DAMPING_CONFIGS = (
     ("baseline", False, {"center": 1.0, "eps": 1.0, "pa": 1.0}),
@@ -215,7 +213,7 @@ def run(galaxy_dir: Path, galaxy_prefix: str, out_dir: Path) -> None:
     cmp_path = out_dir / f"{galaxy_prefix}_outer_reg_compare.png"
     _comparison_figure(
         results_by_label, cmp_path,
-        title_prefix=f"PGC006669 — geometry (x0/y0/eps/pa) vs SMA across damping configs",
+        title_prefix="PGC006669 — geometry (x0/y0/eps/pa) vs SMA across damping configs",
     )
     print(f"Wrote {cmp_path}")
 

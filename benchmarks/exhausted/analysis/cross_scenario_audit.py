@@ -46,7 +46,6 @@ from .scenario_summary import (
     load_galaxy_manifest,
 )
 
-
 PRIOR_COLS = [
     ("violates_drift_any", "Prior 1: IW drift (any zone)"),
     ("violates_harmonics_outer", "Prior 2: normalized A3/A4 outer"),

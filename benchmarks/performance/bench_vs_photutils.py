@@ -13,11 +13,11 @@ Acceptance criteria:
 4. Applies to intensity, ellipticity, and position angle profiles
 """
 
-import sys
-import csv
-import time
 import argparse
+import csv
 import os
+import sys
+import time
 from datetime import datetime
 from pathlib import Path
 
@@ -38,18 +38,19 @@ if "MPLCONFIGDIR" not in os.environ:
 
 import matplotlib.pyplot as plt  # noqa: E402
 from matplotlib.backends.backend_pdf import PdfPages  # noqa: E402
-import isoster  # noqa: E402
-from isoster import IsosterConfig  # noqa: E402
-from isoster.output_paths import resolve_output_directory  # noqa: E402
-from benchmarks.utils.run_metadata import collect_environment_metadata, write_json  # noqa: E402
-from benchmarks.utils.sersic_model import (  # noqa: E402
-    create_sersic_image_vectorized,
-    add_noise,
-    get_true_profile_at_sma,
-)
 
 # photutils imports
 from photutils.isophote import Ellipse, EllipseGeometry  # noqa: E402
+
+import isoster  # noqa: E402
+from benchmarks.utils.run_metadata import collect_environment_metadata, write_json  # noqa: E402
+from benchmarks.utils.sersic_model import (  # noqa: E402
+    add_noise,
+    create_sersic_image_vectorized,
+    get_true_profile_at_sma,
+)
+from isoster import IsosterConfig  # noqa: E402
+from isoster.output_paths import resolve_output_directory  # noqa: E402
 
 
 def resolve_benchmark_output_directory(output_dir=None):

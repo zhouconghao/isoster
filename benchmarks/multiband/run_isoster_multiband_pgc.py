@@ -13,18 +13,18 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
+from legacysurvey_loader import (
+    LEGACYSURVEY_ZP,
+    asinh_softening_from_log10_match,
+    load_legacysurvey_grz,
+)
+
 from isoster.multiband import (
     IsosterConfigMB,
     fit_image_multiband,
     isophote_results_mb_to_fits,
     plot_qa_summary_mb,
     subtract_outermost_sky_offset,
-)
-
-from legacysurvey_loader import (
-    LEGACYSURVEY_ZP,
-    asinh_softening_from_log10_match,
-    load_legacysurvey_grz,
 )
 
 

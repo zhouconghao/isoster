@@ -37,7 +37,6 @@ from isoster.multiband import (
     subtract_outermost_sky_offset,
 )
 
-
 DEMO_BAND_FOLDERS = ["HSC-G", "HSC-R", "HSC-I", "HSC-Z", "HSC-Y"]
 DEMO_BANDS = ["g", "r", "i", "z", "y"]
 HSC_ZP = 27.0
@@ -211,10 +210,12 @@ def run(
     # cumulative flux of the joint solver's per-band intercept,
     # which carries residual sky and dips past the LSB transition.
     # The background-corrected CoG asymptotes properly.
-    from isoster.multiband.cog_mb import (
-        add_cog_mb_to_isophotes, compute_cog_mb,
-    )
     import copy as _copy
+
+    from isoster.multiband.cog_mb import (
+        add_cog_mb_to_isophotes,
+        compute_cog_mb,
+    )
     res_bg = _copy.deepcopy(res)  # avoid stomping the raw cog_<b> columns
     cog_bg = compute_cog_mb(
         res_bg["isophotes"], bands=DEMO_BANDS, sky_offsets=sky_offsets,

@@ -57,12 +57,6 @@ if "MPLCONFIGDIR" not in os.environ:
 import matplotlib.pyplot as plt  # noqa: E402
 from astropy.io import fits  # noqa: E402
 from astropy.table import Table  # noqa: E402
-
-from isoster import fit_image  # noqa: E402
-from isoster.config import IsosterConfig  # noqa: E402
-from isoster.model import build_isoster_model  # noqa: E402
-from isoster.plotting import plot_qa_summary, plot_qa_summary_extended  # noqa: E402
-
 from config_registry import (  # noqa: E402
     CONFIGURATIONS,
     EXTENDED_HARMONIC_CONFIGS,
@@ -70,6 +64,11 @@ from config_registry import (  # noqa: E402
     PARAMETER_BASELINE,
     PHOTUTILS_PARAMETER_CONFIG,
 )
+
+from isoster import fit_image  # noqa: E402
+from isoster.config import IsosterConfig  # noqa: E402
+from isoster.model import build_isoster_model  # noqa: E402
+from isoster.plotting import plot_qa_summary, plot_qa_summary_extended  # noqa: E402
 
 # Stop codes to track
 STOP_CODES = [0, 1, 2, 3, -1]

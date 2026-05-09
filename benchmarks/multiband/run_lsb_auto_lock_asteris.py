@@ -51,7 +51,6 @@ from isoster.multiband import (
     subtract_outermost_sky_offset,
 )
 
-
 DEMO_BAND_FOLDERS = ["HSC-G", "HSC-R", "HSC-I", "HSC-Z", "HSC-Y"]
 DEMO_BANDS = ["g", "r", "i", "z", "y"]
 HSC_ZP = 27.0

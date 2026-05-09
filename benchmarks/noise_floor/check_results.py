@@ -1,6 +1,5 @@
-import json
 from pathlib import Path
-import numpy as np
+
 
 def analyze_drifts():
     output_dir = Path("outputs/benchmark_noise_floor/drift_investigation")

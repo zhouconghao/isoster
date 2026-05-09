@@ -23,7 +23,6 @@ from benchmarks.utils.run_metadata import (  # noqa: E402
 )
 from isoster.output_paths import resolve_output_directory  # noqa: E402
 
-
 # Original fallback paths used before the env-var override was added.
 # Set MOCKGAL_PATH / MOCKGAL_LIBPROFIT_BUILD to point at a different
 # checkout without editing this file.
