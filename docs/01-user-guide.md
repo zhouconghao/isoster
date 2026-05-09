@@ -430,6 +430,29 @@ usable = [iso for iso in results["isophotes"] if iso["stop_code"] in {0, 1, 2}]
 failed = [iso for iso in results["isophotes"] if iso["stop_code"] < 0]
 ```
 
+## QA Figures and Benchmark Comparisons
+
+Use `isoster.plot_qa_summary()` or
+`isoster.plot_comparison_qa_figure()` when auditing a fit visually.
+The public QA standard is documented in `docs/06-qa-functions.md`:
+figures should use the same persisted profile/model artifacts that feed
+metrics, show image/model/residual context, keep profile-axis
+conventions consistent, and display stop-code or quality-state markers
+where available.
+
+For cross-arm or cross-tool campaigns, use the exhausted benchmark
+guide in `docs/09-exhausted-benchmark.md`. The benchmark separates
+within-tool `composite_score` from cross-tool `cross_tool_score`:
+within-tool rankings may include method-specific health terms, while
+cross-tool rankings use tool-neutral residual and runtime terms.
+
+Surface-brightness QA defaults to `log10`/magnitude behavior. Use
+`sb_profile_scale="asinh"` when low-S/N outskirts, zero crossings, or
+negative-intensity samples need to remain visible. With a photometric
+zeropoint and pixel scale, the calibrated asinh profile matches the
+log10 magnitude profile at high S/N and shows a dashed `I = 0`
+reference line.
+
 ## Troubleshooting
 
 - Too many `stop_code=1`: inspect masks and clipping settings (`fflag`, `sclip`, `nclip`).
@@ -479,3 +502,5 @@ failed = [iso for iso in results["isophotes"] if iso["stop_code"] < 0]
 
 - `docs/04-architecture.md`
 - `docs/03-algorithm.md`
+- `docs/06-qa-functions.md`
+- `docs/09-exhausted-benchmark.md`

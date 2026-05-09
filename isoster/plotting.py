@@ -10,6 +10,7 @@ colorbars, fractional residual maps, robust axis limits, and PA unwrap.
 from __future__ import annotations
 
 import platform
+import re
 import shutil
 from pathlib import Path
 
@@ -68,6 +69,91 @@ def _validate_sb_inputs(sb_zeropoint, pixel_scale_arcsec):
         )
     if pixel_scale_arcsec is not None and pixel_scale_arcsec <= 0:
         raise ValueError(f"pixel_scale_arcsec must be positive, got {pixel_scale_arcsec!r}")
+
+
+def transform_sb_profile(
+    intens: np.ndarray,
+    intens_err: np.ndarray | None = None,
+    *,
+    sb_zeropoint: float | None = None,
+    pixel_scale_arcsec: float | None = None,
+    sb_profile_scale: str = "log10",
+    sb_asinh_softening: float | None = None,
+) -> tuple[np.ndarray, np.ndarray | None, str, bool, float | None]:
+    """Transform profile intensities for the SB panel.
+
+    Returns ``(y, yerr, ylabel, invert_yaxis, zero_intensity_y)``.
+    ``sb_profile_scale='log10'`` preserves the existing behavior:
+    calibrated profiles are plotted as magnitudes, uncalibrated profiles
+    as ``log10(I)``. ``'asinh'``/``'arcsinh'`` uses an asinh-magnitude
+    transform when calibrated so the high-S/N limit matches the log10
+    magnitude profile while zero intensity remains finite.
+    """
+    _validate_sb_inputs(sb_zeropoint, pixel_scale_arcsec)
+    scale_name = str(sb_profile_scale).lower()
+    if scale_name == "arcsinh":
+        scale_name = "asinh"
+    if scale_name not in {"log10", "asinh"}:
+        raise ValueError("sb_profile_scale must be 'log10', 'asinh', or 'arcsinh'")
+
+    intens = np.asarray(intens, dtype=float)
+    err = None if intens_err is None else np.asarray(intens_err, dtype=float)
+    y = np.full_like(intens, np.nan, dtype=float)
+    yerr = None if err is None else np.full_like(intens, np.nan, dtype=float)
+
+    if scale_name == "log10":
+        valid = np.isfinite(intens) & (intens > 0.0)
+        if sb_zeropoint is not None:
+            pixarea = float(pixel_scale_arcsec) ** 2
+            flux = intens / pixarea
+            y[valid] = -2.5 * np.log10(flux[valid]) + float(sb_zeropoint)
+            if yerr is not None:
+                yerr[valid] = 2.5 * err[valid] / (intens[valid] * np.log(10.0))
+            return y, yerr, r"$\mu$ [mag/arcsec$^2$]", True, None
+        y[valid] = np.log10(intens[valid])
+        if yerr is not None:
+            yerr[valid] = err[valid] / (intens[valid] * np.log(10.0))
+        return y, yerr, r"$\log_{10}(I)$", False, None
+
+    if sb_zeropoint is not None:
+        pixarea = float(pixel_scale_arcsec) ** 2
+        flux = intens / pixarea
+        flux_err = None if err is None else err / pixarea
+        softening = _resolve_asinh_softening(flux, sb_asinh_softening)
+        valid = np.isfinite(flux)
+        y[valid] = float(sb_zeropoint) - (2.5 / np.log(10.0)) * (
+            np.arcsinh(flux[valid] / (2.0 * softening)) + np.log(softening)
+        )
+        if yerr is not None and flux_err is not None:
+            yerr[valid] = (
+                (2.5 / np.log(10.0)) * np.abs(flux_err[valid]) / np.sqrt(flux[valid] ** 2 + (2.0 * softening) ** 2)
+            )
+        zero_y = float(sb_zeropoint) - (2.5 / np.log(10.0)) * np.log(softening)
+        return y, yerr, r"$\mu_{\mathrm{asinh}}$ [mag/arcsec$^2$]", True, float(zero_y)
+
+    softening = _resolve_asinh_softening(intens, sb_asinh_softening)
+    valid = np.isfinite(intens)
+    y[valid] = np.arcsinh(intens[valid] / softening)
+    if yerr is not None:
+        yerr[valid] = np.abs(err[valid]) / (softening * np.sqrt(1.0 + (intens[valid] / softening) ** 2))
+    return y, yerr, r"$\mathrm{asinh}(I / I_s)$", False, 0.0
+
+
+def _resolve_asinh_softening(values: np.ndarray, softening: float | None) -> float:
+    """Return a positive asinh softening scale in the same units as values."""
+    if softening is not None:
+        softening = float(softening)
+        if not np.isfinite(softening) or softening <= 0.0:
+            raise ValueError(f"sb_asinh_softening must be positive, got {softening!r}")
+        return softening
+    finite_positive = np.asarray(values, dtype=float)
+    finite_positive = finite_positive[np.isfinite(finite_positive) & (finite_positive > 0.0)]
+    if finite_positive.size == 0:
+        return 1.0
+    resolved = float(np.nanpercentile(finite_positive, 5.0))
+    if not np.isfinite(resolved) or resolved <= 0.0:
+        resolved = float(np.nanmedian(finite_positive))
+    return max(resolved, 1e-30)
 
 
 # ---------------------------------------------------------------------------
@@ -232,7 +318,19 @@ def build_method_profile(
         }
         if "stop_code" in data[0]:
             profile["stop_codes"] = np.array([iso.get("stop_code", 0) for iso in data])
-        for key in ("x0", "y0", "intens_err", "rms", "eps_err", "pa_err", "x0_err", "y0_err", "grad"):
+        for key in (
+            "x0",
+            "y0",
+            "intens_err",
+            "rms",
+            "eps_err",
+            "pa_err",
+            "x0_err",
+            "y0_err",
+            "grad",
+            "use_eccentric_anomaly",
+            "tool",
+        ):
             if key in data[0]:
                 profile[key] = np.array([iso.get(key, np.nan) for iso in data])
         # Preserve harmonic coefficients (a3, b3, a4, b4, ...)
@@ -266,6 +364,8 @@ def build_method_profile(
             "x0_err",
             "y0_err",
             "grad",
+            "use_eccentric_anomaly",
+            "tool",
         ):
             if key in data and isinstance(data[key], np.ndarray):
                 out_key = "stop_codes" if key == "stop_code" else key
@@ -478,74 +578,137 @@ def set_x_limits_with_right_margin(
 # Isophote overlay drawing
 # ---------------------------------------------------------------------------
 
+DELTA_ROW_GATE = 0.5
+_HARMONIC_KEY = re.compile(r"^[ab](\d+)$")
+
 
 def _detect_harmonic_orders(iso: dict) -> list[int]:
     """Return sorted list of harmonic orders present in an isophote dict."""
-    orders = set()
+    orders: set[int] = set()
     for key in iso:
-        if len(key) >= 2 and key[0] in ("a", "b") and key[1:].isdigit():
-            n = int(key[1:])
+        match = _HARMONIC_KEY.match(str(key))
+        if match:
+            n = int(match.group(1))
             if n >= 3:
                 orders.add(n)
     return sorted(orders)
 
 
-def _compute_harmonic_contour(
-    iso: dict,
-    n_points: int = 360,
-) -> np.ndarray:
-    """Compute the (x, y) contour of an isophote with harmonic deviations.
-
-    Returns an (n_points, 2) array of pixel coordinates tracing the
-    perturbed isophote shape.  The harmonic perturbation follows the
-    convention used in ``model.py``:
-
-        r_draw(E) = sma * (1 + sum_n [a_n sin(nE) + b_n cos(nE)])
-
-    where E is the eccentric anomaly (or position angle, depending on
-    the ``use_eccentric_anomaly`` flag stored in the isophote dict).
-
-    Parameters
-    ----------
-    iso : dict
-        Single isophote result dict with geometry keys and harmonic
-        coefficients (a3, b3, a4, b4, ...).
-    n_points : int
-        Number of sample points around the contour.
-    """
-    sma = float(iso["sma"])
-    eps = float(iso.get("eps", 0.0))
-    pa_rad = float(iso.get("pa", 0.0))
-    x0 = float(iso.get("x0", 0.0))
-    y0 = float(iso.get("y0", 0.0))
-
-    orders = _detect_harmonic_orders(iso)
-
-    # Parametric angle: eccentric anomaly E in [0, 2pi)
-    angles = np.linspace(0.0, 2.0 * np.pi, n_points, endpoint=False)
-
-    # Harmonic perturbation: dr/r = sum_n [a_n sin(nE) + b_n cos(nE)]
-    dr_over_r = np.zeros(n_points)
+def _delta_at(iso: dict, theta: np.ndarray, orders: list[int]) -> np.ndarray:
+    """Evaluate delta(theta) = sum_n a_n sin(n theta) + b_n cos(n theta)."""
+    out = np.zeros_like(theta, dtype=np.float64)
     for n in orders:
         an = float(iso.get(f"a{n}", 0.0))
         bn = float(iso.get(f"b{n}", 0.0))
-        if not (np.isfinite(an) and np.isfinite(bn)):
-            continue
-        dr_over_r += an * np.sin(n * angles) + bn * np.cos(n * angles)
+        if np.isfinite(an) and np.isfinite(bn):
+            out += an * np.sin(n * theta) + bn * np.cos(n * theta)
+    return out
 
-    scale = 1.0 + dr_over_r
 
-    # Parametric ellipse in rotated frame, scaled by harmonic perturbation
-    x_rot = sma * scale * np.cos(angles)
-    y_rot = sma * (1.0 - eps) * scale * np.sin(angles)
-
-    # Rotate by PA and translate to center
+def _rotate_translate_contour(
+    x_rot: np.ndarray,
+    y_rot: np.ndarray,
+    x0: float,
+    y0: float,
+    pa_rad: float,
+) -> np.ndarray:
     cos_pa = np.cos(pa_rad)
     sin_pa = np.sin(pa_rad)
     x_pix = x0 + x_rot * cos_pa - y_rot * sin_pa
     y_pix = y0 + x_rot * sin_pa + y_rot * cos_pa
-
     return np.column_stack([x_pix, y_pix])
+
+
+def contour_pure_ellipse(iso: dict, n_points: int = 360) -> np.ndarray:
+    """Plain ellipse contour with no harmonic perturbation."""
+    sma = float(iso["sma"])
+    eps = float(iso.get("eps", iso.get("ellipticity", 0.0)))
+    pa_rad = float(iso.get("pa", 0.0))
+    x0 = float(iso.get("x0", 0.0))
+    y0 = float(iso.get("y0", 0.0))
+    alpha = np.linspace(0.0, 2.0 * np.pi, n_points, endpoint=False)
+    x_rot = sma * np.cos(alpha)
+    y_rot = sma * (1.0 - eps) * np.sin(alpha)
+    return _rotate_translate_contour(x_rot, y_rot, x0, y0, pa_rad)
+
+
+def contour_isoster_psi(iso: dict, n_points: int = 360) -> np.ndarray:
+    """Eccentric-anomaly contour matching isoster psi-mode rendering."""
+    sma = float(iso["sma"])
+    eps = float(iso.get("eps", iso.get("ellipticity", 0.0)))
+    pa_rad = float(iso.get("pa", 0.0))
+    x0 = float(iso.get("x0", 0.0))
+    y0 = float(iso.get("y0", 0.0))
+    psi = np.linspace(0.0, 2.0 * np.pi, n_points, endpoint=False)
+    delta = _delta_at(iso, psi, _detect_harmonic_orders(iso))
+    if float(np.max(np.abs(delta))) > DELTA_ROW_GATE:
+        return contour_pure_ellipse(iso, n_points=n_points)
+    scale = 1.0 + delta
+    x_rot = sma * scale * np.cos(psi)
+    y_rot = sma * (1.0 - eps) * scale * np.sin(psi)
+    return _rotate_translate_contour(x_rot, y_rot, x0, y0, pa_rad)
+
+
+def contour_isoster_phi(iso: dict, n_points: int = 360) -> np.ndarray:
+    """Image-azimuth contour matching isoster default phi-mode rendering."""
+    sma = float(iso["sma"])
+    eps = float(iso.get("eps", iso.get("ellipticity", 0.0)))
+    pa_rad = float(iso.get("pa", 0.0))
+    x0 = float(iso.get("x0", 0.0))
+    y0 = float(iso.get("y0", 0.0))
+    b_over_a = max(1e-3, 1.0 - eps)
+    theta_rot = np.linspace(0.0, 2.0 * np.pi, n_points, endpoint=False)
+    delta = _delta_at(iso, theta_rot, _detect_harmonic_orders(iso))
+    if float(np.max(np.abs(delta))) > DELTA_ROW_GATE:
+        return contour_pure_ellipse(iso, n_points=n_points)
+    one_minus_delta = 1.0 - delta
+    safe = np.where(
+        np.abs(one_minus_delta) > 1e-6,
+        one_minus_delta,
+        np.where(one_minus_delta >= 0.0, 1e-6, -1e-6),
+    )
+    r_ell = sma / safe
+    scale_geom = np.sqrt(np.cos(theta_rot) ** 2 + (np.sin(theta_rot) / b_over_a) ** 2)
+    r_image = r_ell / scale_geom
+    x_rot = r_image * np.cos(theta_rot)
+    y_rot = r_image * np.sin(theta_rot)
+    return _rotate_translate_contour(x_rot, y_rot, x0, y0, pa_rad)
+
+
+def contour_photutils(iso: dict, n_points: int = 360) -> np.ndarray:
+    """Photutils stores harmonic radius perturbations in psi."""
+    return contour_isoster_psi(iso, n_points=n_points)
+
+
+def contour_autoprof(iso: dict, n_points: int = 360) -> np.ndarray:
+    """AutoProf overlay fallback: pure ellipse until its coefficient scale is ported."""
+    return contour_pure_ellipse(iso, n_points=n_points)
+
+
+def select_contour_fn(tool: str, *, use_eccentric_anomaly: bool):
+    """Return the contour helper for a benchmark tool and harmonic convention."""
+    tool = tool.lower()
+    if tool == "isoster":
+        return contour_isoster_psi if use_eccentric_anomaly else contour_isoster_phi
+    if tool == "photutils":
+        return contour_photutils
+    if tool == "autoprof":
+        return contour_autoprof
+    return contour_isoster_psi
+
+
+def _compute_harmonic_contour(iso: dict, n_points: int = 360) -> np.ndarray:
+    """Compute a gated per-row isophote contour with tool-aware conventions.
+
+    Rows with raw harmonic |delta| above ``DELTA_ROW_GATE`` fall back
+    to a pure ellipse so low-S/N coefficient spikes do not dominate QA.
+    """
+    tool = str(iso.get("tool", "isoster"))
+    use_eccentric_anomaly = bool(iso.get("use_eccentric_anomaly", False))
+    return select_contour_fn(tool, use_eccentric_anomaly=use_eccentric_anomaly)(
+        iso,
+        n_points=n_points,
+    )
 
 
 def draw_isophote_overlays(
@@ -619,6 +782,54 @@ def draw_isophote_overlays(
                 edgecolor=color,
             )
         axis.add_patch(patch)
+
+
+def model_isobrightness_levels(
+    model: np.ndarray,
+    *,
+    n_levels: int = 6,
+    log_spaced: bool = True,
+    inside_mask: np.ndarray | None = None,
+) -> np.ndarray:
+    """Choose model intensity levels for iso-brightness contours."""
+    arr = np.asarray(model, dtype=np.float64)
+    valid = np.isfinite(arr)
+    if inside_mask is not None:
+        valid &= np.asarray(inside_mask, dtype=bool)
+    values = arr[valid]
+    if log_spaced:
+        values = values[values > 0.0]
+    if values.size < n_levels:
+        return np.array([])
+    lo = float(np.percentile(values, 10.0))
+    hi = float(np.percentile(values, 99.0))
+    if not np.isfinite(lo) or not np.isfinite(hi) or hi <= lo:
+        return np.array([])
+    if log_spaced:
+        return np.geomspace(max(lo, 1e-12), hi, n_levels)
+    return np.linspace(lo, hi, n_levels)
+
+
+def overlay_model_contours(
+    axis,
+    model: np.ndarray,
+    *,
+    n_levels: int = 6,
+    color: str = "tab:orange",
+    linewidth: float = 0.55,
+    alpha: float = 0.75,
+) -> None:
+    """Overlay model iso-brightness contours on an image axis."""
+    levels = model_isobrightness_levels(model, n_levels=n_levels)
+    if levels.size == 0:
+        return
+    axis.contour(
+        np.asarray(model, dtype=np.float64),
+        levels=levels,
+        colors=color,
+        linewidths=linewidth,
+        alpha=alpha,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -707,6 +918,8 @@ def plot_qa_summary(
     relative_residual=False,
     sb_zeropoint=None,
     pixel_scale_arcsec=None,
+    sb_profile_scale="log10",
+    sb_asinh_softening=None,
 ):
     """Generate a QA figure following the Huang2013 campaign baseline style.
 
@@ -740,6 +953,13 @@ def plot_qa_summary(
     pixel_scale_arcsec : float, optional
         Pixel size in arcsec (``pixarea = pixel_scale_arcsec**2``). Must
         accompany ``sb_zeropoint``.
+    sb_profile_scale : {"log10", "asinh", "arcsinh"}
+        Surface-brightness profile y-scale. ``"log10"`` preserves the
+        existing log/magnitude profile. ``"asinh"`` uses an asinh
+        profile and draws an intensity-zero reference line.
+    sb_asinh_softening : float, optional
+        Positive softening scale for ``sb_profile_scale="asinh"``. In
+        calibrated mode this is in flux per arcsec².
     """
     _validate_sb_inputs(sb_zeropoint, pixel_scale_arcsec)
     configure_qa_plot_style()
@@ -901,6 +1121,7 @@ def plot_qa_summary(
         vmax=mod_vmax,
         interpolation="none",
     )
+    overlay_model_contours(ax_mod, isoster_model)
     ax_mod.text(
         0.15,
         0.9,
@@ -966,20 +1187,15 @@ def plot_qa_summary(
     ax_sb = fig.add_subplot(right[panel_idx])
     panel_idx += 1
 
-    sb_valid = valid_mask & np.isfinite(i_intens) & (i_intens > 0)
-    y_sb = np.full_like(i_intens, np.nan)
-    y_sb_err = np.full_like(i_intens_err, np.nan)
-    if sb_zeropoint is not None:
-        # Surface brightness in mag/arcsec^2:
-        #   μ = -2.5 * log10(I_per_pix / pixarea) + zp
-        pixarea = pixel_scale_arcsec**2
-        y_sb[sb_valid] = -2.5 * np.log10(i_intens[sb_valid] / pixarea) + sb_zeropoint
-        y_sb_err[sb_valid] = 2.5 * i_intens_err[sb_valid] / (i_intens[sb_valid] * np.log(10))
-        sb_ylabel = r"$\mu$ [mag/arcsec$^2$]"
-    else:
-        y_sb[sb_valid] = np.log10(i_intens[sb_valid])
-        y_sb_err[sb_valid] = i_intens_err[sb_valid] / (i_intens[sb_valid] * np.log(10))
-        sb_ylabel = r"$\log_{10}(I)$"
+    y_sb, y_sb_err, sb_ylabel, invert_sb_axis, zero_intensity_y = transform_sb_profile(
+        i_intens,
+        i_intens_err,
+        sb_zeropoint=sb_zeropoint,
+        pixel_scale_arcsec=pixel_scale_arcsec,
+        sb_profile_scale=sb_profile_scale,
+        sb_asinh_softening=sb_asinh_softening,
+    )
+    sb_valid = valid_mask & np.isfinite(y_sb)
 
     plot_profile_by_stop_code(
         ax_sb,
@@ -992,21 +1208,39 @@ def plot_qa_summary(
     )
 
     if photutils_res is not None:
-        _overlay_photutils_sb(ax_sb, photutils_res)
+        _overlay_photutils_sb(
+            ax_sb,
+            photutils_res,
+            sb_zeropoint=sb_zeropoint,
+            pixel_scale_arcsec=pixel_scale_arcsec,
+            sb_profile_scale=sb_profile_scale,
+            sb_asinh_softening=sb_asinh_softening,
+        )
 
     ax_sb.set_ylabel(sb_ylabel)
     ax_sb.set_title("Surface brightness profile")
     ax_sb.grid(alpha=0.25)
-    if sb_zeropoint is not None:
+    if zero_intensity_y is not None:
+        ax_sb.axhline(
+            zero_intensity_y,
+            color="0.25",
+            linestyle="--",
+            linewidth=0.9,
+            alpha=0.75,
+            label="I=0",
+        )
+    if invert_sb_axis:
         ax_sb.invert_yaxis()
     sb_for_limits = y_sb[sb_valid & np.isfinite(y_sb)]
     if sb_for_limits.size > 0:
+        if zero_intensity_y is not None and np.isfinite(zero_intensity_y):
+            sb_for_limits = np.concatenate([sb_for_limits, [zero_intensity_y]])
         set_axis_limits_from_finite_values(
             ax_sb,
             sb_for_limits,
             margin_fraction=0.06,
             min_margin=0.2,
-            invert=sb_zeropoint is not None,
+            invert=invert_sb_axis,
         )
     handles, labels = ax_sb.get_legend_handles_labels()
     if handles:
@@ -1222,6 +1456,8 @@ def plot_qa_summary_extended(
     filename="qa_summary_extended.png",
     sb_zeropoint=None,
     pixel_scale_arcsec=None,
+    sb_profile_scale="log10",
+    sb_asinh_softening=None,
 ):
     """QA figure with extended harmonic visualization panels.
 
@@ -1264,6 +1500,10 @@ def plot_qa_summary_extended(
         formula and rationale.
     pixel_scale_arcsec : float, optional
         Pixel size in arcsec. Must accompany ``sb_zeropoint``.
+    sb_profile_scale : {"log10", "asinh", "arcsinh"}
+        Surface-brightness profile y-scale.
+    sb_asinh_softening : float, optional
+        Positive softening scale for ``sb_profile_scale="asinh"``.
     """
     _validate_sb_inputs(sb_zeropoint, pixel_scale_arcsec)
     configure_qa_plot_style()
@@ -1406,6 +1646,7 @@ def plot_qa_summary_extended(
         vmax=mod_vmax,
         interpolation="none",
     )
+    overlay_model_contours(ax_mod, isoster_model)
     ax_mod.text(
         0.15,
         0.9,
@@ -1471,18 +1712,15 @@ def plot_qa_summary_extended(
     # 1. Surface brightness
     ax_sb = fig.add_subplot(right[panel_idx])
     panel_idx += 1
-    sb_valid = valid_mask & np.isfinite(i_intens) & (i_intens > 0)
-    y_sb = np.full_like(i_intens, np.nan)
-    y_sb_err = np.full_like(i_intens_err, np.nan)
-    if sb_zeropoint is not None:
-        pixarea = pixel_scale_arcsec**2
-        y_sb[sb_valid] = -2.5 * np.log10(i_intens[sb_valid] / pixarea) + sb_zeropoint
-        y_sb_err[sb_valid] = 2.5 * i_intens_err[sb_valid] / (i_intens[sb_valid] * np.log(10))
-        sb_ylabel = r"$\mu$ [mag/arcsec$^2$]"
-    else:
-        y_sb[sb_valid] = np.log10(i_intens[sb_valid])
-        y_sb_err[sb_valid] = i_intens_err[sb_valid] / (i_intens[sb_valid] * np.log(10))
-        sb_ylabel = r"$\log_{10}(I)$"
+    y_sb, y_sb_err, sb_ylabel, invert_sb_axis, zero_intensity_y = transform_sb_profile(
+        i_intens,
+        i_intens_err,
+        sb_zeropoint=sb_zeropoint,
+        pixel_scale_arcsec=pixel_scale_arcsec,
+        sb_profile_scale=sb_profile_scale,
+        sb_asinh_softening=sb_asinh_softening,
+    )
+    sb_valid = valid_mask & np.isfinite(y_sb)
     plot_profile_by_stop_code(
         ax_sb,
         x_axis[sb_valid],
@@ -1495,16 +1733,27 @@ def plot_qa_summary_extended(
     ax_sb.set_ylabel(sb_ylabel)
     ax_sb.set_title("Surface brightness profile")
     ax_sb.grid(alpha=0.25)
-    if sb_zeropoint is not None:
+    if zero_intensity_y is not None:
+        ax_sb.axhline(
+            zero_intensity_y,
+            color="0.25",
+            linestyle="--",
+            linewidth=0.9,
+            alpha=0.75,
+            label="I=0",
+        )
+    if invert_sb_axis:
         ax_sb.invert_yaxis()
     sb_for_limits = y_sb[sb_valid & np.isfinite(y_sb)]
     if sb_for_limits.size > 0:
+        if zero_intensity_y is not None and np.isfinite(zero_intensity_y):
+            sb_for_limits = np.concatenate([sb_for_limits, [zero_intensity_y]])
         set_axis_limits_from_finite_values(
             ax_sb,
             sb_for_limits,
             margin_fraction=0.06,
             min_margin=0.2,
-            invert=sb_zeropoint is not None,
+            invert=invert_sb_axis,
         )
     handles, labels = ax_sb.get_legend_handles_labels()
     if handles:
@@ -1807,6 +2056,10 @@ def _build_isos_for_overlay(prof: dict[str, np.ndarray]) -> list[dict]:
             "pa": float(prof["pa"][i]),
             "stop_code": int(prof["stop_codes"][i]) if "stop_codes" in prof else 0,
         }
+        if "use_eccentric_anomaly" in prof:
+            iso["use_eccentric_anomaly"] = bool(prof["use_eccentric_anomaly"][i])
+        if "tool" in prof:
+            iso["tool"] = str(prof["tool"][i])
         for k in harm_keys:
             iso[k] = float(prof[k][i])
         isos.append(iso)
@@ -1909,6 +2162,10 @@ def plot_comparison_qa_figure(
     mask: np.ndarray | None = None,
     method_styles: dict[str, dict] | None = None,
     relative_residual: bool = False,
+    sb_zeropoint: float | None = None,
+    pixel_scale_arcsec: float | None = None,
+    sb_profile_scale: str = "log10",
+    sb_asinh_softening: float | None = None,
     dpi: int = 150,
 ) -> None:
     """Multi-method comparison QA figure with 2D images and 1D profiles.
@@ -1952,6 +2209,12 @@ def plot_comparison_qa_figure(
     relative_residual : bool
         If True, residual panels show ``(model - data) / data`` [%].
         If False (default), show ``data - model`` (absolute).
+    sb_zeropoint, pixel_scale_arcsec
+        Optional calibration for the SB profile panel.
+    sb_profile_scale : {"log10", "asinh", "arcsinh"}
+        Surface-brightness profile y-scale.
+    sb_asinh_softening : float, optional
+        Positive softening scale for ``sb_profile_scale="asinh"``.
     dpi : int
         Figure resolution.
     """
@@ -1959,6 +2222,7 @@ def plot_comparison_qa_figure(
 
     import matplotlib.gridspec as gridspec
 
+    _validate_sb_inputs(sb_zeropoint, pixel_scale_arcsec)
     configure_qa_plot_style()
     plt.rcParams["text.usetex"] = False
 
@@ -2134,6 +2398,7 @@ def plot_comparison_qa_figure(
                 vmax=mod_vmax,
                 interpolation="none",
             )
+            overlay_model_contours(ax_mod, model)
             ax_mod.set_xticks([])
             ax_mod.set_yticks([])
             ax_mod.text(
@@ -2238,15 +2503,15 @@ def plot_comparison_qa_figure(
         style = styles.get(method_name, {})
         x = prof["x_axis"]
         intens = prof["intens"]
-        valid = np.isfinite(intens) & (intens > 0)
-        y = np.full_like(intens, np.nan)
-        y[valid] = np.log10(intens[valid])
-
-        # Error propagation: sigma_log10_I = intens_err / (I * ln(10))
-        y_err = None
-        if "intens_err" in prof:
-            y_err = np.full_like(intens, np.nan)
-            y_err[valid] = prof["intens_err"][valid] / (intens[valid] * np.log(10))
+        y, y_err, sb_ylabel, invert_sb_axis, zero_intensity_y = transform_sb_profile(
+            intens,
+            prof.get("intens_err"),
+            sb_zeropoint=sb_zeropoint,
+            pixel_scale_arcsec=pixel_scale_arcsec,
+            sb_profile_scale=sb_profile_scale,
+            sb_asinh_softening=sb_asinh_softening,
+        )
+        valid = np.isfinite(x) & np.isfinite(y)
 
         if "stop_codes" in prof:
             _scatter_by_stop_code_in_method_color(
@@ -2292,21 +2557,39 @@ def plot_comparison_qa_figure(
                     zorder=3,
                 )
 
-    ax_sb.set_ylabel(r"$\log_{10}$(Intensity)")
+    ax_sb.set_ylabel(sb_ylabel)
     ax_sb.grid(alpha=0.25)
+    if zero_intensity_y is not None:
+        ax_sb.axhline(
+            zero_intensity_y,
+            color="0.25",
+            linestyle="--",
+            linewidth=0.9,
+            alpha=0.75,
+            label="I=0",
+        )
     ax_sb.legend(loc="upper right", fontsize=10)
     ax_sb.tick_params(labelbottom=False)
     set_x_limits_with_right_margin(ax_sb, all_x)
     # Data-driven Y-axis: range from data values, not error bars
     all_sb_vals = []
     for m in available:
-        intens = profiles[m]["intens"]
-        v = np.isfinite(intens) & (intens > 0)
+        y_vals, *_ = transform_sb_profile(
+            profiles[m]["intens"],
+            profiles[m].get("intens_err"),
+            sb_zeropoint=sb_zeropoint,
+            pixel_scale_arcsec=pixel_scale_arcsec,
+            sb_profile_scale=sb_profile_scale,
+            sb_asinh_softening=sb_asinh_softening,
+        )
+        v = np.isfinite(y_vals)
         if np.any(v):
-            all_sb_vals.append(np.log10(intens[v]))
+            all_sb_vals.append(y_vals[v])
     if all_sb_vals:
         all_sb = np.concatenate(all_sb_vals)
-        set_axis_limits_from_finite_values(ax_sb, all_sb, invert=False)
+        if zero_intensity_y is not None and np.isfinite(zero_intensity_y):
+            all_sb = np.concatenate([all_sb, [zero_intensity_y]])
+        set_axis_limits_from_finite_values(ax_sb, all_sb, invert=invert_sb_axis)
 
     # Runtime annotation in bottom-left of SB panel
     if _runtime_lines:
@@ -2685,21 +2968,35 @@ def plot_comparison_qa_figure(
     plt.close(fig)
 
 
-def _overlay_photutils_sb(ax, photutils_res):
+def _overlay_photutils_sb(
+    ax,
+    photutils_res,
+    *,
+    sb_zeropoint=None,
+    pixel_scale_arcsec=None,
+    sb_profile_scale="log10",
+    sb_asinh_softening=None,
+):
     """Overlay photutils surface brightness on the SB panel (open markers)."""
     p_sma = np.array([iso.sma for iso in photutils_res])
     p_intens = np.array([iso.intens for iso in photutils_res])
     p_intens_err = np.array([iso.int_err for iso in photutils_res])
 
-    p_mask = (p_sma > 1.5) & np.isfinite(p_intens) & (p_intens > 0)
+    p_y, p_yerr, *_ = transform_sb_profile(
+        p_intens,
+        p_intens_err,
+        sb_zeropoint=sb_zeropoint,
+        pixel_scale_arcsec=pixel_scale_arcsec,
+        sb_profile_scale=sb_profile_scale,
+        sb_asinh_softening=sb_asinh_softening,
+    )
+    p_mask = (p_sma > 1.5) & np.isfinite(p_y)
     p_x = p_sma[p_mask] ** 0.25
-    p_y = np.log10(p_intens[p_mask])
-    p_yerr = p_intens_err[p_mask] / (p_intens[p_mask] * np.log(10))
 
     ax.errorbar(
         p_x,
-        p_y,
-        yerr=p_yerr,
+        p_y[p_mask],
+        yerr=p_yerr[p_mask] if p_yerr is not None else None,
         fmt="o",
         mfc="none",
         mec="black",

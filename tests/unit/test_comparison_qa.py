@@ -5,8 +5,14 @@ import numpy as np
 from isoster.plotting import (
     METHOD_STYLES,
     build_method_profile,
+    contour_autoprof,
+    contour_isoster_phi,
+    contour_isoster_psi,
+    contour_pure_ellipse,
     normalize_pa_degrees,
     plot_comparison_qa_figure,
+    plot_qa_summary,
+    transform_sb_profile,
 )
 
 
@@ -305,3 +311,113 @@ class TestCrossMethodPaNormalization:
 
         diff = np.abs(np.nanmedian(norm_a) - np.nanmedian(norm_b))
         assert diff < 5.0, f"Similar PAs should remain close, got diff={diff:.1f}"
+
+
+class TestContourHelpers:
+    def test_phi_and_psi_contours_differ_at_high_ellipticity(self):
+        iso = {
+            "sma": 20.0,
+            "eps": 0.65,
+            "pa": 0.2,
+            "x0": 32.0,
+            "y0": 31.0,
+            "a3": 0.08,
+            "b3": 0.03,
+        }
+        phi = contour_isoster_phi(iso, n_points=180)
+        psi = contour_isoster_psi(iso, n_points=180)
+        assert phi.shape == psi.shape == (180, 2)
+        assert np.nanmax(np.abs(phi - psi)) > 0.5
+
+    def test_large_delta_row_falls_back_to_pure_ellipse(self):
+        iso = {
+            "sma": 20.0,
+            "eps": 0.4,
+            "pa": 0.2,
+            "x0": 32.0,
+            "y0": 31.0,
+            "a3": 0.75,
+            "b3": 0.0,
+        }
+        pure = contour_pure_ellipse(iso, n_points=180)
+        psi = contour_isoster_psi(iso, n_points=180)
+        np.testing.assert_allclose(psi, pure)
+
+    def test_autoprof_contours_are_pure_ellipse_fallback(self):
+        iso = {
+            "sma": 20.0,
+            "eps": 0.3,
+            "pa": 0.2,
+            "x0": 32.0,
+            "y0": 31.0,
+            "a4": 0.1,
+            "b4": 0.2,
+        }
+        np.testing.assert_allclose(
+            contour_autoprof(iso, n_points=180),
+            contour_pure_ellipse(iso, n_points=180),
+        )
+
+
+class TestAsinhSurfaceBrightnessProfile:
+    def test_calibrated_asinh_matches_log10_at_high_signal(self):
+        intens = np.array([1.0e5, 1.0e4, 10.0])
+        intens_err = np.ones_like(intens)
+        kwargs = {
+            "sb_zeropoint": 27.0,
+            "pixel_scale_arcsec": 0.2,
+            "sb_asinh_softening": 1.0,
+        }
+        log_y, *_ = transform_sb_profile(
+            intens,
+            intens_err,
+            sb_profile_scale="log10",
+            **kwargs,
+        )
+        asinh_y, _asinh_err, _label, invert, zero_y = transform_sb_profile(
+            intens,
+            intens_err,
+            sb_profile_scale="asinh",
+            **kwargs,
+        )
+        assert invert is True
+        assert np.isfinite(zero_y)
+        np.testing.assert_allclose(asinh_y[:2], log_y[:2], atol=2.0e-4)
+
+    def test_plot_qa_summary_draws_asinh_zero_intensity_line(self, tmp_path, monkeypatch):
+        from matplotlib.axes import Axes
+
+        image = _make_image()
+        model = np.full((64, 64), 100.0)
+        isos = _make_isophote_list(20)
+        _y, _yerr, _label, _invert, zero_y = transform_sb_profile(
+            np.array([iso["intens"] for iso in isos]),
+            np.array([iso["intens_err"] for iso in isos]),
+            sb_zeropoint=27.0,
+            pixel_scale_arcsec=0.2,
+            sb_profile_scale="asinh",
+            sb_asinh_softening=1.0,
+        )
+
+        calls = []
+        original_axhline = Axes.axhline
+
+        def recording_axhline(self, y=0, *args, **kwargs):
+            calls.append((float(y), kwargs.get("linestyle")))
+            return original_axhline(self, y, *args, **kwargs)
+
+        monkeypatch.setattr(Axes, "axhline", recording_axhline)
+        out = tmp_path / "asinh_sb.png"
+        plot_qa_summary(
+            title="asinh sb",
+            image=image,
+            isoster_model=model,
+            isoster_res=isos,
+            filename=out,
+            sb_zeropoint=27.0,
+            pixel_scale_arcsec=0.2,
+            sb_profile_scale="asinh",
+            sb_asinh_softening=1.0,
+        )
+        assert out.exists()
+        assert any(np.isclose(y, zero_y) and linestyle == "--" for y, linestyle in calls)

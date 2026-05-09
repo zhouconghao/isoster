@@ -44,7 +44,7 @@ class CampaignPlan:
     output_root: Path
     tools: dict[str, ToolPlan]
     datasets: dict[str, DatasetPlan]
-    qa: dict[str, bool]
+    qa: dict[str, Any]
     execution: dict[str, Any]
     summary: dict[str, Any]
     isoster_harmonic_sweeps: list[list[int]]
@@ -87,6 +87,8 @@ def load_campaign(yaml_path: str | Path) -> CampaignPlan:
             "cross_tool_comparison": True,
             "summary_grids": True,
             "residual_models": True,
+            "sb_profile_scale": "log10",
+            "sb_asinh_softening": None,
         },
     )
 
@@ -242,10 +244,13 @@ def _require(mapping: dict[str, Any], key: str, source: Path) -> Any:
 
 
 def _dict_with_bool_defaults(
-    raw: dict[str, Any], defaults: dict[str, bool]
-) -> dict[str, bool]:
+    raw: dict[str, Any], defaults: dict[str, Any]
+) -> dict[str, Any]:
     raw = raw or {}
     out = dict(defaults)
     for key, value in raw.items():
-        out[key] = bool(value)
+        if isinstance(defaults.get(key), bool):
+            out[key] = bool(value)
+        else:
+            out[key] = value
     return out

@@ -34,8 +34,8 @@ from isoster.utils import isophote_results_to_fits
 from ..adapters.base import GalaxyBundle
 from ..analysis.inventory import INVENTORY_COLUMNS
 from ..analysis.metrics import summarize_fit
+from ..analysis.model_evaluation import evaluate_model_v11, profile_summary_for_inventory
 from ..analysis.quality_flags import evaluate_flags
-from ..analysis.residual_zones import residual_zone_stats
 from ..plotting.per_galaxy_qa import build_model_cube, render_per_arm_qa
 
 # ---------------------------------------------------------------------------
@@ -73,6 +73,8 @@ def run_one_arm(
     *,
     write_qa: bool = True,
     write_model_fits: bool = True,
+    sb_profile_scale: str = "log10",
+    sb_asinh_softening: float | None = None,
 ) -> dict[str, Any]:
     """Run one ``(galaxy, arm)`` pair. Returns an inventory row.
 
@@ -150,6 +152,8 @@ def run_one_arm(
         output_dir=output_dir,
         write_qa=write_qa,
         write_model_fits=write_model_fits,
+        sb_profile_scale=sb_profile_scale,
+        sb_asinh_softening=sb_asinh_softening,
     )
 
     # Summary metrics.
@@ -159,47 +163,33 @@ def run_one_arm(
         sma0=float(config.sma0),
         lsb_sma_threshold_pix=lsb_threshold,
     )
+    metrics.update(profile_summary_for_inventory(str(outputs.profile_fits)))
 
     # First-isophote diagnostics (live in the results dict, not the profile FITS).
     retry_log = results.get("first_isophote_retry_log") or []
     first_isophote_diag = {
         "first_isophote_failure": bool(results.get("first_isophote_failure", False)),
         "first_isophote_retry_attempts": len(retry_log),
-        "first_isophote_retry_stop_codes": ",".join(
-            str(int(entry.get("stop_code", -99))) for entry in retry_log
-        ),
+        "first_isophote_retry_stop_codes": ",".join(str(int(entry.get("stop_code", -99))) for entry in retry_log),
     }
 
-    # Residual-zone statistics (elliptical zones anchored at the adapter's
-    # initial geometry so zones stay arm-independent).
+    # v1.1 residual and azimuthal statistics (elliptical zones anchored at
+    # the adapter's initial geometry so zones stay arm-independent).
     image = np.asarray(bundle.image, dtype=np.float64)
     model, _ = build_model_cube(bundle, results)
     geom = bundle.initial_geometry
-    zone_stats = residual_zone_stats(
-        image,
-        model,
+    model_metrics = evaluate_model_v11(
+        image=image,
+        model=model,
+        mask=bundle.mask,
         x0=float(geom["x0"]),
         y0=float(geom["y0"]),
         eps=float(geom.get("eps", 0.2)),
-        pa=float(geom.get("pa", 0.0)),
-        R_ref=bundle.metadata.effective_Re_pix,
-        maxsma=float(geom.get("maxsma", min(image.shape) // 2)),
-        mask=bundle.mask,
+        pa_rad=float(geom.get("pa", 0.0)),
+        R_ref_pix=bundle.metadata.effective_Re_pix,
+        maxsma_pix=float(geom.get("maxsma", min(image.shape) // 2)),
+        r_inner_floor_pix=float(metrics.get("min_sma_pix", 0.0) or 0.0),
     )
-    # Only the inventory-column subset flows into the row; the rest sits in
-    # the run_record for audit.
-    zone_row_cols = {
-        k: zone_stats[k]
-        for k in (
-            "resid_rms_inner",
-            "resid_rms_mid",
-            "resid_rms_outer",
-            "resid_median_inner",
-            "resid_median_mid",
-            "resid_median_outer",
-            "frac_above_3sigma_outer",
-        )
-    }
 
     row = dict(row_skeleton)
     row.update(
@@ -210,7 +200,7 @@ def run_one_arm(
             "wall_time_total_s": float(time.perf_counter() - total_start),
             **metrics,
             **first_isophote_diag,
-            **zone_row_cols,
+            **model_metrics,
             "qa_path": str(outputs.qa_png) if outputs.qa_png else "",
             "profile_path": str(outputs.profile_fits),
             "model_path": str(outputs.model_fits) if outputs.model_fits else "",
@@ -226,7 +216,7 @@ def run_one_arm(
             "status": "ok",
             "wall_time_fit_s": float(wall_fit),
             "wall_time_total_s": row["wall_time_total_s"],
-            "metrics": {**metrics, **first_isophote_diag, **zone_stats},
+            "metrics": {**metrics, **first_isophote_diag, **model_metrics},
             "flags": row.get("flags", ""),
             "flag_severity_max": row.get("flag_severity_max", 0.0),
             "first_isophote_retry_log": retry_log,
@@ -243,9 +233,7 @@ def run_one_arm(
 # ---------------------------------------------------------------------------
 
 
-def _resolve_sentinels(
-    delta: dict[str, Any], bundle: GalaxyBundle
-) -> tuple[dict[str, Any], bool, str | None]:
+def _resolve_sentinels(delta: dict[str, Any], bundle: GalaxyBundle) -> tuple[dict[str, Any], bool, str | None]:
     """Return ``(resolved_delta, use_variance, skip_reason)``.
 
     ``use_variance`` is False when the arm explicitly asks to drop it.
@@ -311,6 +299,8 @@ def _write_arm_outputs(
     output_dir: Path,
     write_qa: bool,
     write_model_fits: bool,
+    sb_profile_scale: str,
+    sb_asinh_softening: float | None,
 ) -> ArmFitOutputs:
     profile_path = output_dir / "profile.fits"
     isophote_results_to_fits(results, str(profile_path), overwrite=True)
@@ -337,11 +327,16 @@ def _write_arm_outputs(
     if write_qa:
         qa_path = output_dir / "qa.png"
         try:
-            render_per_arm_qa(bundle, arm_id, results, qa_path)
-        except Exception as exc:  # noqa: BLE001 - QA must never abort the campaign
-            qa_path.with_suffix(".png.err.txt").write_text(
-                f"{type(exc).__name__}: {exc}\n"
+            render_per_arm_qa(
+                bundle,
+                arm_id,
+                results,
+                qa_path,
+                sb_profile_scale=sb_profile_scale,
+                sb_asinh_softening=sb_asinh_softening,
             )
+        except Exception as exc:  # noqa: BLE001 - QA must never abort the campaign
+            qa_path.with_suffix(".png.err.txt").write_text(f"{type(exc).__name__}: {exc}\n")
             qa_path = None
 
     return ArmFitOutputs(
@@ -374,6 +369,7 @@ def _json_default(value: Any) -> Any:
 # Inventory row skeleton
 # ---------------------------------------------------------------------------
 
+
 def _empty_inventory_row(galaxy_id: str, arm_id: str) -> dict[str, Any]:
     row: dict[str, Any] = {col: "" for col in INVENTORY_COLUMNS}
     row["galaxy_id"] = galaxy_id
@@ -381,7 +377,12 @@ def _empty_inventory_row(galaxy_id: str, arm_id: str) -> dict[str, Any]:
     row["arm_id"] = arm_id
     row["status"] = "pending"
     for int_col in (
-        "n_iso", "n_stop_0", "n_stop_1", "n_stop_2", "n_stop_m1", "n_locked",
+        "n_iso",
+        "n_stop_0",
+        "n_stop_1",
+        "n_stop_2",
+        "n_stop_m1",
+        "n_locked",
         "first_isophote_retry_attempts",
     ):
         row[int_col] = 0

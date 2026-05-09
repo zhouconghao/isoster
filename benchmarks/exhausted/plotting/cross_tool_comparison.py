@@ -36,6 +36,8 @@ def plot_cross_tool_comparison(
     mask: np.ndarray | None = None,
     sb_zeropoint: float | None = None,
     pixel_scale_arcsec: float | None = None,
+    sb_profile_scale: str = "log10",
+    sb_asinh_softening: float | None = None,
     title: str | None = None,
 ) -> Path | None:
     """Render the cross-tool comparison figure.
@@ -46,6 +48,7 @@ def plot_cross_tool_comparison(
     :func:`plot_comparison_qa_figure` with up to three methods.
     """
     selected: dict[str, list[dict[str, Any]]] = {}
+    models: dict[str, np.ndarray] = {}
     arm_used: dict[str, str] = {}
     for tool, rows in inventories.items():
         chosen = _choose_row(tool, rows)
@@ -57,8 +60,15 @@ def plot_cross_tool_comparison(
         iso_dicts = _load_profile_as_iso_dicts(profile_path)
         if not iso_dicts:
             continue
+        for iso in iso_dicts:
+            iso["tool"] = tool
         selected[tool] = iso_dicts
         arm_used[tool] = str(chosen.get("arm_id", "?"))
+        model_path = chosen.get("model_path") or ""
+        if model_path and Path(str(model_path)).is_file():
+            model = _load_model_image(model_path)
+            if model is not None:
+                models[tool] = model
 
     if len(selected) < 2:
         return None
@@ -75,34 +85,33 @@ def plot_cross_tool_comparison(
     if len(profiles) < 2:
         return None
 
-    computed_title = title or "Cross-tool comparison: " + ", ".join(
-        f"{t}::{arm_used[t]}" for t in profiles
-    )
+    computed_title = title or "Cross-tool comparison: " + ", ".join(f"{t}::{arm_used[t]}" for t in profiles)
     try:
         plot_comparison_qa_figure(
             image=np.asarray(image, dtype=np.float64),
             profiles=profiles,
+            models=models,
             title=computed_title,
             output_path=str(output_path),
             mask=mask,
+            sb_zeropoint=sb_zeropoint,
+            pixel_scale_arcsec=pixel_scale_arcsec,
+            sb_profile_scale=sb_profile_scale,
+            sb_asinh_softening=sb_asinh_softening,
         )
     except Exception as exc:  # noqa: BLE001 - QA must not abort
-        output_path.with_suffix(".png.err.txt").write_text(
-            f"{type(exc).__name__}: {exc}\n"
-        )
+        output_path.with_suffix(".png.err.txt").write_text(f"{type(exc).__name__}: {exc}\n")
         return None
     return output_path
 
 
-def _choose_row(
-    tool: str, rows: list[dict[str, Any]]
-) -> dict[str, Any] | None:
+def _choose_row(tool: str, rows: list[dict[str, Any]]) -> dict[str, Any] | None:
     """Prefer the tool's default arm; fall back to the lowest-score ok row."""
     default_arm = DEFAULT_ARM_PER_TOOL.get(tool)
     ok_rows = [
-        r for r in rows
-        if str(r.get("status", "")).lower() in {"ok", "cached"}
-        and float(r.get("flag_severity_max", 0.0) or 0.0) < 2
+        r
+        for r in rows
+        if str(r.get("status", "")).lower() in {"ok", "cached"} and float(r.get("flag_severity_max", 0.0) or 0.0) < 2
     ]
     if default_arm:
         for r in ok_rows:
@@ -110,9 +119,7 @@ def _choose_row(
                 return r
     if not ok_rows:
         return None
-    ok_rows.sort(
-        key=lambda r: float(r.get("composite_score", float("inf")) or float("inf"))
-    )
+    ok_rows.sort(key=lambda r: float(r.get("composite_score", float("inf")) or float("inf")))
     return ok_rows[0]
 
 
@@ -139,10 +146,19 @@ def _load_profile_as_iso_dicts(path: str) -> list[dict[str, Any]]:
             for c in cols:
                 value = data[c][i]
                 try:
-                    row[c.lower()] = (
-                        float(value) if np.isscalar(value) else value
-                    )
+                    row[c.lower()] = float(value) if np.isscalar(value) else value
                 except (TypeError, ValueError):
                     row[c.lower()] = value
             out.append(row)
         return out
+
+
+def _load_model_image(path: str) -> np.ndarray | None:
+    """Load the MODEL image from a benchmark model FITS."""
+    with fits.open(path) as hdul:
+        for hdu in hdul:
+            if getattr(hdu, "name", "").upper() == "MODEL" and hdu.data is not None:
+                return np.asarray(hdu.data, dtype=np.float64)
+        if hdul and hdul[0].data is not None:
+            return np.asarray(hdul[0].data, dtype=np.float64)
+    return None

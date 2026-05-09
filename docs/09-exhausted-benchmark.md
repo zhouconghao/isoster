@@ -89,6 +89,8 @@ datasets:
 | `cross_tool_comparison` | true | Writes `<galaxy>/cross/cross_tool_comparison.png` (effective only when ≥2 tools are enabled and produce rows). |
 | `summary_grids` | false | Per-(tool, arm) multi-galaxy thumbnail grids. Off by default: the format does not scale past ~20 galaxies. |
 | `residual_models` | true | Writes `arms/<arm>/model.fits` with MODEL + RESIDUAL HDUs. |
+| `sb_profile_scale` | `log10` | 1D SB profile scale for QA figures: `log10` or `asinh` / `arcsinh`. |
+| `sb_asinh_softening` | null | Optional positive asinh softening scale; in calibrated QA it is flux per arcsec². |
 
 `execution`:
 
@@ -163,7 +165,7 @@ isoster_harmonic_sweeps:
     │   ├── cross/
     │   │   └── cross_tool_comparison.png
     │   └── <tool>/
-    │       ├── inventory.fits       # 41-col per-arm inventory
+    │       ├── inventory.fits       # additive per-arm inventory schema
     │       ├── cross_arm_overlay.png
     │       ├── cross_arm_table.csv
     │       ├── cross_arm_table.md
@@ -181,6 +183,96 @@ Auxiliary AutoProf artifacts (`.prof`, `.aux`, `*_genmodel.fits`) land
 in `arms/<arm>/raw/` inside the per-arm directory.
 
 ## 5. Composite Score
+
+### Evaluation workflow standard
+
+The exhausted benchmark follows the same QA principle as the plotting
+API: every score should be traceable back to the same profile, model,
+mask, and metadata artifacts shown in the QA figures. A campaign run
+should therefore be read in this order:
+
+1. Confirm each arm's `status`, `flags`, and `flag_severity_max`.
+2. Inspect the per-arm `qa.png` for image/model/residual/profile
+   agreement.
+3. Use `cross_arm_overlay.png` to compare arms within one tool.
+4. Use `cross_tool_comparison.png` to compare the best available
+   method products for one galaxy.
+5. Use `inventory.fits`, cross-arm tables, and cross-tool tables for
+   ranking after the visual failure modes are understood.
+
+The score is a decision aid, not a replacement for QA inspection. A
+low score should mean "this run deserves to rank near the top among
+runs with comparable status," not "the fit is scientifically correct."
+
+### Artifact contract
+
+Each method/arm writes a small set of artifacts that serve both the QA
+figures and the metric code:
+
+- `profile.fits`: the profile table used for SB, geometry, and
+  completeness diagnostics.
+- `model.fits`: the rendered model and residual image used for visual
+  residual inspection and model-evaluation metrics.
+- `config.yaml`: the effective method configuration after arm deltas
+  and sentinels are resolved.
+- `run_record.json`: runtime, metrics, flags, and status for the arm.
+- `inventory.fits`: the additive per-tool table used by cross-arm and
+  cross-tool summaries.
+
+Do not rank a method using one residual definition while showing a
+different residual image in QA. If an adapter or fitter cannot write a
+model, the missing model should be visible as missing QA context and
+the row should not be silently promoted by a partial metric set.
+
+### Region gating
+
+Residual metrics are contour/geometry gated so that all tools are
+measured on the same galaxy footprint. This avoids rewarding a method
+for fitting blank sky or penalizing it for pixels outside the
+meaningful galaxy region. The residual zones are anchored to the
+adapter's initial geometry rather than the fit-derived geometry, so a
+method cannot move the evaluation aperture to make its own residuals
+look better.
+
+When comparing campaigns across datasets, confirm that `R_ref_used_pix`,
+`r_inner_floor_pix`, `image_sigma_adu`, and `sigma_method` are
+reasonable for the dataset. These fields document the scale and noise
+normalization that make the residual zones interpretable.
+
+### v1.1 model-evaluation metrics
+
+Each successful arm writes the verified v1.1 metric contract into both
+`run_record.json["metrics"]` and the additive inventory schema. The
+residual zones are anchored to the adapter's initial geometry, not the
+fit-derived geometry, so different tools are measured on the same
+elliptical coordinate system.
+
+Zone definitions use `R_ref_used_pix`:
+
+- `inner`: `r_inner_floor_pix <= r < 0.5 * R_ref_used_pix`
+- `mid`: `0.5 * R_ref_used_pix <= r < 1.5 * R_ref_used_pix`
+- `outer`: `1.5 * R_ref_used_pix <= r < min(maxsma, 3 * R_ref_used_pix)`
+
+The inventory preserves the older `resid_rms_{inner,mid,outer}` and
+`resid_median_{inner,mid,outer}` names, but they now use the v1.1 zone
+definitions. Additional amplitude metrics are:
+
+- `F_ref`, `R_ref_used_pix`, `r_inner_floor_pix`
+- `sigma_{inner,mid,outer}` using `1.4826 * MAD` per zone
+- `abs_resid_over_ref_{inner,mid,outer}`
+- `abs_resid_over_sigma_{inner,mid,outer}`
+
+Azimuthal pattern metrics are:
+
+- `azim_A1_{zone}`, `azim_A2_{zone}`
+- `azim_struct_ratio_{zone}`, `azim_phase1_deg_{zone}`
+- `quadrant_imbalance_{zone}`
+
+Quality flags use the v1.1 portable names and thresholds:
+`FEW_ISOPHOTES`, `FIRST_ISOPHOTE_RETRY`,
+`HIGH_NONZERO_STOP_FRAC`, `LARGE_DRIFT`, `LARGE_DPA`,
+`LARGE_DEPS`, `INNER_RESID_LARGE`, `OUTER_RESID_LARGE`,
+`FAILED`, and `SKIPPED`.
 
 Every inventory row is annotated with `composite_score` at write time.
 Lower is better. Rows with non-`ok` status or a severity-error quality
@@ -285,6 +377,43 @@ summary:
 
 Non-ok and severity-error rows sink to the same `1_000_000` penalty as
 the composite score, so catastrophic fits never win either ranking.
+
+### Reading comparison outputs
+
+Use `composite_score` for cross-arm selection inside one tool. It can
+include tool-specific health terms such as centroid drift, stop-code
+counts, and profile completeness because all arms share the same method
+contract.
+
+Use `cross_tool_score` for method comparison across tools. It is
+restricted to tool-neutral residual zones and runtime because methods
+do not expose equivalent convergence and geometry-health signals.
+Keep the excluded diagnostics in view: a method with a good
+tool-neutral residual score can still be operationally risky if its QA
+figure shows unstable geometry, poor coverage, or a severe flag.
+
+The `cross_tool_score_simple` column is intended as a sanity check and
+communication aid. It emphasizes the outer residual floor plus runtime,
+so it is easy to explain, but it should not replace the full
+zone-based score during detailed debugging.
+
+### Surface-brightness profile scale in benchmark QA
+
+Benchmark QA defaults to `sb_profile_scale: log10`. This keeps the
+historical log/magnitude profile behavior and is usually the right
+choice for high-S/N inner-region comparisons.
+
+Use `sb_profile_scale: asinh` when the outer profile approaches zero,
+has negative samples, or needs to show low-S/N behavior without
+dropping finite points. If the adapter provides both `sb_zeropoint` and
+`pixel_scale_arcsec`, the asinh profile is calibrated so high-S/N
+points match the log10 mag/arcsec² profile; the QA panel draws a dashed
+`I = 0` reference line to mark the zero-intensity level.
+
+When validating a new QA option, set `execution.skip_existing: false`
+or delete the target arm directories. Reusing cached `profile.fits`
+files can validate table reconstruction, but it does not prove that the
+new figure option was rendered.
 
 ## 6. Writing a New Dataset Adapter
 
