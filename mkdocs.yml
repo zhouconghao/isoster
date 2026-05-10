@@ -24,6 +24,7 @@ nav:
   - Outer Regularization: 08-outer-regularization.md
   - Exhausted Benchmark: 09-exhausted-benchmark.md
   - Multi-Band: 10-multiband.md
+  - QA Evaluation Refresh 2026-05-10: 11-qa-evaluation-refresh-2026-05-10.md
 
 markdown_extensions:
   - admonition

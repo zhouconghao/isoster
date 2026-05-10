@@ -9,6 +9,7 @@ ISOSTER (ISOphote on STERoid) is an accelerated Python library for elliptical is
 ## Non-negotiable Rules for developing
 
 - Always create a new branch for new features and new development. Do not merge back into the main branch unless I approve it.
+- Use clear, plain English in progress updates, plans, and final summaries. Assume the reader has an astrophysics background, not a professional software-engineering or project-management background. Avoid jargon when a plain phrase works; for example, say "run a realistic test that writes output" instead of "write-mode smoke refresh", "copy one galaxy's campaign folder and test there so the original data is not changed" instead of "on a copied single-galaxy campaign tree", and "find/list the matching galaxy folders" instead of "enumerate galaxies". If a technical term is needed, define it the first time.
 - It is essential to provide informative and concise docstrings and inline comments.
 - Warn the users when the context window has <30% left. Remind the users to save the conversation and start fresh. Also propose ways to compact the conversation and save the current progress in files.
 - Keep record of development progress, important lessons, and critical decisions in markdown files in `docs/agent/journal/`.
