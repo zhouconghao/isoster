@@ -16,6 +16,7 @@ Use this page as the entry point and map for project documentation.
 - `docs/08-outer-regularization.md`: publication-grade reference for the outer-region Tikhonov regularization (math, algorithm, config, benchmarks)
 - `docs/09-exhausted-benchmark.md`: exhausted benchmark campaign framework reference (YAML schema, arms, output layout, model-evaluation standard, scoring, adapter recipe)
 - `docs/10-multiband.md`: experimental multi-band interface, CLI, I/O, and benchmark notes
+- `docs/11-qa-evaluation-refresh-2026-05-10.md`: completed exhausted-campaign QA/evaluation refresh report, including commands, counts, output locations, and known remaining issue
 
 ## Agent-Internal Documents
 
